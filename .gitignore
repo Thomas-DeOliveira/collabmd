@@ -18,6 +18,9 @@ Thumbs.db
 
 coverage/
 dist/
+.tmp/
 data/
+playwright-report/
 public/assets/js/
 public/assets/vendor/
+test-results/

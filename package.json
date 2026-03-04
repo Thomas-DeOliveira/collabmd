@@ -5,13 +5,22 @@
   "description": "Realtime collaborative markdown editor with Mermaid diagram support",
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "check": "npm run build && node --check src/server/index.js && node --check scripts/build-client.mjs && node --check scripts/cloudflare-tunnel.mjs && node --check scripts/start-with-cloudflare-tunnel.mjs",
+    "check": "npm run build && node --check src/server/index.js && node --check src/server/create-app-server.js && node --check scripts/build-client.mjs && node --check scripts/cloudflare-tunnel.mjs && node --check scripts/start-test-server.mjs && node --check scripts/start-with-cloudflare-tunnel.mjs && node --check playwright.config.js",
     "start": "npm run build && node src/server/index.js",
     "start:prod": "node src/server/index.js",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:unit": "node --test --test-force-exit tests/node/*.test.js",
     "tunnel": "node scripts/cloudflare-tunnel.mjs",
     "start:tunnel": "node scripts/start-with-cloudflare-tunnel.mjs"
   },
-  "keywords": ["markdown", "collaboration", "yjs", "mermaid"],
+  "keywords": [
+    "markdown",
+    "collaboration",
+    "yjs",
+    "mermaid"
+  ],
   "engines": {
     "node": ">=18"
   },
@@ -37,6 +46,7 @@
     "yjs": "^13.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "esbuild": "^0.25.1"
   }
 }

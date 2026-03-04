@@ -61,11 +61,41 @@ Useful commands:
 npm run build
 npm run check
 npm run start:prod
+npm run test
+npm run test:unit
+npm run test:e2e
 npm run tunnel
 npm run start:tunnel
 ```
 
 `npm start` always rebuilds the browser bundle before starting the server. `npm run start:prod` expects a previous `npm run build`.
+
+## Testing
+
+The repo now has two automated test layers:
+
+- `npm run test:unit`
+  Fast Node-based coverage for persistence, HTTP endpoints, and WebSocket collaboration behavior.
+- `npm run test:e2e`
+  Blackbox Playwright coverage that boots the full app, drives the browser UI, and verifies preview + collaboration flows.
+- `npm run test`
+  Runs both suites.
+
+Install the Playwright browser once on a new machine:
+
+```bash
+npx playwright install chromium
+```
+
+Test layout:
+
+```text
+tests/
+  node/   Node test runner coverage for server/domain/integration behavior
+  e2e/    Playwright browser tests against a real running app
+```
+
+The Playwright suite starts its own isolated test server on `127.0.0.1:4173` and stores temporary room data under `.tmp/`.
 
 ## Cloudflare Tunnel
 
