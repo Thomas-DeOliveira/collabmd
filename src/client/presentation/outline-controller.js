@@ -28,6 +28,11 @@ export class OutlineController {
       return;
     }
 
+    if (!this.outlineOpen) {
+      this.cleanup();
+      return;
+    }
+
     const previewContent = document.getElementById('previewContent');
     const headings = previewContent?.querySelectorAll('h1, h2, h3, h4, h5, h6') ?? [];
 

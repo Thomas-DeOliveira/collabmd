@@ -43,12 +43,19 @@ export class CollabMdApp {
     this.connectionHelpShown = false;
     this.userNameStorageKey = 'collabmd-user-name';
     this.lineWrappingStorageKey = 'collabmd-editor-line-wrap';
+    this.followedUserClientId = null;
+    this.followedCursorSignature = '';
 
     this.toastController = new ToastController(this.elements.toastContainer);
     this.outlineController = new OutlineController();
     this.previewRenderer = new PreviewRenderer({
       getContent: () => this.session?.getText() ?? '',
-      onRenderComplete: () => this.scrollSyncController.syncPreviewToEditor(),
+      onRenderComplete: () => {
+        requestAnimationFrame(() => {
+          this.scrollSyncController.invalidatePreviewBlocks();
+          this.scrollSyncController.syncPreviewToEditor();
+        });
+      },
       outlineController: this.outlineController,
       previewElement: this.elements.previewContent,
     });
@@ -137,6 +144,7 @@ export class CollabMdApp {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         this.session?.requestMeasure();
+        this.scrollSyncController.invalidatePreviewBlocks();
         this.scrollSyncController.syncPreviewToEditor();
       }, 100);
     };
@@ -231,6 +239,8 @@ export class CollabMdApp {
     this.session = null;
     this.scrollSyncController.attachEditorScroller(null);
     this.outlineController.cleanup();
+    this.followedUserClientId = null;
+    this.followedCursorSignature = '';
   }
 
   toggleLineWrapping() {
@@ -266,6 +276,7 @@ export class CollabMdApp {
 
   updateOnlineUsers(users) {
     this.onlineUsers = users;
+    this.syncFollowedUser();
     this.renderAvatars();
     this.renderPresence();
     this.syncCurrentUserName();
@@ -300,23 +311,128 @@ export class CollabMdApp {
     }
 
     avatars.innerHTML = '';
+    const visibleUsers = [...this.onlineUsers];
+    const followedIndex = visibleUsers.findIndex((user) => user.clientId === this.followedUserClientId);
+    if (followedIndex > 0) {
+      const [followedUser] = visibleUsers.splice(followedIndex, 1);
+      visibleUsers.unshift(followedUser);
+    }
 
-    this.onlineUsers.slice(0, 5).forEach((user) => {
-      const avatar = document.createElement('div');
+    visibleUsers.slice(0, 5).forEach((user) => {
+      const avatar = document.createElement(user.isLocal ? 'div' : 'button');
       avatar.className = 'user-avatar';
       avatar.style.backgroundColor = user.color;
       avatar.textContent = user.name.charAt(0).toUpperCase();
-      avatar.title = `${user.name}${user.isLocal ? ' (you)' : ''}`;
+      avatar.classList.toggle('is-following', user.clientId === this.followedUserClientId);
+
+      if (user.isLocal) {
+        avatar.title = `${user.name} (you)`;
+      } else {
+        avatar.type = 'button';
+        avatar.classList.add('user-avatar-button');
+        avatar.title = user.clientId === this.followedUserClientId
+          ? `Stop following ${user.name}`
+          : `Follow ${user.name}`;
+        avatar.setAttribute('aria-label', avatar.title);
+        avatar.setAttribute('aria-pressed', String(user.clientId === this.followedUserClientId));
+        avatar.addEventListener('click', () => this.toggleFollowUser(user.clientId));
+      }
+
       avatars.appendChild(avatar);
     });
 
-    if (this.onlineUsers.length > 5) {
+    if (visibleUsers.length > 5) {
       const overflow = document.createElement('div');
       overflow.className = 'user-avatar';
       overflow.style.backgroundColor = 'var(--color-surface-dynamic)';
       overflow.style.color = 'var(--color-text-muted)';
-      overflow.textContent = `+${this.onlineUsers.length - 5}`;
+      overflow.textContent = `+${visibleUsers.length - 5}`;
       avatars.appendChild(overflow);
+    }
+  }
+
+  toggleFollowUser(clientId) {
+    if (!clientId) {
+      return;
+    }
+
+    if (this.followedUserClientId === clientId) {
+      this.stopFollowingUser();
+      return;
+    }
+
+    const user = this.onlineUsers.find((candidate) => candidate.clientId === clientId && !candidate.isLocal);
+    if (!user) {
+      return;
+    }
+
+    this.followedUserClientId = clientId;
+    this.followedCursorSignature = '';
+    this.renderAvatars();
+    requestAnimationFrame(() => {
+      if (this.followedUserClientId === clientId) {
+        this.followUserCursor(user, { force: true });
+      }
+    });
+
+    if (user.hasCursor) {
+      this.toastController.show(`Following ${user.name}`);
+      return;
+    }
+
+    this.toastController.show(`Following ${user.name}. Waiting for their cursor.`);
+  }
+
+  stopFollowingUser(showToast = true) {
+    if (!this.followedUserClientId) {
+      return;
+    }
+
+    const followedUserName = this.onlineUsers.find((user) => user.clientId === this.followedUserClientId)?.name ?? 'collaborator';
+    this.followedUserClientId = null;
+    this.followedCursorSignature = '';
+    this.renderAvatars();
+
+    if (showToast) {
+      this.toastController.show(`Stopped following ${followedUserName}`);
+    }
+  }
+
+  syncFollowedUser() {
+    if (!this.followedUserClientId) {
+      return;
+    }
+
+    const followedUser = this.onlineUsers.find((user) => user.clientId === this.followedUserClientId);
+    if (!followedUser || followedUser.isLocal) {
+      this.stopFollowingUser(false);
+      return;
+    }
+
+    this.followUserCursor(followedUser);
+  }
+
+  followUserCursor(user, { force = false } = {}) {
+    const liveCursor = user?.clientId ? this.session?.getUserCursor(user.clientId) : null;
+    const cursorHead = liveCursor?.cursorHead ?? user?.cursorHead;
+    const cursorLine = liveCursor?.cursorLine ?? user?.cursorLine;
+    const cursorAnchor = liveCursor?.cursorAnchor ?? user?.cursorAnchor;
+
+    if (!user || cursorHead == null || cursorLine == null) {
+      this.followedCursorSignature = '';
+      return;
+    }
+
+    const nextSignature = `${user.clientId}:${cursorAnchor}:${cursorHead}`;
+    if (!force && nextSignature === this.followedCursorSignature) {
+      return;
+    }
+
+    const didScroll = this.session?.scrollToUserCursor(user.clientId, 'center')
+      || this.session?.scrollToPosition(cursorHead, 'center')
+      || this.session?.scrollToLine(cursorLine);
+    if (didScroll) {
+      this.followedCursorSignature = nextSignature;
     }
   }
 

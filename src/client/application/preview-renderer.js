@@ -8,6 +8,36 @@ const MERMAID_ZOOM = {
   min: 0.5,
   step: 0.1,
 };
+const RENDER_DEBOUNCE_MS = 100;
+const LARGE_DOCUMENT_RENDER_DEBOUNCE_MS = 180;
+const MERMAID_RENDER_DEBOUNCE_MS = 260;
+const IDLE_RENDER_TIMEOUT_MS = 500;
+
+function requestIdleRender(callback, timeout) {
+  if (typeof window.requestIdleCallback === 'function') {
+    return window.requestIdleCallback(callback, { timeout });
+  }
+
+  return window.setTimeout(() => {
+    callback({
+      didTimeout: false,
+      timeRemaining: () => 0,
+    });
+  }, 1);
+}
+
+function cancelIdleRender(id) {
+  if (id === null) {
+    return;
+  }
+
+  if (typeof window.cancelIdleCallback === 'function') {
+    window.cancelIdleCallback(id);
+    return;
+  }
+
+  window.clearTimeout(id);
+}
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -156,7 +186,10 @@ export class PreviewRenderer {
     this.previewElement = previewElement;
     this.markdown = createMarkdownRenderer();
     this.frameId = null;
+    this.idleId = null;
     this.timeoutId = null;
+    this.pendingRenderVersion = 0;
+    this.activeRenderVersion = 0;
   }
 
   applyTheme(theme) {
@@ -192,25 +225,51 @@ export class PreviewRenderer {
   }
 
   queueRender() {
+    const markdownText = this.getContent();
+    const renderProfile = this.getRenderProfile(markdownText);
+
     clearTimeout(this.timeoutId);
     if (this.frameId) {
       cancelAnimationFrame(this.frameId);
     }
+    cancelIdleRender(this.idleId);
+    this.frameId = null;
+    this.idleId = null;
+
+    this.pendingRenderVersion += 1;
+    const scheduledVersion = this.pendingRenderVersion;
+    const scheduleRender = () => {
+      if (renderProfile.deferUntilIdle) {
+        this.idleId = requestIdleRender(() => {
+          this.idleId = null;
+          this.frameId = requestAnimationFrame(() => {
+            this.frameId = null;
+            this.timeoutId = null;
+            void this.render(markdownText, scheduledVersion);
+          });
+        }, IDLE_RENDER_TIMEOUT_MS);
+        return;
+      }
+
+      this.frameId = requestAnimationFrame(() => {
+        this.frameId = null;
+        this.timeoutId = null;
+        void this.render(markdownText, scheduledVersion);
+      });
+    };
 
     this.timeoutId = setTimeout(() => {
-      this.frameId = requestAnimationFrame(() => {
-        void this.render();
-      });
-    }, 100);
+      scheduleRender();
+    }, renderProfile.debounceMs);
   }
 
-  async render() {
+  async render(markdownText = this.getContent(), renderVersion = this.pendingRenderVersion) {
     if (!this.previewElement) {
       return;
     }
 
     const mermaid = window.mermaid;
-    const markdownText = this.getContent();
+    this.activeRenderVersion = renderVersion;
     const html = this.markdown.render(markdownText);
     this.previewElement.innerHTML = html;
 
@@ -221,16 +280,47 @@ export class PreviewRenderer {
       if (mermaid && mermaidNodes.length > 0) {
         try {
           await mermaid.run({ nodes: mermaidNodes });
+          if (renderVersion !== this.activeRenderVersion) {
+            return;
+          }
           this.enhanceMermaidDiagrams();
         } catch (error) {
           console.warn('[preview] Mermaid render failed:', error);
         }
       }
 
+      if (renderVersion !== this.activeRenderVersion) {
+        return;
+      }
+
       this.outlineController.refresh();
     } finally {
-      this.onRenderComplete?.();
+      if (renderVersion === this.activeRenderVersion) {
+        this.onRenderComplete?.();
+      }
     }
+  }
+
+  getRenderProfile(markdownText) {
+    const hasMermaid = /(^|\n)```mermaid\b/i.test(markdownText);
+    if (hasMermaid) {
+      return {
+        debounceMs: MERMAID_RENDER_DEBOUNCE_MS,
+        deferUntilIdle: true,
+      };
+    }
+
+    if (markdownText.length > 12000) {
+      return {
+        debounceMs: LARGE_DOCUMENT_RENDER_DEBOUNCE_MS,
+        deferUntilIdle: true,
+      };
+    }
+
+    return {
+      debounceMs: RENDER_DEBOUNCE_MS,
+      deferUntilIdle: false,
+    };
   }
 
   wrapTables() {

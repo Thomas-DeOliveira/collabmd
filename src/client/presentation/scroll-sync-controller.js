@@ -33,6 +33,7 @@ export class ScrollSyncController {
     this.lockedElements = new Set();
     this.pendingSync = null;
     this.frameId = null;
+    this.previewBlocks = null;
 
     this.handleEditorScroll = () => {
       this.scheduleSync(this.editorScroller, this.previewContainer);
@@ -70,6 +71,7 @@ export class ScrollSyncController {
     this.editorScroller?.removeEventListener('scroll', this.handleEditorScroll);
     this.editorScroller = null;
     this.pendingSync = null;
+    this.previewBlocks = null;
     this.lockedElements.clear();
 
     if (this.frameId) {
@@ -99,6 +101,10 @@ export class ScrollSyncController {
       this.pendingSync = null;
       this.sync(pendingSource, pendingTarget);
     });
+  }
+
+  invalidatePreviewBlocks() {
+    this.previewBlocks = null;
   }
 
   sync(source, target) {
@@ -183,6 +189,10 @@ export class ScrollSyncController {
   }
 
   getPreviewBlocks() {
+    if (this.previewBlocks) {
+      return this.previewBlocks;
+    }
+
     if (!this.previewContainer || !this.previewElement) {
       return [];
     }
@@ -210,13 +220,15 @@ export class ScrollSyncController {
         || left.end - right.end
       ));
 
-    return blocks.filter((block, index) => {
+    this.previewBlocks = blocks.filter((block, index) => {
       const previousBlock = blocks[index - 1];
       return !previousBlock
         || Math.abs(previousBlock.top - block.top) > 1
         || previousBlock.start !== block.start
         || previousBlock.end !== block.end;
     });
+
+    return this.previewBlocks;
   }
 
   findBlockForLine(blocks, lineNumber) {

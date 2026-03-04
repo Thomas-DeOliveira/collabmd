@@ -145,10 +145,6 @@ export class EditorSession {
 
     this.trackConnectionStatus();
 
-    this.ytext.observe(() => {
-      this.onContentChange?.();
-    });
-
     let initializedDefaultContent = false;
     provider.on('sync', (isSynced) => {
       if (!isSynced || initializedDefaultContent) {
@@ -303,7 +299,7 @@ export class EditorSession {
 
   scrollToLine(lineNumber) {
     if (!this.editorView) {
-      return;
+      return false;
     }
 
     const targetLineNumber = Math.min(
@@ -318,6 +314,52 @@ export class EditorSession {
         yMargin: 8,
       }),
     });
+
+    return true;
+  }
+
+  getUserCursor(clientId) {
+    if (!this.awareness) {
+      return null;
+    }
+
+    const awarenessState = this.awareness.getStates().get(clientId);
+    return this.resolveAwarenessCursor(awarenessState?.cursor);
+  }
+
+  scrollToPosition(position, alignment = 'center') {
+    if (!this.editorView) {
+      return false;
+    }
+
+    const targetPosition = Math.min(
+      Math.max(Math.round(position), 0),
+      this.editorView.state.doc.length,
+    );
+    const lineBlock = this.editorView.lineBlockAt(targetPosition);
+    const scroller = this.editorView.scrollDOM;
+    const maxScrollTop = Math.max(scroller.scrollHeight - scroller.clientHeight, 0);
+    let nextScrollTop = lineBlock.top;
+
+    if (alignment === 'center') {
+      nextScrollTop = lineBlock.top - ((scroller.clientHeight - lineBlock.height) / 2);
+    }
+
+    scroller.scrollTo({
+      top: Math.min(Math.max(nextScrollTop, 0), maxScrollTop),
+    });
+
+    return true;
+  }
+
+  scrollToUserCursor(clientId, alignment = 'center') {
+    const cursor = this.getUserCursor(clientId);
+    if (!cursor) {
+      return false;
+    }
+
+    return this.scrollToPosition(cursor.cursorHead, alignment)
+      || this.scrollToLine(cursor.cursorLine);
   }
 
   setUserName(name) {
@@ -396,14 +438,38 @@ export class EditorSession {
         return;
       }
 
+      const cursor = this.resolveAwarenessCursor(state.cursor);
+
       users.push({
+        ...(cursor ?? {}),
         ...state.user,
         clientId,
+        hasCursor: Boolean(cursor),
         isLocal: clientId === awareness.clientID,
       });
     });
 
     return users;
+  }
+
+  resolveAwarenessCursor(cursor) {
+    if (!cursor?.anchor || !cursor?.head || !this.ydoc || !this.editorView || !this.ytext) {
+      return null;
+    }
+
+    const anchor = Y.createAbsolutePositionFromRelativePosition(cursor.anchor, this.ydoc);
+    const head = Y.createAbsolutePositionFromRelativePosition(cursor.head, this.ydoc);
+    if (!anchor || !head || anchor.type !== this.ytext || head.type !== this.ytext) {
+      return null;
+    }
+
+    const line = this.editorView.state.doc.lineAt(head.index);
+
+    return {
+      cursorAnchor: anchor.index,
+      cursorHead: head.index,
+      cursorLine: line.number,
+    };
   }
 
   updateCursorInfo(state) {

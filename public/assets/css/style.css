@@ -502,6 +502,24 @@
 .user-avatar:first-child {
   margin-left: 0;
 }
+.user-avatar-button {
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--transition-interactive), box-shadow var(--transition-interactive);
+}
+.user-avatar-button:hover {
+  transform: translateY(-1px);
+  z-index: 2;
+}
+.user-avatar-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px oklch(from var(--color-primary) l c h / 0.45);
+  z-index: 3;
+}
+.user-avatar.is-following {
+  box-shadow: 0 0 0 2px var(--color-primary), 0 0 0 4px oklch(from var(--color-primary) l c h / 0.2);
+  z-index: 4;
+}
 
 .app-dialog {
   width: min(420px, calc(100vw - var(--space-6)));
