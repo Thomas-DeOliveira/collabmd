@@ -1,6 +1,46 @@
 import markdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 
+const MERMAID_ZOOM = {
+  default: 1,
+  animationDurationMs: 160,
+  max: 3,
+  min: 0.5,
+  step: 0.1,
+};
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getSvgSize(svg) {
+  const viewBox = svg.viewBox?.baseVal;
+  const attributeWidth = Number.parseFloat(svg.getAttribute('width') || '');
+  const attributeHeight = Number.parseFloat(svg.getAttribute('height') || '');
+  const rect = svg.getBoundingClientRect();
+  const bbox = typeof svg.getBBox === 'function' ? svg.getBBox() : null;
+
+  return {
+    height: viewBox?.height || bbox?.height || attributeHeight || rect.height || 480,
+    width: viewBox?.width || bbox?.width || attributeWidth || rect.width || 640,
+  };
+}
+
+function getFrameViewportSize(frame) {
+  const styles = window.getComputedStyle(frame);
+  const paddingX = Number.parseFloat(styles.paddingLeft || '0') + Number.parseFloat(styles.paddingRight || '0');
+  const paddingY = Number.parseFloat(styles.paddingTop || '0') + Number.parseFloat(styles.paddingBottom || '0');
+
+  return {
+    height: Math.max(frame.clientHeight - paddingY, 0),
+    width: Math.max(frame.clientWidth - paddingX, 0),
+  };
+}
+
+function easeOutCubic(progress) {
+  return 1 - ((1 - progress) ** 3);
+}
+
 function createMarkdownRenderer() {
   const markdown = markdownIt({
     highlight(source, language) {
@@ -149,6 +189,7 @@ export class PreviewRenderer {
     if (mermaid && mermaidNodes.length > 0) {
       try {
         await mermaid.run({ nodes: mermaidNodes });
+        this.enhanceMermaidDiagrams();
       } catch (error) {
         console.warn('[preview] Mermaid render failed:', error);
       }
@@ -168,5 +209,191 @@ export class PreviewRenderer {
       table.parentNode.insertBefore(wrapper, table);
       wrapper.appendChild(table);
     });
+  }
+
+  enhanceMermaidDiagrams() {
+    this.previewElement.querySelectorAll('.mermaid').forEach((container) => {
+      const svg = container.querySelector('svg');
+      if (!svg) {
+        return;
+      }
+
+      const toolbar = document.createElement('div');
+      toolbar.className = 'mermaid-toolbar';
+
+      const decreaseButton = this.createMermaidZoomButton('−', 'Zoom out');
+      const increaseButton = this.createMermaidZoomButton('+', 'Zoom in');
+      const resetButton = this.createMermaidZoomButton('Reset', 'Reset zoom');
+      const zoomLabel = document.createElement('span');
+      zoomLabel.className = 'mermaid-zoom-label';
+      zoomLabel.setAttribute('aria-live', 'polite');
+
+      toolbar.append(decreaseButton, zoomLabel, resetButton, increaseButton);
+
+      const frame = document.createElement('div');
+      frame.className = 'mermaid-frame';
+
+      const { width: baseWidth, height: baseHeight } = getSvgSize(svg);
+      let currentZoom = MERMAID_ZOOM.default;
+      let defaultZoom = MERMAID_ZOOM.default;
+      let zoomAnimationFrameId = null;
+      let isPanning = false;
+      let activePointerId = null;
+      let panStartX = 0;
+      let panStartY = 0;
+      let panStartScrollLeft = 0;
+      let panStartScrollTop = 0;
+
+      svg.style.display = 'block';
+      svg.style.margin = '0';
+      svg.style.maxWidth = 'none';
+
+      const applyZoom = (nextZoom) => {
+        currentZoom = clamp(nextZoom, MERMAID_ZOOM.min, MERMAID_ZOOM.max);
+
+        svg.style.width = `${baseWidth * currentZoom}px`;
+        svg.style.height = `${baseHeight * currentZoom}px`;
+        zoomLabel.textContent = `${Math.round(currentZoom * 100)}%`;
+
+        decreaseButton.disabled = currentZoom <= MERMAID_ZOOM.min;
+        increaseButton.disabled = currentZoom >= MERMAID_ZOOM.max;
+
+        const viewport = getFrameViewportSize(frame);
+        const isPannable = (baseWidth * currentZoom) > viewport.width || (baseHeight * currentZoom) > viewport.height;
+        frame.classList.toggle('is-pannable', isPannable);
+      };
+
+      const getViewportCenter = () => ({
+        x: frame.scrollLeft + (frame.clientWidth / 2),
+        y: frame.scrollTop + (frame.clientHeight / 2),
+      });
+
+      const restoreViewportCenter = (previousZoom, nextZoom, center) => {
+        if (previousZoom === 0) {
+          return;
+        }
+
+        const scale = nextZoom / previousZoom;
+        frame.scrollLeft = (center.x * scale) - (frame.clientWidth / 2);
+        frame.scrollTop = (center.y * scale) - (frame.clientHeight / 2);
+      };
+
+      const animateZoomTo = (nextZoom) => {
+        const targetZoom = clamp(nextZoom, MERMAID_ZOOM.min, MERMAID_ZOOM.max);
+        const startZoom = currentZoom;
+
+        if (targetZoom === startZoom) {
+          return;
+        }
+
+        const center = getViewportCenter();
+        const startedAt = performance.now();
+
+        if (zoomAnimationFrameId) {
+          cancelAnimationFrame(zoomAnimationFrameId);
+        }
+
+        const tick = (now) => {
+          const progress = clamp((now - startedAt) / MERMAID_ZOOM.animationDurationMs, 0, 1);
+          const easedProgress = easeOutCubic(progress);
+          const animatedZoom = startZoom + ((targetZoom - startZoom) * easedProgress);
+
+          applyZoom(animatedZoom);
+          restoreViewportCenter(startZoom, animatedZoom, center);
+
+          if (progress < 1) {
+            zoomAnimationFrameId = requestAnimationFrame(tick);
+            return;
+          }
+
+          zoomAnimationFrameId = null;
+          applyZoom(targetZoom);
+          restoreViewportCenter(startZoom, targetZoom, center);
+        };
+
+        zoomAnimationFrameId = requestAnimationFrame(tick);
+      };
+
+      const zoomBy = (delta) => {
+        animateZoomTo(currentZoom + delta);
+      };
+
+      decreaseButton.addEventListener('click', () => zoomBy(-MERMAID_ZOOM.step));
+      increaseButton.addEventListener('click', () => zoomBy(MERMAID_ZOOM.step));
+      resetButton.addEventListener('click', () => animateZoomTo(defaultZoom));
+
+      const stopPanning = () => {
+        if (!isPanning) {
+          return;
+        }
+
+        isPanning = false;
+        frame.classList.remove('is-dragging');
+
+        if (activePointerId !== null && typeof frame.releasePointerCapture === 'function') {
+          try {
+            frame.releasePointerCapture(activePointerId);
+          } catch {
+            // Ignore capture release issues during drag end.
+          }
+        }
+
+        activePointerId = null;
+      };
+
+      frame.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0 || !frame.classList.contains('is-pannable')) {
+          return;
+        }
+
+        if (zoomAnimationFrameId) {
+          cancelAnimationFrame(zoomAnimationFrameId);
+          zoomAnimationFrameId = null;
+        }
+
+        isPanning = true;
+        activePointerId = event.pointerId;
+        panStartX = event.clientX;
+        panStartY = event.clientY;
+        panStartScrollLeft = frame.scrollLeft;
+        panStartScrollTop = frame.scrollTop;
+
+        frame.classList.add('is-dragging');
+        frame.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+      });
+
+      frame.addEventListener('pointermove', (event) => {
+        if (!isPanning) {
+          return;
+        }
+
+        frame.scrollLeft = panStartScrollLeft - (event.clientX - panStartX);
+        frame.scrollTop = panStartScrollTop - (event.clientY - panStartY);
+      });
+
+      frame.addEventListener('pointerup', stopPanning);
+      frame.addEventListener('pointercancel', stopPanning);
+      frame.addEventListener('lostpointercapture', stopPanning);
+
+      frame.appendChild(svg);
+      container.replaceChildren(toolbar, frame);
+
+      const viewport = getFrameViewportSize(frame);
+      if (viewport.width > 0) {
+        defaultZoom = clamp(viewport.width / baseWidth, MERMAID_ZOOM.min, MERMAID_ZOOM.max);
+      }
+
+      applyZoom(defaultZoom);
+    });
+  }
+
+  createMermaidZoomButton(label, ariaLabel) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mermaid-zoom-btn';
+    button.setAttribute('aria-label', ariaLabel);
+    button.textContent = label;
+    return button;
   }
 }
