@@ -80,6 +80,19 @@ function encodeSyncUpdateMessage(update) {
   return Buffer.from(encoding.toUint8Array(encoder));
 }
 
+function applySyncMessageToDoc(message, doc, origin = 'test') {
+  const decoder = decoding.createDecoder(message);
+  const messageType = decoding.readVarUint(decoder);
+  assert.equal(messageType, MSG_SYNC);
+
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, MSG_SYNC);
+  syncProtocol.readSyncMessage(decoder, encoder, doc, origin);
+
+  const reply = encoding.toUint8Array(encoder);
+  return reply.length > 1 ? Buffer.from(reply) : null;
+}
+
 async function fileExists(filePath) {
   try {
     await stat(filePath);
@@ -242,4 +255,71 @@ test('Deleting an active room does not recreate file on disconnect', async (t) =
 
   await new Promise((resolve) => setTimeout(resolve, 700));
   assert.equal(await fileExists(join(app.vaultDir, 'test.md')), false);
+});
+
+test('WebSocket collaboration persists excalidraw room content to .excalidraw files', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const scenePath = 'diagram.excalidraw';
+  const createResponse = await fetch(`${app.baseUrl}/api/file`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      content: JSON.stringify({
+        appState: { gridSize: null, viewBackgroundColor: '#ffffff' },
+        elements: [],
+        files: {},
+        source: 'collabmd',
+        type: 'excalidraw',
+        version: 2,
+      }),
+      path: scenePath,
+    }),
+  });
+  assert.ok(createResponse.status === 201 || createResponse.status === 409);
+
+  const ws = new WebSocket(app.wsUrl(scenePath));
+  t.after(async () => {
+    ws.close();
+    await Promise.allSettled([waitForClose(ws)]);
+  });
+
+  await waitForOpen(ws);
+  const initialSync = await waitForMessage(ws, (data) => getMessageType(data) === MSG_SYNC);
+
+  const syncedSceneJson = JSON.stringify({
+    appState: { gridSize: null, viewBackgroundColor: '#ffffff' },
+    elements: [{ id: 'shape-1', type: 'rectangle' }],
+    files: {},
+    source: 'collabmd',
+    type: 'excalidraw',
+    version: 2,
+  });
+
+  const clientDoc = new Y.Doc();
+  const syncReply = applySyncMessageToDoc(initialSync, clientDoc, ws);
+  if (syncReply) {
+    ws.send(syncReply);
+  }
+
+  const ytext = clientDoc.getText('codemirror');
+  clientDoc.transact(() => {
+    if (ytext.length > 0) {
+      ytext.delete(0, ytext.length);
+    }
+    ytext.insert(0, syncedSceneJson);
+  }, 'test-replace-scene');
+  ws.send(encodeSyncUpdateMessage(Y.encodeStateAsUpdate(clientDoc)));
+
+  ws.close();
+  await waitForClose(ws);
+  await waitForCondition(() => app.server.roomRegistry.rooms.size === 0);
+
+  const diskContent = await waitForCondition(async () => {
+    const content = await readFile(join(app.vaultDir, scenePath), 'utf-8');
+    return content.includes('"shape-1"') ? content : null;
+  });
+
+  assert.ok(diskContent.includes('"shape-1"'));
 });

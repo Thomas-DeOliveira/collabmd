@@ -21,10 +21,12 @@
     .loading-state.error { color: #e55; }
   </style>
   <script>
-    window.EXCALIDRAW_ASSET_PATH = "https://esm.sh/@excalidraw/excalidraw@0.18.0/dist/prod/";
+    window.EXCALIDRAW_ASSET_PATH = 'https://esm.sh/@excalidraw/excalidraw@0.18.0/dist/prod/';
   </script>
   <link rel="modulepreload" href="https://esm.sh/react@19.2.0">
   <link rel="modulepreload" href="https://esm.sh/react-dom@19.2.0/client">
+  <link rel="modulepreload" href="https://esm.sh/yjs@13.6.18">
+  <link rel="modulepreload" href="https://esm.sh/y-websocket@3.0.0?external=yjs">
   <link rel="modulepreload" href="https://esm.sh/@excalidraw/excalidraw@0.18.0?bundle&external=react,react-dom,react-dom/client">
   <script type="importmap">
   {
@@ -32,10 +34,13 @@
       "react": "https://esm.sh/react@19.2.0",
       "react/jsx-runtime": "https://esm.sh/react@19.2.0/jsx-runtime",
       "react-dom": "https://esm.sh/react-dom@19.2.0",
-      "react-dom/client": "https://esm.sh/react-dom@19.2.0/client"
+      "react-dom/client": "https://esm.sh/react-dom@19.2.0/client",
+      "yjs": "https://esm.sh/yjs@13.6.18",
+      "y-websocket": "https://esm.sh/y-websocket@3.0.0?external=yjs"
     }
   }
   </script>
+  <script src="/app-config.js"></script>
 </head>
 <body>
   <div id="root">
@@ -43,23 +48,60 @@
   </div>
 
   <script type="module">
-    // Parse params from URL
     const params = new URLSearchParams(window.location.search);
     const filePath = params.get('file');
     const parentOrigin = window.location.origin;
 
-    // State
-    let excalidrawAPI = null;
-    let saveTimer = null;
-    let lastSavedJson = '';
-    let currentTheme = params.get('theme') || 'dark';
-    const SAVE_DEBOUNCE_MS = 1500;
+    const ROOM_TEXT_KEY = 'codemirror';
+    const SAVE_DEBOUNCE_MS = 300;
     const RUNTIME_PROVIDER = {
       react: 'react',
       reactDomClient: 'react-dom/client',
+      yjs: 'yjs',
+      yWebsocket: 'y-websocket',
       excalidraw: 'https://esm.sh/@excalidraw/excalidraw@0.18.0?bundle&external=react,react-dom,react-dom/client',
       assetPath: 'https://esm.sh/@excalidraw/excalidraw@0.18.0/dist/prod/',
     };
+
+    let excalidrawAPI = null;
+    let saveTimer = null;
+    let currentTheme = params.get('theme') || 'dark';
+
+    let ydoc = null;
+    let ytext = null;
+    let provider = null;
+
+    let collabReady = false;
+    let suppressOnChange = false;
+    let lastSceneJson = '';
+    let pendingRemoteSceneJson = '';
+
+    function trimTrailingSlash(value) {
+      return value.endsWith('/') ? value.slice(0, -1) : value;
+    }
+
+    function getRuntimeConfig() {
+      return {
+        publicWsBaseUrl: '',
+        wsBasePath: '/ws',
+        ...(window.__COLLABMD_CONFIG__ || {}),
+      };
+    }
+
+    function resolveWsBaseUrl() {
+      const customServerUrl = params.get('server');
+      if (customServerUrl) {
+        return trimTrailingSlash(customServerUrl);
+      }
+
+      const config = getRuntimeConfig();
+      if (config.publicWsBaseUrl) {
+        return trimTrailingSlash(config.publicWsBaseUrl);
+      }
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${protocol}//${window.location.host}${config.wsBasePath}`;
+    }
 
     function createEmptyScene() {
       return {
@@ -75,6 +117,36 @@
       };
     }
 
+    function normalizeScene(raw) {
+      if (!raw || typeof raw !== 'object') {
+        return createEmptyScene();
+      }
+
+      return {
+        type: 'excalidraw',
+        version: 2,
+        source: 'collabmd',
+        elements: Array.isArray(raw.elements) ? raw.elements : [],
+        appState: {
+          gridSize: raw.appState?.gridSize ?? null,
+          viewBackgroundColor: raw.appState?.viewBackgroundColor ?? '#ffffff',
+        },
+        files: raw.files && typeof raw.files === 'object' ? raw.files : {},
+      };
+    }
+
+    function parseSceneJson(rawJson) {
+      if (!rawJson) {
+        return createEmptyScene();
+      }
+
+      try {
+        return normalizeScene(JSON.parse(rawJson));
+      } catch {
+        return createEmptyScene();
+      }
+    }
+
     function sceneToInitialData(parsedScene) {
       return {
         elements: parsedScene.elements || [],
@@ -87,47 +159,72 @@
       };
     }
 
+    function buildStoredScene(elements, appState, files) {
+      return normalizeScene({
+        elements: elements.filter((el) => !el.isDeleted),
+        appState: {
+          gridSize: appState.gridSize ?? null,
+          viewBackgroundColor: appState.viewBackgroundColor ?? '#ffffff',
+        },
+        files: files || {},
+      });
+    }
+
     async function loadRuntimeModules() {
       window.EXCALIDRAW_ASSET_PATH = RUNTIME_PROVIDER.assetPath;
-      const [{ default: React }, ReactDomClientModule, ExcalidrawLib] = await Promise.all([
+      const [{ default: React }, ReactDomClientModule, ExcalidrawLib, YjsModule, YWebsocketModule] = await Promise.all([
         import(RUNTIME_PROVIDER.react),
         import(RUNTIME_PROVIDER.reactDomClient),
         import(RUNTIME_PROVIDER.excalidraw),
+        import(RUNTIME_PROVIDER.yjs),
+        import(RUNTIME_PROVIDER.yWebsocket),
       ]);
+
       return {
-        React,
-        createRoot: ReactDomClientModule.createRoot,
         ExcalidrawLib,
+        React,
+        WebsocketProvider: YWebsocketModule.WebsocketProvider,
+        Y: YjsModule,
+        createRoot: ReactDomClientModule.createRoot,
       };
     }
 
-    async function loadOrCreateInitialData() {
+    function replaceRoomContent(nextJson, origin = 'excalidraw-room-write') {
+      if (!ydoc || !ytext) {
+        return;
+      }
+
+      ydoc.transact(() => {
+        if (ytext.length > 0) {
+          ytext.delete(0, ytext.length);
+        }
+        if (nextJson) {
+          ytext.insert(0, nextJson);
+        }
+      }, origin);
+    }
+
+    async function loadOrCreateSceneFromApi() {
       if (!filePath) {
-        return sceneToInitialData(createEmptyScene());
+        return createEmptyScene();
       }
 
       const readRes = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`);
       if (readRes.ok) {
         const data = await readRes.json();
-        const parsed = data.content ? JSON.parse(data.content) : createEmptyScene();
-        lastSavedJson = data.content || JSON.stringify(parsed);
-        return sceneToInitialData(parsed);
+        return parseSceneJson(data.content);
       }
 
       if (readRes.status === 404) {
         const emptyScene = createEmptyScene();
-        const emptyJson = JSON.stringify(emptyScene);
-
         const createRes = await fetch('/api/file', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: filePath, content: emptyJson }),
+          body: JSON.stringify({ path: filePath, content: JSON.stringify(emptyScene) }),
         });
 
-        // 409 can happen in race conditions when another client creates it first.
         if (createRes.ok || createRes.status === 409) {
-          lastSavedJson = emptyJson;
-          return sceneToInitialData(emptyScene);
+          return emptyScene;
         }
 
         const createError = await createRes.json().catch(() => ({}));
@@ -138,10 +235,132 @@
       throw new Error(readError.error || 'Failed to load Excalidraw file');
     }
 
-    // ── postMessage bridge ──────────────────────────────────────────
+    function applySceneFromJson(rawJson) {
+      const scene = parseSceneJson(rawJson);
+      const normalizedJson = JSON.stringify(scene);
+      if (normalizedJson === lastSceneJson && !pendingRemoteSceneJson) {
+        return;
+      }
+
+      lastSceneJson = normalizedJson;
+
+      if (!excalidrawAPI) {
+        pendingRemoteSceneJson = normalizedJson;
+        return;
+      }
+
+      suppressOnChange = true;
+      try {
+        excalidrawAPI.updateScene({
+          elements: scene.elements,
+          appState: {
+            theme: currentTheme,
+            viewBackgroundColor: scene.appState.viewBackgroundColor ?? '#ffffff',
+            gridSize: scene.appState.gridSize ?? null,
+          },
+          files: scene.files || {},
+        });
+      } finally {
+        queueMicrotask(() => {
+          suppressOnChange = false;
+        });
+      }
+    }
+
+    function onRoomTextUpdate() {
+      if (!ytext) {
+        return;
+      }
+
+      const remoteJson = ytext.toString();
+      if (!remoteJson || remoteJson === lastSceneJson) {
+        return;
+      }
+
+      applySceneFromJson(remoteJson);
+    }
+
+    function waitForSync(providerInstance) {
+      if (providerInstance.synced) {
+        return Promise.resolve();
+      }
+
+      return new Promise((resolve) => {
+        const handleSync = (isSynced) => {
+          if (!isSynced) return;
+          providerInstance.off('sync', handleSync);
+          resolve();
+        };
+
+        providerInstance.on('sync', handleSync);
+      });
+    }
+
+    async function connectRealtimeRoom(Y, WebsocketProvider) {
+      if (!filePath) {
+        const scene = createEmptyScene();
+        lastSceneJson = JSON.stringify(scene);
+        return scene;
+      }
+
+      ydoc = new Y.Doc();
+      ytext = ydoc.getText(ROOM_TEXT_KEY);
+      provider = new WebsocketProvider(resolveWsBaseUrl(), filePath, ydoc, {
+        disableBc: true,
+        maxBackoffTime: 5000,
+      });
+
+      await waitForSync(provider);
+
+      let initialJson = ytext.toString();
+      if (!initialJson) {
+        const sceneFromApi = await loadOrCreateSceneFromApi();
+        const fallbackJson = JSON.stringify(sceneFromApi);
+
+        if (!ytext.toString()) {
+          replaceRoomContent(fallbackJson, 'excalidraw-bootstrap');
+          initialJson = fallbackJson;
+        } else {
+          initialJson = ytext.toString();
+        }
+      }
+
+      if (!initialJson) {
+        initialJson = JSON.stringify(createEmptyScene());
+        replaceRoomContent(initialJson, 'excalidraw-bootstrap-empty');
+      }
+
+      lastSceneJson = JSON.stringify(parseSceneJson(initialJson));
+      ytext.observe(onRoomTextUpdate);
+      collabReady = true;
+
+      return parseSceneJson(lastSceneJson);
+    }
+
     function postToParent(type, payload = {}) {
       window.parent.postMessage({ source: 'excalidraw-editor', type, ...payload }, parentOrigin);
     }
+
+    function disconnectRealtimeRoom() {
+      clearTimeout(saveTimer);
+      collabReady = false;
+
+      if (ytext) {
+        ytext.unobserve(onRoomTextUpdate);
+      }
+
+      provider?.disconnect();
+      provider?.destroy();
+      provider = null;
+
+      ydoc?.destroy();
+      ydoc = null;
+      ytext = null;
+    }
+
+    window.addEventListener('beforeunload', () => {
+      disconnectRealtimeRoom();
+    });
 
     window.addEventListener('message', (event) => {
       if (event.origin !== parentOrigin) return;
@@ -151,81 +370,91 @@
       if (msg.type === 'set-theme') {
         currentTheme = msg.theme || 'dark';
         if (excalidrawAPI) {
+          suppressOnChange = true;
           excalidrawAPI.updateScene({ appState: { theme: currentTheme } });
-        }
-      }
-
-      if (msg.type === 'set-scene') {
-        if (excalidrawAPI && msg.elements) {
-          excalidrawAPI.updateScene({
-            elements: msg.elements,
-            appState: msg.appState || {},
+          queueMicrotask(() => {
+            suppressOnChange = false;
           });
         }
       }
     });
 
-    // ── Save logic ──────────────────────────────────────────────────
-    function scheduleSave(elements, appState, files) {
+    function scheduleSyncToRoom(elements, appState, files) {
+      if (!collabReady || suppressOnChange) {
+        return;
+      }
+
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => {
-        const sceneData = {
-          type: 'excalidraw',
-          version: 2,
-          source: 'collabmd',
-          elements: elements.filter((el) => !el.isDeleted),
-          appState: {
-            gridSize: appState.gridSize ?? null,
-            viewBackgroundColor: appState.viewBackgroundColor ?? '#ffffff',
-          },
-          files: files || {},
-        };
+        if (!collabReady || !ytext) {
+          return;
+        }
 
+        const sceneData = buildStoredScene(elements, appState, files);
         const json = JSON.stringify(sceneData);
-        if (json === lastSavedJson) return;
-        lastSavedJson = json;
 
-        postToParent('save', { filePath, content: json });
+        if (json === lastSceneJson) {
+          return;
+        }
+
+        lastSceneJson = json;
+        replaceRoomContent(json, 'excalidraw-local-change');
       }, SAVE_DEBOUNCE_MS);
     }
 
-    // ── Load + Render ───────────────────────────────────────────────
     async function init() {
       const loadingEl = document.getElementById('loadingState');
 
       try {
-        const { React, createRoot, ExcalidrawLib } = await loadRuntimeModules();
-        const initialData = await loadOrCreateInitialData();
+        const { React, createRoot, ExcalidrawLib, Y, WebsocketProvider } = await loadRuntimeModules();
+        const initialScene = await connectRealtimeRoom(Y, WebsocketProvider);
+        const initialData = sceneToInitialData(initialScene);
 
-        // Remove loading state
         loadingEl.remove();
 
-        // Render Excalidraw
-        const App = () => {
-          return React.createElement(
-            'div',
-            { style: { width: '100%', height: '100vh' } },
-            React.createElement(ExcalidrawLib.Excalidraw, {
-              excalidrawAPI: (api) => {
-                excalidrawAPI = api;
-                postToParent('ready');
+        const App = () => React.createElement(
+          'div',
+          { style: { width: '100%', height: '100vh' } },
+          React.createElement(ExcalidrawLib.Excalidraw, {
+            excalidrawAPI: (api) => {
+              excalidrawAPI = api;
+
+              if (pendingRemoteSceneJson) {
+                const nextScene = parseSceneJson(pendingRemoteSceneJson);
+                pendingRemoteSceneJson = '';
+
+                suppressOnChange = true;
+                excalidrawAPI.updateScene({
+                  elements: nextScene.elements,
+                  appState: {
+                    theme: currentTheme,
+                    viewBackgroundColor: nextScene.appState.viewBackgroundColor ?? '#ffffff',
+                    gridSize: nextScene.appState.gridSize ?? null,
+                  },
+                  files: nextScene.files || {},
+                });
+                queueMicrotask(() => {
+                  suppressOnChange = false;
+                });
+              }
+
+              postToParent('ready');
+            },
+            initialData,
+            onChange: (elements, appState, files) => {
+              scheduleSyncToRoom(elements, appState, files);
+            },
+            theme: currentTheme,
+            UIOptions: {
+              canvasActions: {
+                export: false,
+                loadScene: false,
+                saveToActiveFile: false,
+                toggleTheme: false,
               },
-              initialData,
-              theme: currentTheme,
-              onChange: (elements, appState, files) => {
-                scheduleSave(elements, appState, files);
-              },
-              UIOptions: {
-                canvasActions: {
-                  export: false,
-                  loadScene: false,
-                  saveToActiveFile: false,
-                  toggleTheme: false,
-                },
-              },
-            }),
-          );
-        };
+            },
+          }),
+        );
 
         const root = createRoot(document.getElementById('root'));
         root.render(React.createElement(App));

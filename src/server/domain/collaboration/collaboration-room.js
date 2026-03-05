@@ -6,6 +6,10 @@ import * as decoding from 'lib0/decoding';
 
 import { MSG_AWARENESS, MSG_SYNC } from './protocol.js';
 
+function isExcalidrawRoom(name) {
+  return typeof name === 'string' && name.toLowerCase().endsWith('.excalidraw');
+}
+
 function closeSlowClient(ws, { maxBufferedAmountBytes, name }) {
   if (ws.backpressureCloseIssued) {
     return false;
@@ -95,7 +99,7 @@ export class CollaborationRoom {
       this.hydratePromise = (async () => {
         try {
           if (this.vaultFileStore) {
-            const content = await this.vaultFileStore.readMarkdownFile(this.name);
+            const content = await this.readPersistedContent();
             if (content !== null) {
               const ytext = this.doc.getText('codemirror');
               this.doc.transact(() => {
@@ -180,12 +184,37 @@ export class CollaborationRoom {
     }
 
     const content = this.doc.getText('codemirror').toString();
-    await this.vaultFileStore.writeMarkdownFile(this.name, content);
+    await this.writePersistedContent(content);
 
     // Keep the backlink index in sync with every save
-    if (this.backlinkIndex) {
+    if (this.backlinkIndex && !isExcalidrawRoom(this.name)) {
       this.backlinkIndex.updateFile(this.name, content);
     }
+  }
+
+  async readPersistedContent() {
+    if (!this.vaultFileStore) {
+      return null;
+    }
+
+    if (isExcalidrawRoom(this.name) && typeof this.vaultFileStore.readExcalidrawFile === 'function') {
+      return this.vaultFileStore.readExcalidrawFile(this.name);
+    }
+
+    return this.vaultFileStore.readMarkdownFile(this.name);
+  }
+
+  async writePersistedContent(content) {
+    if (!this.vaultFileStore) {
+      return;
+    }
+
+    if (isExcalidrawRoom(this.name) && typeof this.vaultFileStore.writeExcalidrawFile === 'function') {
+      await this.vaultFileStore.writeExcalidrawFile(this.name, content);
+      return;
+    }
+
+    await this.vaultFileStore.writeMarkdownFile(this.name, content);
   }
 
   rename(nextName) {

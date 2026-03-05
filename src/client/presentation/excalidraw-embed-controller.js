@@ -17,7 +17,6 @@ export class ExcalidrawEmbedController {
     this.getTheme = getTheme;
     this.toastController = toastController;
     this.activeEmbeds = new Map(); // filePath → { iframe, container }
-    this.savePending = new Map(); // filePath → timeout
     this.maximizedEmbed = null; // { wrapper, exit }
 
     this._onMessage = this._onMessage.bind(this);
@@ -32,10 +31,6 @@ export class ExcalidrawEmbedController {
     this._exitMaximizedEmbed();
     document.body.classList.remove('excalidraw-maximized-open');
     this.activeEmbeds.clear();
-    for (const timeout of this.savePending.values()) {
-      clearTimeout(timeout);
-    }
-    this.savePending.clear();
   }
 
   /**
@@ -129,7 +124,14 @@ export class ExcalidrawEmbedController {
     const theme = this.getTheme?.() || 'dark';
     const iframe = document.createElement('iframe');
     iframe.className = 'excalidraw-embed-iframe';
-    iframe.src = `/excalidraw-editor.html?file=${encodeURIComponent(filePath)}&theme=${theme}`;
+    const iframeUrl = new URL('/excalidraw-editor.html', window.location.origin);
+    iframeUrl.searchParams.set('file', filePath);
+    iframeUrl.searchParams.set('theme', theme);
+    const serverOverride = new URLSearchParams(window.location.search).get('server');
+    if (serverOverride) {
+      iframeUrl.searchParams.set('server', serverOverride);
+    }
+    iframe.src = iframeUrl.toString();
     iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
     iframe.setAttribute('loading', 'lazy');
     iframe.title = `Excalidraw: ${filePath}`;
@@ -231,10 +233,6 @@ export class ExcalidrawEmbedController {
     const msg = event.data;
     if (!msg || msg.source !== 'excalidraw-editor') return;
 
-    if (msg.type === 'save' && msg.filePath && msg.content) {
-      this._saveFile(msg.filePath, msg.content);
-    }
-
     if (msg.type === 'ready') {
       // Could notify parent that editor is ready
     }
@@ -252,22 +250,5 @@ export class ExcalidrawEmbedController {
     }
     this.maximizedEmbed = null;
     document.body.classList.remove('excalidraw-maximized-open');
-  }
-
-  async _saveFile(filePath, content) {
-    try {
-      const response = await fetch('/api/file', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath, content }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        console.error('[excalidraw] Save failed:', data.error || response.statusText);
-      }
-    } catch (error) {
-      console.error('[excalidraw] Save error:', error.message);
-    }
   }
 }

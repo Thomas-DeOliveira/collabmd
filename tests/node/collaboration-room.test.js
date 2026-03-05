@@ -77,3 +77,62 @@ test('CollaborationRoom closes slow clients when buffered writes exceed the limi
     reason: 'Client too slow',
   });
 });
+
+test('CollaborationRoom hydrates and persists excalidraw rooms via excalidraw file APIs', async () => {
+  const initialScene = JSON.stringify({
+    appState: { gridSize: null, viewBackgroundColor: '#ffffff' },
+    elements: [{ id: 'shape-1' }],
+    files: {},
+    source: 'collabmd',
+    type: 'excalidraw',
+    version: 2,
+  });
+  let readExcalidrawCount = 0;
+  const writes = [];
+  let backlinkUpdates = 0;
+
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'diagram.excalidraw',
+    onEmpty: () => {},
+    backlinkIndex: {
+      updateFile() {
+        backlinkUpdates += 1;
+      },
+    },
+    vaultFileStore: {
+      async readExcalidrawFile(path) {
+        readExcalidrawCount += 1;
+        assert.equal(path, 'diagram.excalidraw');
+        return initialScene;
+      },
+      async readMarkdownFile() {
+        throw new Error('readMarkdownFile should not be called for .excalidraw rooms');
+      },
+      async writeExcalidrawFile(path, content) {
+        writes.push({ content, path });
+        return { ok: true };
+      },
+      async writeMarkdownFile() {
+        throw new Error('writeMarkdownFile should not be called for .excalidraw rooms');
+      },
+    },
+  });
+
+  await room.hydrate();
+  assert.equal(readExcalidrawCount, 1);
+  assert.equal(room.doc.getText('codemirror').toString(), initialScene);
+
+  room.doc.transact(() => {
+    const text = room.doc.getText('codemirror');
+    text.delete(0, text.length);
+    text.insert(0, `${initialScene}-updated`);
+  }, 'test');
+
+  await room.persist();
+
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].path, 'diagram.excalidraw');
+  assert.equal(writes[0].content, `${initialScene}-updated`);
+  assert.equal(backlinkUpdates, 0);
+});
