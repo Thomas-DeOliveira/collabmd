@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { resetE2EVaultSnapshot } from './helpers/vault-snapshot.js';
+
+test.beforeEach(async () => {
+  await resetE2EVaultSnapshot();
+});
 
 async function waitForEditor(page) {
   await expect(page.locator('.cm-editor')).toBeVisible();
@@ -66,7 +71,7 @@ test('shows empty state when no file is selected', async ({ page }) => {
 test('sidebar shows vault file tree', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#fileTree')).toBeVisible();
-  await expect(page.locator('#fileTree')).toContainText('README.md');
+  await expect(page.locator('#fileTree')).toContainText('README');
 });
 
 test('renders markdown preview when a file is opened', async ({ page }) => {
@@ -76,16 +81,37 @@ test('renders markdown preview when a file is opened', async ({ page }) => {
   await expect(page.locator('#previewContent')).toContainText('Welcome to the test vault');
 });
 
+test('escapes raw html in markdown preview', async ({ page }) => {
+  await openFile(page, 'README.md');
+
+  await replaceEditorContent(page, '# Safe Preview\n\n<script>window.__collabmdXss = true</script>\n<div id="raw-html">inline html</div>');
+
+  await expect(page.locator('#previewContent script')).toHaveCount(0);
+  await expect(page.locator('#previewContent #raw-html')).toHaveCount(0);
+  await expect(page.locator('#previewContent')).toContainText('<script>window.__collabmdXss = true</script>');
+});
+
 test('opens a file by clicking the sidebar', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#fileTree')).toBeVisible();
 
-  // Click on README.md in the file tree
-  await page.locator('#fileTree .file-tree-item', { hasText: 'README.md' }).first().click();
+  // Click on README in the file tree
+  await page.locator('#fileTree .file-tree-item', { hasText: 'README' }).first().click();
 
   await waitForEditor(page);
   await expect(page.locator('#previewContent')).toContainText('My Vault');
   await expect(page.locator('#activeFileName')).toContainText('README');
+});
+
+test('creates and opens unresolved wiki-link targets', async ({ page }) => {
+  await openFile(page, 'README.md');
+
+  await replaceEditorContent(page, '# Wiki Create\n\nGo to [[notes/new-page]]');
+  await expect(page.locator('#previewContent .wiki-link-new')).toHaveCount(1);
+
+  await page.locator('#previewContent .wiki-link-new').first().click();
+  await waitForEditor(page);
+  await expect(page.locator('#activeFileName')).toContainText('new-page');
 });
 
 test('syncs collaborative edits across two users on the same file', async ({ browser }) => {

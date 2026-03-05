@@ -85,7 +85,7 @@ function createMarkdownRenderer() {
         return '';
       }
     },
-    html: true,
+    html: false,
     linkify: true,
     typographer: true,
   });

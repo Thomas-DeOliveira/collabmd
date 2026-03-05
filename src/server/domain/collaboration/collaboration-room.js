@@ -80,6 +80,7 @@ export class CollaborationRoom {
     this.hydrated = false;
     this.hydratePromise = null;
     this.persistTimer = null;
+    this.deleted = false;
 
     this.awareness.setLocalState(null);
     this.registerDocListeners();
@@ -174,7 +175,7 @@ export class CollaborationRoom {
   }
 
   async persist() {
-    if (!this.vaultFileStore) {
+    if (!this.vaultFileStore || this.deleted) {
       return;
     }
 
@@ -185,6 +186,23 @@ export class CollaborationRoom {
     if (this.backlinkIndex) {
       this.backlinkIndex.updateFile(this.name, content);
     }
+  }
+
+  rename(nextName) {
+    if (!nextName || nextName === this.name) {
+      return;
+    }
+
+    this.name = nextName;
+  }
+
+  markDeleted() {
+    this.deleted = true;
+    clearTimeout(this.persistTimer);
+  }
+
+  unmarkDeleted() {
+    this.deleted = false;
   }
 
   async addClient(ws) {

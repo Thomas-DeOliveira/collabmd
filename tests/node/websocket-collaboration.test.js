@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import WebSocket from 'ws';
@@ -78,6 +78,18 @@ function encodeSyncUpdateMessage(update) {
   encoding.writeVarUint(encoder, MSG_SYNC);
   syncProtocol.writeUpdate(encoder, update);
   return Buffer.from(encoding.toUint8Array(encoder));
+}
+
+async function fileExists(filePath) {
+  try {
+    await stat(filePath);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
 }
 
 test('WebSocket collaboration broadcasts awareness and persists vault file', async (t) => {
@@ -167,4 +179,67 @@ test('WebSocket server rejects oversized payloads', async (t) => {
 
   const closeEvent = await waitForClose(ws);
   assert.equal(closeEvent.code, 1009);
+});
+
+test('Renaming an active room keeps persistence on the new path', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const ws = new WebSocket(app.wsUrl('test.md'));
+  t.after(async () => {
+    ws.close();
+    await Promise.allSettled([waitForClose(ws)]);
+  });
+
+  await waitForOpen(ws);
+  await waitForMessage(ws, (data) => getMessageType(data) === MSG_SYNC);
+
+  const renameResponse = await fetch(`${app.baseUrl}/api/file`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ oldPath: 'test.md', newPath: 'renamed.md' }),
+  });
+  const renameData = await renameResponse.json();
+  assert.equal(renameResponse.status, 200);
+  assert.equal(renameData.ok, true);
+
+  ws.close();
+  await waitForClose(ws);
+  await waitForCondition(() => app.server.roomRegistry.rooms.size === 0);
+
+  await waitForCondition(async () => {
+    const exists = await fileExists(join(app.vaultDir, 'renamed.md'));
+    return exists ? true : null;
+  });
+
+  assert.equal(await fileExists(join(app.vaultDir, 'test.md')), false);
+  assert.equal(await fileExists(join(app.vaultDir, 'renamed.md')), true);
+});
+
+test('Deleting an active room does not recreate file on disconnect', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const ws = new WebSocket(app.wsUrl('test.md'));
+  t.after(async () => {
+    ws.close();
+    await Promise.allSettled([waitForClose(ws)]);
+  });
+
+  await waitForOpen(ws);
+  await waitForMessage(ws, (data) => getMessageType(data) === MSG_SYNC);
+
+  const deleteResponse = await fetch(`${app.baseUrl}/api/file?path=${encodeURIComponent('test.md')}`, {
+    method: 'DELETE',
+  });
+  const deleteData = await deleteResponse.json();
+  assert.equal(deleteResponse.status, 200);
+  assert.equal(deleteData.ok, true);
+
+  ws.close();
+  await waitForClose(ws);
+  await waitForCondition(() => app.server.roomRegistry.rooms.size === 0);
+
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  assert.equal(await fileExists(join(app.vaultDir, 'test.md')), false);
 });

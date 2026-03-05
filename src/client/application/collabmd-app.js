@@ -294,8 +294,30 @@ export class CollabMdApp {
     if (match) {
       navigateToFile(match);
     } else {
-      this.createAndOpenFile(normalized, target);
+      const normalizedPath = this.normalizeNewWikiFilePath(target);
+      if (!normalizedPath) {
+        this.toastController.show('Cannot create an empty wiki-link target');
+        return;
+      }
+      this.createAndOpenFile(normalizedPath, target);
     }
+  }
+
+  normalizeNewWikiFilePath(target) {
+    const normalized = String(target ?? '')
+      .trim()
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .split('/')
+      .map((segment) => segment.trim())
+      .filter(Boolean)
+      .join('/');
+
+    if (!normalized) {
+      return null;
+    }
+
+    return normalized.endsWith('.md') ? normalized : `${normalized}.md`;
   }
 
   async createAndOpenFile(filePath, displayName) {
@@ -328,10 +350,29 @@ export class CollabMdApp {
   }
 
   restoreSidebarState() {
-    const stored = localStorage.getItem(this.sidebarVisibleKey);
-    if (stored === 'false') {
-      this.elements.sidebar?.classList.add('collapsed');
+    const sidebar = this.elements.sidebar;
+    if (!sidebar) return;
+
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+
+    let showSidebar = true;
+    try {
+      const stored = localStorage.getItem(this.sidebarVisibleKey);
+      if (stored === 'true') {
+        showSidebar = true;
+      } else if (stored === 'false') {
+        showSidebar = false;
+      } else if (isMobile) {
+        // Default to a collapsed drawer on mobile so toolbar controls remain usable.
+        showSidebar = false;
+      }
+    } catch {
+      if (isMobile) {
+        showSidebar = false;
+      }
     }
+
+    sidebar.classList.toggle('collapsed', !showSidebar);
   }
 
   // Line wrapping

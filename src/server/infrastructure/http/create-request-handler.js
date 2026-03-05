@@ -86,7 +86,7 @@ function jsonResponse(res, statusCode, data) {
   res.end(body);
 }
 
-export function createRequestHandler(config, vaultFileStore, backlinkIndex) {
+export function createRequestHandler(config, vaultFileStore, backlinkIndex, roomRegistry = null) {
   const readStaticFile = createStaticFileReader();
 
   return async function handleRequest(req, res) {
@@ -210,15 +210,19 @@ export function createRequestHandler(config, vaultFileStore, backlinkIndex) {
         return;
       }
 
+      const activeRoom = roomRegistry?.get(filePath);
       try {
+        activeRoom?.markDeleted?.();
         const result = await vaultFileStore.deleteFile(filePath);
         if (!result.ok) {
+          activeRoom?.unmarkDeleted?.();
           jsonResponse(res, 400, { error: result.error });
           return;
         }
         backlinkIndex?.onFileDeleted(filePath);
         jsonResponse(res, 200, { ok: true });
       } catch (error) {
+        activeRoom?.unmarkDeleted?.();
         console.error('[api] Failed to delete file:', error.message);
         jsonResponse(res, 500, { error: 'Failed to delete file' });
       }
@@ -238,6 +242,7 @@ export function createRequestHandler(config, vaultFileStore, backlinkIndex) {
           jsonResponse(res, 400, { error: result.error });
           return;
         }
+        roomRegistry?.rename(body.oldPath, body.newPath);
         backlinkIndex?.onFileRenamed(body.oldPath, body.newPath);
         jsonResponse(res, 200, { ok: true, path: body.newPath });
       } catch (error) {

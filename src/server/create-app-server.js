@@ -42,7 +42,7 @@ export function createAppServer(config = loadConfig()) {
       backlinkIndex: name === '__lobby__' ? null : backlinkIndex,
     }),
   });
-  const requestHandler = createRequestHandler(config, vaultFileStore, backlinkIndex);
+  const requestHandler = createRequestHandler(config, vaultFileStore, backlinkIndex, roomRegistry);
   const httpServer = createServer((req, res) => {
     requestHandler(req, res).catch((error) => {
       console.error('[http] Unhandled request error:', error.message);

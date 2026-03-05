@@ -16,7 +16,7 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   webServer: {
-    command: 'npm run build && node bin/collabmd.js --no-tunnel --port 4173 --host 127.0.0.1 test-vault',
+    command: 'npm run build && node tests/e2e/scripts/reset-vault.mjs && node bin/collabmd.js --no-tunnel --port 4173 --host 127.0.0.1 .tmp/e2e-vault',
     env: {
       NODE_ENV: 'test',
     },
