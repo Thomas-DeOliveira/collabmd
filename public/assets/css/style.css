@@ -1123,6 +1123,33 @@
 .preview-content .mermaid svg {
   display: block;
 }
+body.mermaid-maximized-open {
+  overflow: hidden;
+}
+body.mermaid-maximized-open::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: oklch(0.1 0 0 / 0.42);
+  backdrop-filter: blur(2px);
+  z-index: 170;
+}
+.preview-content .mermaid.is-maximized {
+  position: fixed;
+  inset: var(--space-4);
+  z-index: 171;
+  margin: 0;
+  max-width: none;
+  padding: var(--space-4);
+  box-sizing: border-box;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.preview-content .mermaid.is-maximized .mermaid-frame {
+  max-height: none;
+  height: 100%;
+}
 
 /* ===== OUTLINE PANEL ===== */
 

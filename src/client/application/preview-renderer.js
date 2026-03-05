@@ -270,6 +270,7 @@ export class PreviewRenderer {
     const mermaid = window.mermaid;
     this.activeRenderVersion = renderVersion;
     const html = this.markdown.render(markdownText);
+    document.body.classList.remove('mermaid-maximized-open');
     this.previewElement.innerHTML = html;
 
     this.wrapTables();
@@ -407,11 +408,13 @@ export class PreviewRenderer {
       const decreaseButton = this.createMermaidZoomButton('−', 'Zoom out');
       const increaseButton = this.createMermaidZoomButton('+', 'Zoom in');
       const resetButton = this.createMermaidZoomButton('Reset', 'Reset zoom');
+      const maximizeButton = this.createMermaidZoomButton('Max', 'Maximize diagram');
+      maximizeButton.classList.add('mermaid-maximize-btn');
       const zoomLabel = document.createElement('span');
       zoomLabel.className = 'mermaid-zoom-label';
       zoomLabel.setAttribute('aria-live', 'polite');
 
-      toolbar.append(decreaseButton, zoomLabel, resetButton, increaseButton);
+      toolbar.append(decreaseButton, zoomLabel, resetButton, increaseButton, maximizeButton);
 
       const frame = document.createElement('div');
       frame.className = 'mermaid-frame';
@@ -504,6 +507,42 @@ export class PreviewRenderer {
       decreaseButton.addEventListener('click', () => zoomBy(-MERMAID_ZOOM.step));
       increaseButton.addEventListener('click', () => zoomBy(MERMAID_ZOOM.step));
       resetButton.addEventListener('click', () => animateZoomTo(defaultZoom));
+
+      const syncMaximizeButtonState = () => {
+        const isMaximized = container.classList.contains('is-maximized');
+        maximizeButton.textContent = isMaximized ? 'Restore' : 'Max';
+        maximizeButton.setAttribute('aria-label', isMaximized ? 'Restore diagram size' : 'Maximize diagram');
+      };
+
+      const setMaximizedState = (shouldMaximize) => {
+        if (shouldMaximize) {
+          const activeContainer = this.previewElement.querySelector('.mermaid.is-maximized');
+          if (activeContainer && activeContainer !== container) {
+            activeContainer.classList.remove('is-maximized');
+            const activeButton = activeContainer.querySelector('.mermaid-maximize-btn');
+            if (activeButton) {
+              activeButton.textContent = 'Max';
+              activeButton.setAttribute('aria-label', 'Maximize diagram');
+            }
+          }
+          container.classList.add('is-maximized');
+          document.body.classList.add('mermaid-maximized-open');
+          syncMaximizeButtonState();
+          return;
+        }
+
+        container.classList.remove('is-maximized');
+        if (!this.previewElement.querySelector('.mermaid.is-maximized')) {
+          document.body.classList.remove('mermaid-maximized-open');
+        }
+        syncMaximizeButtonState();
+      };
+
+      syncMaximizeButtonState();
+      maximizeButton.addEventListener('click', () => {
+        const shouldMaximize = !container.classList.contains('is-maximized');
+        setMaximizedState(shouldMaximize);
+      });
 
       const stopPanning = () => {
         if (!isPanning) {
