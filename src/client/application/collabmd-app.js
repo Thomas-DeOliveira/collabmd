@@ -60,10 +60,10 @@ export class CollabMdApp {
     this.toastController = new ToastController(this.elements.toastContainer);
     this.quickSwitcher = new QuickSwitcherController({
       getFileList: () => this.fileExplorer.flatFiles,
-      onFileSelect: (filePath) => navigateToFile(filePath),
+      onFileSelect: (filePath) => this.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
     });
     this.fileExplorer = new FileExplorerController({
-      onFileSelect: (filePath) => navigateToFile(filePath),
+      onFileSelect: (filePath) => this.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
       onFileDelete: () => navigateToFile(null),
     });
     this.outlineController = new OutlineController({
@@ -100,7 +100,7 @@ export class CollabMdApp {
     });
     this.backlinksPanel = new BacklinksPanel({
       panelElement: this.elements.backlinksPanel,
-      onFileSelect: (filePath) => navigateToFile(filePath),
+      onFileSelect: (filePath) => this.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
     });
     this._backlinkRefreshTimer = null;
   }
@@ -342,6 +342,30 @@ export class CollabMdApp {
 
   // Sidebar
 
+  handleFileSelection(filePath, { closeSidebarOnMobile = false } = {}) {
+    if (closeSidebarOnMobile) {
+      this.closeSidebarOnMobile();
+    }
+    navigateToFile(filePath);
+  }
+
+  isMobileViewport() {
+    return window.matchMedia('(max-width: 768px)').matches;
+  }
+
+  closeSidebarOnMobile() {
+    const sidebar = this.elements.sidebar;
+    if (!sidebar || !this.isMobileViewport()) return;
+    if (sidebar.classList.contains('collapsed')) return;
+
+    sidebar.classList.add('collapsed');
+    try {
+      localStorage.setItem(this.sidebarVisibleKey, 'false');
+    } catch {
+      // Ignore storage errors in private browsing modes.
+    }
+  }
+
   toggleSidebar() {
     const sidebar = this.elements.sidebar;
     if (!sidebar) return;
@@ -353,7 +377,7 @@ export class CollabMdApp {
     const sidebar = this.elements.sidebar;
     if (!sidebar) return;
 
-    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    const isMobile = this.isMobileViewport();
 
     let showSidebar = true;
     try {
