@@ -1,6 +1,6 @@
 # CollabMD
 
-Collaborative markdown vault — like Obsidian, but online. Run the CLI in any directory to serve it as a realtime collaborative editing environment with live preview, Mermaid diagrams, and `[[wiki-links]]`.
+Collaborative markdown vault — like Obsidian, but online. Run the CLI in any directory to serve it as a realtime collaborative editing environment with live preview, Mermaid and PlantUML diagrams, and `[[wiki-links]]`.
 
 ## How it works
 
@@ -11,10 +11,11 @@ collabmd
 
 CollabMD starts a local server, scans for markdown files, and opens a browser-based editor with:
 
-- **File explorer sidebar** — browse, create, rename, and delete `.md` files and folders
+- **File explorer sidebar** — browse, create, rename, and delete `.md`, `.puml`, and `.excalidraw` files plus folders
 - **Realtime collaboration** — multiple people can edit the same file at the same time via Yjs
-- **Live markdown preview** — rendered as you type, with syntax-highlighted code blocks and Mermaid diagrams
+- **Live preview** — rendered as you type, with syntax-highlighted code blocks plus Mermaid and PlantUML diagrams
 - **`[[wiki-links]]`** — click a wiki-link in the preview to jump to that file
+- **Standalone diagram files** — open `.puml` files in side-by-side editor + preview, or `.excalidraw` files in direct preview mode
 - **Cloudflare Tunnel** — auto-starts by default so collaborators can reach your vault over the internet
 
 Your filesystem is the source of truth. CollabMD reads `.md` files from disk, uses Yjs for the realtime collaboration layer, and writes plain text back to disk when the last editor disconnects.
@@ -197,6 +198,7 @@ Health check: `GET /health`
 |----------|-------------|---------|
 | `HOST` | Bind host | `127.0.0.1` (dev), `0.0.0.0` (prod) |
 | `PORT` | HTTP + WebSocket port | `1234` |
+| `PLANTUML_SERVER_URL` | Upstream PlantUML server base URL used for server-side SVG rendering | `https://www.plantuml.com/plantuml` |
 | `COLLABMD_VAULT_DIR` | Vault directory path | current directory |
 | `WS_BASE_PATH` | WebSocket base path | `/ws` |
 | `PUBLIC_WS_BASE_URL` | Public WebSocket URL override for reverse proxies | |
@@ -225,6 +227,7 @@ cp .env.example .env
 - CollabMD assumes it is the only writer while a file is open — no live `fs.watch` reconciliation.
 - `.obsidian`, `.git`, `.trash`, and `node_modules` directories are ignored.
 - Only `.md`, `.markdown`, and `.mdx` files are indexed.
+- PlantUML preview rendering is server-side and uses `PLANTUML_SERVER_URL`; point it at a self-hosted renderer if you do not want to use the public PlantUML service.
 
 ## License
 

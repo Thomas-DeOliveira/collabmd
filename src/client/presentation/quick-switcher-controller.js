@@ -2,6 +2,10 @@ import { escapeHtml } from '../domain/vault-utils.js';
 
 const MAX_VISIBLE_RESULTS = 12;
 
+function stripDisplayExtension(filePath) {
+  return String(filePath ?? '').replace(/\.(?:md|markdown|mdx|excalidraw|puml)$/i, '');
+}
+
 export class QuickSwitcherController {
   constructor({ getFileList, onFileSelect }) {
     this.getFileList = getFileList;
@@ -154,7 +158,7 @@ export class QuickSwitcherController {
   }
 
   fuzzyScore(text, query) {
-    const name = text.replace(/\.md$/i, '');
+    const name = stripDisplayExtension(text);
     const nameOnly = name.split('/').pop();
 
     // Exact substring match in filename gets highest score
@@ -213,7 +217,7 @@ export class QuickSwitcherController {
       }
       item.dataset.index = String(index);
 
-      const displayName = filePath.replace(/\.md$/i, '');
+      const displayName = stripDisplayExtension(filePath);
       const fileName = displayName.split('/').pop();
       const dirPath = displayName.includes('/') ? displayName.substring(0, displayName.lastIndexOf('/')) : '';
 

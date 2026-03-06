@@ -50,6 +50,23 @@ test('VaultFileStore reads and writes markdown files', async (t) => {
   assert.equal(updated, '# Updated\n');
 });
 
+test('VaultFileStore reads and writes PlantUML files', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  const createResult = await store.createFile('diagram.puml', '@startuml\nAlice -> Bob: Hi\n@enduml\n');
+  assert.equal(createResult.ok, true);
+
+  const content = await store.readPlantUmlFile('diagram.puml');
+  assert.equal(content, '@startuml\nAlice -> Bob: Hi\n@enduml\n');
+
+  const writeResult = await store.writePlantUmlFile('diagram.puml', '@startuml\nBob -> Alice: Ack\n@enduml\n');
+  assert.equal(writeResult.ok, true);
+
+  const updated = await store.readPlantUmlFile('diagram.puml');
+  assert.equal(updated, '@startuml\nBob -> Alice: Ack\n@enduml\n');
+});
+
 test('VaultFileStore creates and deletes files', async (t) => {
   const { store, cleanup } = await createVaultStore();
   t.after(cleanup);
@@ -79,11 +96,11 @@ test('VaultFileStore rejects non-markdown delete and rename source paths', async
 
   const deleteResult = await store.deleteFile('secret.txt');
   assert.equal(deleteResult.ok, false);
-  assert.match(deleteResult.error, /must end in \.md/i);
+  assert.match(deleteResult.error, /must end in \.md, \.excalidraw, or \.puml/i);
 
   const renameResult = await store.renameFile('secret.txt', 'secret.md');
   assert.equal(renameResult.ok, false);
-  assert.match(renameResult.error, /Old path must be a vault file \(\.md or \.excalidraw\)/i);
+  assert.match(renameResult.error, /Old path must be a vault file \(\.md, \.excalidraw, or \.puml\)/i);
 });
 
 test('VaultFileStore rejects path traversal', async (t) => {

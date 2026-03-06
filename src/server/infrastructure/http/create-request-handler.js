@@ -13,6 +13,10 @@ function isExcalidrawPath(filePath) {
   return typeof filePath === 'string' && filePath.toLowerCase().endsWith('.excalidraw');
 }
 
+function isPlantUmlPath(filePath) {
+  return typeof filePath === 'string' && filePath.toLowerCase().endsWith('.puml');
+}
+
 const SECURITY_HEADERS = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'X-Content-Type-Options': 'nosniff',
@@ -35,10 +39,14 @@ function setHeaders(res, headers) {
   }
 }
 
-function createStaticFileReader() {
+function createStaticFileReader({ cacheEnabled = true } = {}) {
   const cache = new Map();
 
   return async function readStaticFile(filePath) {
+    if (!cacheEnabled) {
+      return readFile(filePath);
+    }
+
     if (!cache.has(filePath)) {
       cache.set(filePath, readFile(filePath).catch((error) => {
         cache.delete(filePath);
@@ -166,8 +174,16 @@ function jsonResponse(res, statusCode, data) {
   res.end(body);
 }
 
-export function createRequestHandler(config, vaultFileStore, backlinkIndex, roomRegistry = null) {
-  const readStaticFile = createStaticFileReader();
+export function createRequestHandler(
+  config,
+  vaultFileStore,
+  backlinkIndex,
+  roomRegistry = null,
+  plantUmlRenderer = null,
+) {
+  const readStaticFile = createStaticFileReader({
+    cacheEnabled: config.nodeEnv === 'production',
+  });
 
   return async function handleRequest(req, res) {
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
@@ -229,7 +245,7 @@ export function createRequestHandler(config, vaultFileStore, backlinkIndex, room
       return;
     }
 
-    // GET /api/file?path=... — read file (markdown or excalidraw)
+    // GET /api/file?path=... — read file (markdown, PlantUML, or excalidraw)
     if (requestUrl.pathname === '/api/file' && req.method === 'GET') {
       const filePath = requestUrl.searchParams.get('path');
       if (!filePath) {
@@ -240,6 +256,8 @@ export function createRequestHandler(config, vaultFileStore, backlinkIndex, room
       try {
         const content = isExcalidrawPath(filePath)
           ? await vaultFileStore.readExcalidrawFile(filePath)
+          : isPlantUmlPath(filePath)
+            ? await vaultFileStore.readPlantUmlFile(filePath)
           : await vaultFileStore.readMarkdownFile(filePath);
         if (content === null) {
           jsonResponse(res, 404, { error: 'File not found' });
@@ -253,7 +271,7 @@ export function createRequestHandler(config, vaultFileStore, backlinkIndex, room
       return;
     }
 
-    // PUT /api/file — write/update file (markdown or excalidraw)
+    // PUT /api/file — write/update file (markdown, PlantUML, or excalidraw)
     if (requestUrl.pathname === '/api/file' && req.method === 'PUT') {
       try {
         const body = await parseJsonBody(req);
@@ -263,6 +281,8 @@ export function createRequestHandler(config, vaultFileStore, backlinkIndex, room
         }
         const result = isExcalidrawPath(body.path)
           ? await vaultFileStore.writeExcalidrawFile(body.path, body.content)
+          : isPlantUmlPath(body.path)
+            ? await vaultFileStore.writePlantUmlFile(body.path, body.content)
           : await vaultFileStore.writeMarkdownFile(body.path, body.content);
         if (!result.ok) {
           jsonResponse(res, 400, { error: result.error });
@@ -275,6 +295,36 @@ export function createRequestHandler(config, vaultFileStore, backlinkIndex, room
         }
         console.error('[api] Failed to write file:', error.message);
         jsonResponse(res, 500, { error: 'Failed to write file' });
+      }
+      return;
+    }
+
+    // POST /api/plantuml/render — render PlantUML source to SVG
+    if (requestUrl.pathname === '/api/plantuml/render' && req.method === 'POST') {
+      try {
+        const body = await parseJsonBody(req);
+        if (typeof body.source !== 'string') {
+          jsonResponse(res, 400, { error: 'Missing PlantUML source' });
+          return;
+        }
+
+        if (!plantUmlRenderer) {
+          jsonResponse(res, 503, { error: 'PlantUML renderer is not configured' });
+          return;
+        }
+
+        const svg = await plantUmlRenderer.renderSvg(body.source);
+        jsonResponse(res, 200, { ok: true, svg });
+      } catch (error) {
+        if (handleRequestError(res, error)) {
+          return;
+        }
+
+        const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 502;
+        console.error('[api] Failed to render PlantUML:', error.message);
+        jsonResponse(res, statusCode, {
+          error: error instanceof Error ? error.message : 'Failed to render PlantUML',
+        });
       }
       return;
     }
@@ -423,10 +473,9 @@ export function createRequestHandler(config, vaultFileStore, backlinkIndex, room
     try {
       const file = await readStaticFile(filePath);
       const extension = extname(filePath);
-      const isAsset = requestUrl.pathname.startsWith('/assets/');
 
       res.writeHead(200, {
-        'Cache-Control': isAsset ? 'public, max-age=31536000, immutable' : 'no-store',
+        'Cache-Control': 'no-store',
         'Content-Type': CONTENT_TYPES[extension] || 'application/octet-stream',
       });
 

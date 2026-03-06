@@ -1101,6 +1101,21 @@
   max-width: none;
 }
 
+.preview-content.is-plantuml-file-preview {
+  width: 100%;
+  min-height: 100%;
+  max-width: none;
+}
+
+.preview-content.is-plantuml-file-preview [data-preview-render-host="true"] {
+  min-height: 100%;
+}
+
+.preview-content.is-plantuml-file-preview .plantuml-shell {
+  margin: 0;
+  min-height: 100%;
+}
+
 .preview-content.is-excalidraw-file-preview .excalidraw-embed,
 .preview-content.is-excalidraw-file-preview .excalidraw-embed-placeholder {
   margin: 0;
@@ -1457,6 +1472,116 @@ body.mermaid-maximized-open::before {
   height: 100%;
 }
 
+/* PlantUML diagrams */
+.preview-content .plantuml-shell {
+  margin: var(--space-4) 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-3);
+}
+.preview-content .plantuml-placeholder-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-offset);
+}
+.preview-content .plantuml-placeholder-copy {
+  display: grid;
+  gap: 2px;
+}
+.preview-content .plantuml-placeholder-copy strong {
+  font-size: var(--text-sm);
+}
+.preview-content .plantuml-placeholder-copy span {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.preview-content .plantuml-placeholder-btn,
+.preview-content .plantuml-tool-btn {
+  min-width: 64px;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.preview-content .plantuml-placeholder-btn:hover,
+.preview-content .plantuml-tool-btn:hover:not(:disabled) {
+  background: var(--color-surface-2);
+}
+.preview-content .plantuml-tool-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.preview-content .plantuml-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.preview-content .plantuml-zoom-label {
+  min-width: 52px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.preview-content .plantuml-frame {
+  overflow: auto;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, var(--color-surface-offset), var(--color-surface));
+  border: 1px solid var(--color-border);
+  max-height: min(70vh, 720px);
+  overscroll-behavior: contain;
+}
+.preview-content .plantuml-frame.is-pannable {
+  cursor: grab;
+}
+.preview-content .plantuml-frame.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+.preview-content .plantuml-frame svg {
+  display: block;
+}
+body.plantuml-maximized-open {
+  overflow: hidden;
+}
+body.plantuml-maximized-open::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: oklch(0.1 0 0 / 0.42);
+  backdrop-filter: blur(2px);
+  z-index: 170;
+}
+.preview-content .plantuml-shell.is-maximized {
+  position: fixed;
+  inset: var(--space-4);
+  z-index: 171;
+  margin: 0;
+  max-width: none;
+  padding: var(--space-4);
+  box-sizing: border-box;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.preview-content .plantuml-shell.is-maximized .plantuml-frame {
+  max-height: none;
+  height: 100%;
+}
+
 /* ===== OUTLINE PANEL ===== */
 
 .pane-header-btn {
@@ -1704,6 +1829,9 @@ body.mermaid-maximized-open::before {
   max-width: 1080px;
 }
 .editor-layout[data-view="preview"] .preview-content.is-excalidraw-file-preview {
+  max-width: none;
+}
+.editor-layout[data-view="preview"] .preview-content.is-plantuml-file-preview {
   max-width: none;
 }
 .editor-layout[data-view="preview"] .preview-content p {

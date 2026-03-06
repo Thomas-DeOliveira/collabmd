@@ -10,6 +10,10 @@ function isExcalidrawRoom(name) {
   return typeof name === 'string' && name.toLowerCase().endsWith('.excalidraw');
 }
 
+function isPlantUmlRoom(name) {
+  return typeof name === 'string' && name.toLowerCase().endsWith('.puml');
+}
+
 function closeSlowClient(ws, { maxBufferedAmountBytes, name }) {
   if (ws.backpressureCloseIssued) {
     return false;
@@ -189,7 +193,7 @@ export class CollaborationRoom {
     await this.writePersistedContent(content);
 
     // Keep the backlink index in sync with every save
-    if (this.backlinkIndex && !isExcalidrawRoom(this.name)) {
+    if (this.backlinkIndex && !isExcalidrawRoom(this.name) && !isPlantUmlRoom(this.name)) {
       this.backlinkIndex.updateFile(this.name, content);
     }
   }
@@ -203,6 +207,10 @@ export class CollaborationRoom {
       return this.vaultFileStore.readExcalidrawFile(this.name);
     }
 
+    if (isPlantUmlRoom(this.name) && typeof this.vaultFileStore.readPlantUmlFile === 'function') {
+      return this.vaultFileStore.readPlantUmlFile(this.name);
+    }
+
     return this.vaultFileStore.readMarkdownFile(this.name);
   }
 
@@ -213,6 +221,11 @@ export class CollaborationRoom {
 
     if (isExcalidrawRoom(this.name) && typeof this.vaultFileStore.writeExcalidrawFile === 'function') {
       await this.vaultFileStore.writeExcalidrawFile(this.name, content);
+      return;
+    }
+
+    if (isPlantUmlRoom(this.name) && typeof this.vaultFileStore.writePlantUmlFile === 'function') {
+      await this.vaultFileStore.writePlantUmlFile(this.name, content);
       return;
     }
 

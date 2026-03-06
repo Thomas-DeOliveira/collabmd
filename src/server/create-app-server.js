@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { loadConfig } from './config/env.js';
 import { BacklinkIndex } from './domain/backlink-index.js';
 import { CollaborationRoom } from './domain/collaboration/collaboration-room.js';
+import { PlantUmlRenderer } from './domain/plantuml-renderer.js';
 import { RoomRegistry } from './domain/collaboration/room-registry.js';
 import { createRequestHandler } from './infrastructure/http/create-request-handler.js';
 import { VaultFileStore } from './infrastructure/persistence/vault-file-store.js';
@@ -32,6 +33,9 @@ function closeHttpServer(httpServer) {
 export function createAppServer(config = loadConfig()) {
   const vaultFileStore = new VaultFileStore({ vaultDir: config.vaultDir });
   const backlinkIndex = new BacklinkIndex({ vaultFileStore });
+  const plantUmlRenderer = new PlantUmlRenderer({
+    serverUrl: config.plantumlServerUrl,
+  });
   const roomRegistry = new RoomRegistry({
     createRoom: ({ name, onEmpty }) => new CollaborationRoom({
       maxBufferedAmountBytes: config.wsMaxBufferedAmountBytes,
@@ -42,7 +46,13 @@ export function createAppServer(config = loadConfig()) {
       backlinkIndex: name === '__lobby__' ? null : backlinkIndex,
     }),
   });
-  const requestHandler = createRequestHandler(config, vaultFileStore, backlinkIndex, roomRegistry);
+  const requestHandler = createRequestHandler(
+    config,
+    vaultFileStore,
+    backlinkIndex,
+    roomRegistry,
+    plantUmlRenderer,
+  );
   const httpServer = createServer((req, res) => {
     requestHandler(req, res).catch((error) => {
       console.error('[http] Unhandled request error:', error.message);

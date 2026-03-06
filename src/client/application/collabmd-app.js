@@ -100,7 +100,7 @@ export class CollabMdApp {
       },
     });
     this.previewRenderer = new PreviewRenderer({
-      getContent: () => this.session?.getText() ?? '',
+      getContent: () => this.getPreviewSource(),
       getFileList: () => this.fileExplorer.flatFiles,
       onBeforeRenderCommit: () => {
         this.excalidrawEmbed.detachForCommit();
@@ -160,23 +160,52 @@ export class CollabMdApp {
     return typeof filePath === 'string' && filePath.toLowerCase().endsWith('.excalidraw');
   }
 
+  isPlantUmlFile(filePath) {
+    return typeof filePath === 'string' && filePath.toLowerCase().endsWith('.puml');
+  }
+
+  createPlantUmlPreviewDocument(source = '') {
+    const text = String(source ?? '');
+    const longestFence = Math.max(...(text.match(/`+/g)?.map((fence) => fence.length) ?? [0]));
+    const fence = '`'.repeat(Math.max(3, longestFence + 1));
+    return `${fence}plantuml\n${text}\n${fence}`;
+  }
+
+  getPreviewSource() {
+    const source = this.session?.getText() ?? '';
+    if (this.isPlantUmlFile(this.currentFilePath)) {
+      return this.createPlantUmlPreviewDocument(source);
+    }
+
+    return source;
+  }
+
   getDisplayName(filePath) {
     return String(filePath ?? '')
       .split('/')
       .pop()
-      .replace(/\.(?:md|markdown|mdx|excalidraw)$/i, '');
+      .replace(/\.(?:md|markdown|mdx|excalidraw|puml)$/i, '');
   }
 
   resetPreviewMode() {
     this.elements.previewContent?.classList.remove('is-excalidraw-file-preview');
+    this.elements.previewContent?.classList.remove('is-plantuml-file-preview');
   }
 
   syncFileChrome(filePath) {
     const isExcalidraw = this.isExcalidrawFile(filePath);
-    this.elements.outlineToggle?.classList.toggle('hidden', isExcalidraw);
+    const isPlantUml = this.isPlantUmlFile(filePath);
+    this.elements.outlineToggle?.classList.toggle('hidden', isExcalidraw || isPlantUml);
+    this.elements.previewContent?.classList.toggle('is-plantuml-file-preview', isPlantUml);
 
     if (isExcalidraw) {
       this.layoutController.setView('preview');
+      this.outlineController.close();
+      this.backlinksPanel.clear();
+      return;
+    }
+
+    if (isPlantUml) {
       this.outlineController.close();
       this.backlinksPanel.clear();
     }
@@ -443,6 +472,7 @@ export class CollabMdApp {
     const loadToken = this.sessionLoadToken + 1;
     this.sessionLoadToken = loadToken;
     const isExcalidraw = this.isExcalidrawFile(filePath);
+    const isPlantUml = this.isPlantUmlFile(filePath);
 
     this.cleanupSession();
     this.layoutController.reset();
@@ -480,7 +510,9 @@ export class CollabMdApp {
         }
 
         this.previewRenderer.queueRender();
-        this.scheduleBacklinkRefresh();
+        if (!isPlantUml) {
+          this.scheduleBacklinkRefresh();
+        }
       },
       preferredUserName: this.getStoredUserName(),
       localUser: this.lobby.getLocalUser(),
@@ -503,7 +535,7 @@ export class CollabMdApp {
         this.renderExcalidrawFilePreview(filePath);
       }
       this.syncWrapToggle();
-      if (isExcalidraw) {
+      if (isExcalidraw || isPlantUml) {
         this.backlinksPanel.clear();
       } else {
         this.backlinksPanel.load(filePath);
@@ -1108,7 +1140,7 @@ export class CollabMdApp {
       // Show which file the user is in, and whether they're on the same file
       const sameFile = user.currentFile && user.currentFile === this.currentFilePath;
       const fileLabel = user.currentFile
-        ? user.currentFile.replace(/\.md$/i, '').split('/').pop()
+        ? this.getDisplayName(user.currentFile)
         : 'No file';
 
       if (user.isLocal) {
@@ -1160,7 +1192,7 @@ export class CollabMdApp {
     // If the followed user is on a different file, navigate there first
     if (user.currentFile && user.currentFile !== this.currentFilePath) {
       navigateToFile(user.currentFile);
-      this.toastController.show(`Following ${user.name} — switching to ${user.currentFile.replace(/\.md$/i, '').split('/').pop()}`);
+      this.toastController.show(`Following ${user.name} — switching to ${this.getDisplayName(user.currentFile)}`);
       return;
     }
 
@@ -1351,7 +1383,11 @@ export class CollabMdApp {
   scheduleBacklinkRefresh() {
     clearTimeout(this._backlinkRefreshTimer);
     this._backlinkRefreshTimer = setTimeout(() => {
-      if (this.currentFilePath && !this.isExcalidrawFile(this.currentFilePath)) {
+      if (
+        this.currentFilePath
+        && !this.isExcalidrawFile(this.currentFilePath)
+        && !this.isPlantUmlFile(this.currentFilePath)
+      ) {
         this.backlinksPanel.load(this.currentFilePath);
       }
     }, 2000);

@@ -162,3 +162,55 @@ test('CollaborationRoom hydrates and persists excalidraw rooms via excalidraw fi
   assert.equal(writes[0].content, `${initialScene}-updated`);
   assert.equal(backlinkUpdates, 0);
 });
+
+test('CollaborationRoom hydrates and persists PlantUML rooms via PlantUML file APIs', async () => {
+  const initialDiagram = '@startuml\nAlice -> Bob: Hello\n@enduml\n';
+  let readPlantUmlCount = 0;
+  const writes = [];
+  let backlinkUpdates = 0;
+
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'diagram.puml',
+    onEmpty: () => {},
+    backlinkIndex: {
+      updateFile() {
+        backlinkUpdates += 1;
+      },
+    },
+    vaultFileStore: {
+      async readPlantUmlFile(path) {
+        readPlantUmlCount += 1;
+        assert.equal(path, 'diagram.puml');
+        return initialDiagram;
+      },
+      async readMarkdownFile() {
+        throw new Error('readMarkdownFile should not be called for .puml rooms');
+      },
+      async writePlantUmlFile(path, content) {
+        writes.push({ content, path });
+        return { ok: true };
+      },
+      async writeMarkdownFile() {
+        throw new Error('writeMarkdownFile should not be called for .puml rooms');
+      },
+    },
+  });
+
+  await room.hydrate();
+  assert.equal(readPlantUmlCount, 1);
+  assert.equal(room.doc.getText('codemirror').toString(), initialDiagram);
+
+  room.doc.transact(() => {
+    const text = room.doc.getText('codemirror');
+    text.delete(0, text.length);
+    text.insert(0, `${initialDiagram}' comment\n`);
+  }, 'test');
+
+  await room.persist();
+
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].path, 'diagram.puml');
+  assert.equal(writes[0].content, `${initialDiagram}' comment\n`);
+  assert.equal(backlinkUpdates, 0);
+});

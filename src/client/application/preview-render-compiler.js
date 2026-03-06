@@ -22,6 +22,10 @@ function createMermaidPlaceholder({ key, sourceAttributes, sourceHash, sourceTex
   return `<div class="mermaid-shell"${sourceAttributes} data-mermaid-key="${escapeHtml(key)}" data-mermaid-source-hash="${escapeHtml(sourceHash)}"><div class="mermaid-placeholder-card"><div class="mermaid-placeholder-copy"><strong>Mermaid diagram</strong><span>Loads when visible</span></div><button type="button" class="mermaid-placeholder-btn" data-mermaid-key="${escapeHtml(key)}">Render</button></div><pre class="mermaid-source" hidden>${escapeHtml(sourceText)}</pre></div>`;
 }
 
+function createPlantUmlPlaceholder({ key, sourceAttributes, sourceHash, sourceText }) {
+  return `<div class="plantuml-shell"${sourceAttributes} data-plantuml-key="${escapeHtml(key)}" data-plantuml-source-hash="${escapeHtml(sourceHash)}"><div class="plantuml-placeholder-card"><div class="plantuml-placeholder-copy"><strong>PlantUML diagram</strong><span>Renders server-side when visible</span></div><button type="button" class="plantuml-placeholder-btn" data-plantuml-key="${escapeHtml(key)}">Render</button></div><pre class="plantuml-source" hidden>${escapeHtml(sourceText)}</pre></div>`;
+}
+
 function createExcalidrawPlaceholder({ embedKey, label, target }) {
   return `<span class="excalidraw-embed-placeholder" data-embed-key="${escapeHtml(embedKey)}" data-embed-target="${escapeHtml(target)}" data-embed-label="${escapeHtml(label)}"><span class="excalidraw-embed-placeholder-card"><span class="excalidraw-embed-placeholder-copy"><strong>${escapeHtml(label)}</strong><span>Loads when visible</span></span><button type="button" class="excalidraw-embed-placeholder-btn" data-embed-key="${escapeHtml(embedKey)}">Load diagram</button></span></span>`;
 }
@@ -69,7 +73,7 @@ function renderInlineWikiText(content, { embedCounts, fileList }) {
 function createMarkdownRenderer(fileList = []) {
   const markdown = markdownIt({
     highlight(source, language) {
-      if (language === 'mermaid') {
+      if (language === 'mermaid' || language === 'plantuml' || language === 'puml') {
         return '';
       }
 
@@ -107,6 +111,7 @@ function createMarkdownRenderer(fileList = []) {
 
   const embedCounts = new Map();
   const mermaidCounts = new Map();
+  const plantUmlCounts = new Map();
 
   const fallbackFence = markdown.renderer.rules.fence;
   const fallbackLinkOpen = markdown.renderer.rules.link_open;
@@ -128,6 +133,18 @@ function createMarkdownRenderer(fileList = []) {
       mermaidCounts.set(sourceHash, occurrenceIndex + 1);
       return createMermaidPlaceholder({
         key: `mermaid-${sourceHash}-${occurrenceIndex}`,
+        sourceAttributes,
+        sourceHash,
+        sourceText: token.content,
+      });
+    }
+
+    if (info === 'plantuml' || info === 'puml') {
+      const sourceHash = hashString(token.content);
+      const occurrenceIndex = plantUmlCounts.get(sourceHash) ?? 0;
+      plantUmlCounts.set(sourceHash, occurrenceIndex + 1);
+      return createPlantUmlPlaceholder({
+        key: `plantuml-${sourceHash}-${occurrenceIndex}`,
         sourceAttributes,
         sourceHash,
         sourceText: token.content,

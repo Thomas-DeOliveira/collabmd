@@ -3,7 +3,8 @@ import { basename, dirname, extname, join, normalize, relative, resolve } from '
 
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.mdx']);
 const EXCALIDRAW_EXTENSION = '.excalidraw';
-const VAULT_FILE_EXTENSIONS = new Set([...MARKDOWN_EXTENSIONS, EXCALIDRAW_EXTENSION]);
+const PLANTUML_EXTENSION = '.puml';
+const VAULT_FILE_EXTENSIONS = new Set([...MARKDOWN_EXTENSIONS, EXCALIDRAW_EXTENSION, PLANTUML_EXTENSION]);
 const IGNORED_DIRECTORIES = new Set(['.git', '.obsidian', '.trash', 'node_modules', '.DS_Store']);
 
 function isMarkdownFile(filePath) {
@@ -12,6 +13,10 @@ function isMarkdownFile(filePath) {
 
 function isExcalidrawFile(filePath) {
   return extname(filePath).toLowerCase() === EXCALIDRAW_EXTENSION;
+}
+
+function isPlantUmlFile(filePath) {
+  return extname(filePath).toLowerCase() === PLANTUML_EXTENSION;
 }
 
 function isVaultFile(filePath) {
@@ -79,7 +84,11 @@ export class VaultFileStore {
         entries.push({
           name: entry.name,
           path: relativePath,
-          type: isExcalidrawFile(entry.name) ? 'excalidraw' : 'file',
+          type: isExcalidrawFile(entry.name)
+            ? 'excalidraw'
+            : isPlantUmlFile(entry.name)
+              ? 'plantuml'
+              : 'file',
         });
       }
     }
@@ -133,6 +142,37 @@ export class VaultFileStore {
     }
   }
 
+  async readPlantUmlFile(filePath) {
+    const absolute = sanitizePath(this.vaultDir, filePath);
+    if (!absolute || !isPlantUmlFile(absolute)) {
+      return null;
+    }
+
+    try {
+      const content = await readFile(absolute, 'utf-8');
+      return content;
+    } catch (error) {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }
+  }
+
+  async writePlantUmlFile(filePath, content) {
+    const absolute = sanitizePath(this.vaultDir, filePath);
+    if (!absolute || !isPlantUmlFile(absolute)) {
+      return { ok: false, error: 'Invalid file path — must end in .puml' };
+    }
+
+    try {
+      const dir = dirname(absolute);
+      await mkdir(dir, { recursive: true });
+      await writeFile(absolute, content, 'utf-8');
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
   async writeMarkdownFile(filePath, content) {
     const absolute = sanitizePath(this.vaultDir, filePath);
     if (!absolute || !isMarkdownFile(absolute)) {
@@ -152,7 +192,7 @@ export class VaultFileStore {
   async createFile(filePath, content = '') {
     const absolute = sanitizePath(this.vaultDir, filePath);
     if (!absolute || !isVaultFile(absolute)) {
-      return { ok: false, error: 'Invalid file path — must end in .md or .excalidraw' };
+      return { ok: false, error: 'Invalid file path — must end in .md, .excalidraw, or .puml' };
     }
 
     try {
@@ -171,7 +211,7 @@ export class VaultFileStore {
   async deleteFile(filePath) {
     const absolute = sanitizePath(this.vaultDir, filePath);
     if (!absolute || !isVaultFile(absolute)) {
-      return { ok: false, error: 'Invalid file path — must end in .md or .excalidraw' };
+      return { ok: false, error: 'Invalid file path — must end in .md, .excalidraw, or .puml' };
     }
 
     try {
@@ -191,11 +231,11 @@ export class VaultFileStore {
     }
 
     if (!isVaultFile(absoluteOld)) {
-      return { ok: false, error: 'Old path must be a vault file (.md or .excalidraw)' };
+      return { ok: false, error: 'Old path must be a vault file (.md, .excalidraw, or .puml)' };
     }
 
     if (!isVaultFile(absoluteNew)) {
-      return { ok: false, error: 'New path must be a vault file (.md or .excalidraw)' };
+      return { ok: false, error: 'New path must be a vault file (.md, .excalidraw, or .puml)' };
     }
 
     try {

@@ -22,6 +22,12 @@ test('compilePreviewDocument emits stable excalidraw placeholder keys and wiki-l
     'graph TD',
     '  A-->B',
     '```',
+    '',
+    '```plantuml',
+    '@startuml',
+    'Alice -> Bob: Hello',
+    '@enduml',
+    '```',
   ].join('\n');
 
   const { html, stats } = compilePreviewDocument({
@@ -34,8 +40,11 @@ test('compilePreviewDocument emits stable excalidraw placeholder keys and wiki-l
   assert.match(html, /class="wiki-link"/);
   assert.match(html, /data-mermaid-key="mermaid-[a-z0-9]+-0"/);
   assert.match(html, /data-mermaid-source-hash="[a-z0-9]+"/);
+  assert.match(html, /data-plantuml-key="plantuml-[a-z0-9]+-0"/);
+  assert.match(html, /data-plantuml-source-hash="[a-z0-9]+"/);
   assert.equal(stats.excalidrawEmbeds, 2);
   assert.equal(stats.mermaidBlocks, 1);
+  assert.equal(stats.plantumlBlocks, 1);
 });
 
 test('compilePreviewDocument keeps Mermaid keys stable across unrelated markdown edits', () => {
@@ -71,4 +80,7 @@ test('large-document classification triggers on any configured threshold', () =>
 
   const largeByExcalidraw = analyzeMarkdownComplexity('![[diagram.excalidraw]]\n'.repeat(8));
   assert.equal(isLargeDocumentStats(largeByExcalidraw), true);
+
+  const largeByPlantUml = analyzeMarkdownComplexity('```plantuml\n@startuml\nAlice -> Bob: Hi\n@enduml\n```\n'.repeat(12));
+  assert.equal(isLargeDocumentStats(largeByPlantUml), true);
 });

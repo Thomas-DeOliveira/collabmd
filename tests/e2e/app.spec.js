@@ -47,6 +47,8 @@ async function waitForHeavyPreviewContent(page) {
     return preview && (
       preview.querySelector('.mermaid-shell')
       || preview.querySelector('.mermaid svg')
+      || preview.querySelector('.plantuml-shell')
+      || preview.querySelector('.plantuml-frame svg')
       || preview.querySelector('.excalidraw-embed-placeholder')
       || preview.querySelector('.excalidraw-embed iframe')
     );
@@ -57,6 +59,8 @@ async function getHeavyPreviewCounts(page) {
   return page.evaluate(() => ({
     excalidrawIframes: document.querySelectorAll('#previewContent .excalidraw-embed iframe').length,
     excalidrawPlaceholders: document.querySelectorAll('#previewContent .excalidraw-embed-placeholder').length,
+    plantumlShells: document.querySelectorAll('#previewContent .plantuml-shell').length,
+    plantumlSvgs: document.querySelectorAll('#previewContent .plantuml-frame svg').length,
     mermaidShells: document.querySelectorAll('#previewContent .mermaid-shell').length,
     mermaidSvgs: document.querySelectorAll('#previewContent .mermaid svg').length,
     renderPhase: document.getElementById('previewContent')?.dataset.renderPhase || '',
@@ -134,6 +138,33 @@ test('renders markdown preview when a file is opened', async ({ page }) => {
 
   await expect(page.locator('#previewContent')).toContainText('My Vault');
   await expect(page.locator('#previewContent')).toContainText('Welcome to the test vault');
+});
+
+test('renders PlantUML fenced blocks through the preview pipeline', async ({ page }) => {
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 48"><text x="8" y="28">plantuml-fence</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, [
+    '# PlantUML',
+    '',
+    '```plantuml',
+    '@startuml',
+    'Alice -> Bob: Hello',
+    '@enduml',
+    '```',
+  ].join('\n'));
+
+  await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+  await expect(page.locator('#previewContent .plantuml-frame')).toContainText('plantuml-fence');
 });
 
 test('escapes raw html in markdown preview', async ({ page }) => {
@@ -606,6 +637,76 @@ test('preserves Mermaid instances across unrelated preview rerenders', async ({ 
   ), { timeout: 60000 }).toBe(firstInstanceId);
 });
 
+test('preserves PlantUML instances across unrelated preview rerenders', async ({ page }) => {
+  test.slow();
+
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48"><text x="8" y="28">plantuml-preserved</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, [
+    '# PlantUML Preserve',
+    '',
+    'Intro copy before the diagram.',
+    '',
+    '```plantuml',
+    '@startuml',
+    'Alice -> Bob: Hello',
+    '@enduml',
+    '```',
+    '',
+    'Closing copy after the diagram.',
+  ].join('\n'));
+
+  const plantUmlKey = await page.evaluate(() => (
+    document.querySelector('#previewContent .plantuml-shell')?.getAttribute('data-plantuml-key') || ''
+  ));
+  expect(plantUmlKey).toBeTruthy();
+
+  await page.evaluate((key) => {
+    const shell = document.querySelector(`#previewContent .plantuml-shell[data-plantuml-key="${key}"]`);
+    shell?.querySelector('.plantuml-placeholder-btn')?.click();
+  }, plantUmlKey);
+
+  await expect.poll(async () => (
+    page.evaluate((key) => (
+      document.querySelector(`#previewContent .plantuml-shell[data-plantuml-key="${key}"]`)?.getAttribute('data-plantuml-instance-id') || ''
+    ), plantUmlKey)
+  ), { timeout: 60000 }).toMatch(/^\d+$/);
+
+  const firstInstanceId = await page.evaluate((key) => (
+    document.querySelector(`#previewContent .plantuml-shell[data-plantuml-key="${key}"]`)?.getAttribute('data-plantuml-instance-id') || ''
+  ), plantUmlKey);
+
+  await replaceEditorContent(page, [
+    '# PlantUML Preserve',
+    '',
+    'Updated intro copy without touching the diagram.',
+    '',
+    '```plantuml',
+    '@startuml',
+    'Alice -> Bob: Hello',
+    '@enduml',
+    '```',
+    '',
+    'Updated closing copy after the diagram.',
+  ].join('\n'));
+
+  await expect.poll(async () => (
+    page.evaluate((key) => (
+      document.querySelector(`#previewContent .plantuml-shell[data-plantuml-key="${key}"]`)?.getAttribute('data-plantuml-instance-id') || ''
+    ), plantUmlKey)
+  ), { timeout: 60000 }).toBe(firstInstanceId);
+});
+
 test('hydrates more mermaid and excalidraw content as the heavy preview scrolls', async ({ page }) => {
   test.slow();
 
@@ -712,6 +813,30 @@ test.describe('mobile outline', () => {
 
     await expect(page.locator('#outlinePanel')).toBeHidden();
   });
+});
+
+test('opens .puml files with side-by-side PlantUML preview', async ({ page }) => {
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48"><text x="8" y="28">standalone-puml</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'architecture.puml');
+
+  await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'split');
+  await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+  await expect(page.locator('#previewContent .plantuml-frame')).toContainText('standalone-puml');
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).toHaveText('100%');
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label=\"Zoom in\"]').click();
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).toHaveText('110%');
+  await expect(page.locator('#outlineToggle')).toHaveClass(/hidden/);
+  await expect(page.locator('#backlinksPanel')).toHaveClass(/hidden/);
 });
 
 test.describe('mobile sidebar', () => {

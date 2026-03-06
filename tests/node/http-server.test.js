@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { request } from 'node:http';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -34,6 +35,36 @@ function httpRequest(url, { method = 'GET', headers = {}, body } = {}) {
   });
 }
 
+async function startPlantUmlStub() {
+  const requests = [];
+  const server = createServer((req, res) => {
+    requests.push(req.url || '');
+    res.writeHead(200, {
+      'Content-Type': 'image/svg+xml; charset=utf-8',
+    });
+    res.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40"><text x="8" y="24">stub</text></svg>');
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+
+  return {
+    close: () => new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    }),
+    requests,
+    url: `http://127.0.0.1:${port}/plantuml`,
+  };
+}
+
 test('HTTP server serves health, runtime config, and static assets', async (t) => {
   const app = await startTestServer();
   t.after(() => app.close());
@@ -52,6 +83,7 @@ test('HTTP server serves health, runtime config, and static assets', async (t) =
 
   const assetHeadResponse = await httpRequest(`${app.baseUrl}/assets/css/style.css`, { method: 'HEAD' });
   assert.equal(assetHeadResponse.statusCode, 200);
+  assert.equal(assetHeadResponse.headers['cache-control'], 'no-store');
 });
 
 test('HTTP server rejects unsupported methods and missing files', async (t) => {
@@ -135,7 +167,7 @@ test('HTTP server enforces markdown-only /api/file mutations', async (t) => {
     method: 'DELETE',
   });
   assert.equal(deleteResponse.statusCode, 400);
-  assert.match(deleteResponse.body, /must end in \.md/i);
+  assert.match(deleteResponse.body, /must end in \.md, \.excalidraw, or \.puml/i);
 
   const renameResponse = await httpRequest(`${app.baseUrl}/api/file`, {
     method: 'PATCH',
@@ -148,5 +180,30 @@ test('HTTP server enforces markdown-only /api/file mutations', async (t) => {
     }),
   });
   assert.equal(renameResponse.statusCode, 400);
-  assert.match(renameResponse.body, /Old path must be a vault file \(\.md or \.excalidraw\)/i);
+  assert.match(renameResponse.body, /Old path must be a vault file \(\.md, \.excalidraw, or \.puml\)/i);
+});
+
+test('HTTP server proxies PlantUML renders through the configured renderer', async (t) => {
+  const plantUmlStub = await startPlantUmlStub();
+  t.after(() => plantUmlStub.close());
+
+  const app = await startTestServer({
+    plantumlServerUrl: plantUmlStub.url,
+  });
+  t.after(() => app.close());
+
+  const response = await httpRequest(`${app.baseUrl}/api/plantuml/render`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      source: '@startuml\nAlice -> Bob: Hello\n@enduml\n',
+    }),
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /<svg/);
+  assert.equal(plantUmlStub.requests.length, 1);
+  assert.match(plantUmlStub.requests[0], /^\/plantuml\/svg\//);
 });

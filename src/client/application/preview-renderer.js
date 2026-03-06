@@ -8,8 +8,16 @@ const MERMAID_ZOOM = {
   min: 0.5,
   step: 0.1,
 };
+const PLANTUML_ZOOM = {
+  default: 1,
+  animationDurationMs: 160,
+  max: 3,
+  min: 0.1,
+  step: 0.1,
+};
 const IDLE_RENDER_TIMEOUT_MS = 500;
 const MERMAID_BATCH_SIZE = 2;
+const PLANTUML_BATCH_SIZE = 2;
 
 function requestIdleRender(callback, timeout) {
   if (typeof window.requestIdleCallback === 'function') {
@@ -127,6 +135,61 @@ function createMermaidPlaceholderCard(key) {
   return card;
 }
 
+function createPlantUmlPlaceholderCard(key, message = 'Renders server-side when visible') {
+  const card = document.createElement('div');
+  card.className = 'plantuml-placeholder-card';
+
+  const copy = document.createElement('div');
+  copy.className = 'plantuml-placeholder-copy';
+
+  const title = document.createElement('strong');
+  title.textContent = 'PlantUML diagram';
+
+  const subtitle = document.createElement('span');
+  subtitle.textContent = message;
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'plantuml-placeholder-btn';
+  button.dataset.plantumlKey = key;
+  button.textContent = 'Render';
+
+  copy.append(title, subtitle);
+  card.append(copy, button);
+  return card;
+}
+
+function sanitizeSvgMarkup(svgMarkup) {
+  const parser = new DOMParser();
+  const documentNode = parser.parseFromString(svgMarkup, 'image/svg+xml');
+  const svg = documentNode.documentElement;
+
+  if (!svg || svg.nodeName.toLowerCase() !== 'svg') {
+    throw new Error('Renderer returned invalid SVG');
+  }
+
+  documentNode.querySelectorAll('script, foreignObject').forEach((node) => {
+    node.remove();
+  });
+
+  Array.from(documentNode.querySelectorAll('*')).forEach((element) => {
+    Array.from(element.attributes).forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value || '';
+      if (name.startsWith('on')) {
+        element.removeAttribute(attribute.name);
+        return;
+      }
+
+      if ((name === 'href' || name === 'xlink:href') && /^\s*javascript:/i.test(value)) {
+        element.removeAttribute(attribute.name);
+      }
+    });
+  });
+
+  return svg.outerHTML;
+}
+
 function isNearViewport(element, root, marginPx) {
   if (!element || !root) {
     return false;
@@ -177,24 +240,42 @@ export class PreviewRenderer {
     this.mermaidObserver = null;
     this.mermaidIdleId = null;
     this.pendingMermaidShells = [];
+    this.plantUmlObserver = null;
+    this.plantUmlIdleId = null;
+    this.pendingPlantUmlShells = [];
     this.hydrationPaused = false;
     this.mermaidHydrationInProgress = false;
+    this.plantUmlHydrationInProgress = false;
     this.mermaidInstanceCounter = 0;
+    this.plantUmlInstanceCounter = 0;
     this.preservedMermaidShells = new Map();
+    this.preservedPlantUmlShells = new Map();
+    this.plantUmlSvgCache = new Map();
+    this.plantUmlInflightRequests = new Map();
 
     this.handlePreviewClick = (event) => {
-      const renderButton = event.target.closest('.mermaid-placeholder-btn');
-      if (!renderButton) {
+      const mermaidButton = event.target.closest('.mermaid-placeholder-btn');
+      if (mermaidButton) {
+        const shell = mermaidButton.closest('.mermaid-shell');
+        if (!shell) {
+          return;
+        }
+
+        event.preventDefault();
+        this.enqueueMermaidShell(shell, { prioritize: true });
         return;
       }
 
-      const shell = renderButton.closest('.mermaid-shell');
-      if (!shell) {
-        return;
-      }
+      const plantUmlButton = event.target.closest('.plantuml-placeholder-btn');
+      if (plantUmlButton) {
+        const shell = plantUmlButton.closest('.plantuml-shell');
+        if (!shell) {
+          return;
+        }
 
-      event.preventDefault();
-      this.enqueueMermaidShell(shell, { prioritize: true });
+        event.preventDefault();
+        this.enqueuePlantUmlShell(shell, { prioritize: true });
+      }
     };
 
     this.handleWorkerMessage = (event) => {
@@ -253,7 +334,9 @@ export class PreviewRenderer {
   beginDocumentLoad() {
     this.cancelScheduledRender();
     this.cancelMermaidHydration();
+    this.cancelPlantUmlHydration();
     this.preservedMermaidShells.clear();
+    this.preservedPlantUmlShells.clear();
     this.pendingRenderVersion += 1;
     this.activeRenderVersion = this.pendingRenderVersion;
     this.readyRenderVersion = 0;
@@ -358,7 +441,9 @@ export class PreviewRenderer {
   destroy() {
     this.cancelScheduledRender();
     this.cancelMermaidHydration();
+    this.cancelPlantUmlHydration();
     this.preservedMermaidShells.clear();
+    this.preservedPlantUmlShells.clear();
     this.resetWorker('Preview renderer destroyed');
     this.previewElement?.removeEventListener('click', this.handlePreviewClick);
   }
@@ -392,17 +477,33 @@ export class PreviewRenderer {
     this.mermaidHydrationInProgress = false;
   }
 
+  cancelPlantUmlHydration() {
+    if (this.plantUmlObserver) {
+      this.plantUmlObserver.disconnect();
+      this.plantUmlObserver = null;
+    }
+
+    cancelIdleRender(this.plantUmlIdleId);
+    this.plantUmlIdleId = null;
+    this.pendingPlantUmlShells = [];
+    this.plantUmlHydrationInProgress = false;
+  }
+
   setHydrationPaused(paused) {
     this.hydrationPaused = Boolean(paused);
 
     if (this.hydrationPaused) {
       cancelIdleRender(this.mermaidIdleId);
       this.mermaidIdleId = null;
+      cancelIdleRender(this.plantUmlIdleId);
+      this.plantUmlIdleId = null;
       return;
     }
 
     this.hydrateVisibleMermaids();
     this.scheduleMermaidHydration();
+    this.hydrateVisiblePlantUmls();
+    this.schedulePlantUmlHydration();
     this.updateHydrationPhase();
   }
 
@@ -478,8 +579,11 @@ export class PreviewRenderer {
     this.isLargeDocument = isLargeDocumentStats(stats);
 
     this.cancelMermaidHydration();
+    this.cancelPlantUmlHydration();
     document.body.classList.remove('mermaid-maximized-open');
+    document.body.classList.remove('plantuml-maximized-open');
     this.preserveHydratedMermaidsForCommit();
+    this.preserveHydratedPlantUmlsForCommit();
 
     this.onBeforeRenderCommit?.(this.previewElement);
     const renderHost = this.ensureRenderHost();
@@ -487,6 +591,7 @@ export class PreviewRenderer {
       renderHost.innerHTML = html;
     }
     this.reconcileHydratedMermaids();
+    this.reconcileHydratedPlantUmls();
     this.setPhase('base');
 
     this.outlineController.refresh();
@@ -496,12 +601,14 @@ export class PreviewRenderer {
       renderVersion,
     });
 
-    if (!mermaid) {
-      this.notifyReady();
-      return;
-    }
+    const mermaidShellCount = mermaid
+      ? this.setupMermaidHydration(renderVersion)
+      : 0;
+    const plantUmlShellCount = this.setupPlantUmlHydration(renderVersion);
 
-    this.setupMermaidHydration(renderVersion);
+    if (mermaidShellCount === 0 && plantUmlShellCount === 0) {
+      this.notifyReady();
+    }
   }
 
   preserveHydratedMermaidsForCommit() {
@@ -522,6 +629,31 @@ export class PreviewRenderer {
       }
 
       this.preservedMermaidShells.set(key, {
+        key,
+        shell,
+        source,
+      });
+    });
+  }
+
+  preserveHydratedPlantUmlsForCommit() {
+    this.preservedPlantUmlShells.clear();
+    if (!this.previewElement) {
+      return;
+    }
+
+    Array.from(this.previewElement.querySelectorAll('.plantuml-shell[data-plantuml-hydrated="true"][data-plantuml-key]')).forEach((shell) => {
+      const key = shell.dataset.plantumlKey;
+      const source = shell.querySelector('.plantuml-source')?.textContent ?? '';
+      if (!key || !source) {
+        return;
+      }
+
+      if (shell.isConnected) {
+        shell.remove();
+      }
+
+      this.preservedPlantUmlShells.set(key, {
         key,
         shell,
         source,
@@ -560,6 +692,37 @@ export class PreviewRenderer {
     }
   }
 
+  reconcileHydratedPlantUmls() {
+    if (!this.previewElement || this.preservedPlantUmlShells.size === 0) {
+      this.preservedPlantUmlShells.clear();
+      return;
+    }
+
+    let restoredMaximizedShell = false;
+    Array.from(this.previewElement.querySelectorAll('.plantuml-shell[data-plantuml-key]')).forEach((nextShell) => {
+      const key = nextShell.dataset.plantumlKey;
+      const preservedEntry = key ? this.preservedPlantUmlShells.get(key) : null;
+      if (!preservedEntry) {
+        return;
+      }
+
+      const nextSource = nextShell.querySelector('.plantuml-source')?.textContent ?? '';
+      if (nextSource !== preservedEntry.source) {
+        return;
+      }
+
+      this.syncPreservedPlantUmlShell(preservedEntry.shell, nextShell);
+      nextShell.replaceWith(preservedEntry.shell);
+      restoredMaximizedShell = restoredMaximizedShell || preservedEntry.shell.classList.contains('is-maximized');
+      this.preservedPlantUmlShells.delete(key);
+    });
+
+    this.preservedPlantUmlShells.clear();
+    if (restoredMaximizedShell) {
+      document.body.classList.add('plantuml-maximized-open');
+    }
+  }
+
   syncPreservedMermaidShell(preservedShell, nextShell) {
     syncAttribute(preservedShell, nextShell, 'data-source-line');
     syncAttribute(preservedShell, nextShell, 'data-source-line-end');
@@ -584,11 +747,34 @@ export class PreviewRenderer {
     }
   }
 
+  syncPreservedPlantUmlShell(preservedShell, nextShell) {
+    syncAttribute(preservedShell, nextShell, 'data-source-line');
+    syncAttribute(preservedShell, nextShell, 'data-source-line-end');
+    syncAttribute(preservedShell, nextShell, 'data-plantuml-key');
+    syncAttribute(preservedShell, nextShell, 'data-plantuml-source-hash');
+
+    preservedShell.classList.add('plantuml-shell');
+    preservedShell.dataset.plantumlHydrated = 'true';
+    preservedShell.removeAttribute('data-plantuml-queued');
+
+    const nextSourceNode = nextShell.querySelector('.plantuml-source');
+    let preservedSourceNode = preservedShell.querySelector('.plantuml-source');
+
+    if (!preservedSourceNode && nextSourceNode) {
+      preservedSourceNode = nextSourceNode.cloneNode(true);
+      preservedShell.prepend(preservedSourceNode);
+    }
+
+    if (preservedSourceNode && nextSourceNode) {
+      preservedSourceNode.textContent = nextSourceNode.textContent ?? '';
+      preservedSourceNode.hidden = true;
+    }
+  }
+
   setupMermaidHydration(renderVersion) {
     const shells = Array.from(this.previewElement.querySelectorAll('.mermaid-shell'));
     if (shells.length === 0) {
-      this.notifyReady();
-      return;
+      return 0;
     }
 
     this.mermaidObserver = new IntersectionObserver((entries) => {
@@ -614,6 +800,8 @@ export class PreviewRenderer {
       this.hydrateVisibleMermaids();
       this.updateHydrationPhase();
     });
+
+    return shells.length;
   }
 
   hydrateVisibleMermaids() {
@@ -766,15 +954,176 @@ export class PreviewRenderer {
     });
   }
 
+  setupPlantUmlHydration(renderVersion) {
+    const shells = Array.from(this.previewElement.querySelectorAll('.plantuml-shell'));
+    if (shells.length === 0) {
+      return 0;
+    }
+
+    this.plantUmlObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) {
+          return;
+        }
+
+        this.enqueuePlantUmlShell(entry.target);
+      });
+    }, {
+      root: this.previewContainer,
+      rootMargin: this.isLargeDocument ? '180px 0px' : '420px 0px',
+    });
+
+    shells.forEach((shell) => this.plantUmlObserver.observe(shell));
+
+    requestAnimationFrame(() => {
+      if (renderVersion !== this.activeRenderVersion) {
+        return;
+      }
+
+      this.hydrateVisiblePlantUmls();
+      this.updateHydrationPhase();
+    });
+
+    return shells.length;
+  }
+
+  hydrateVisiblePlantUmls() {
+    if (this.hydrationPaused || !this.previewElement || !this.previewContainer) {
+      return;
+    }
+
+    const margin = this.isLargeDocument ? 180 : 420;
+    Array.from(this.previewElement.querySelectorAll('.plantuml-shell')).forEach((shell) => {
+      if (isNearViewport(shell, this.previewContainer, margin)) {
+        this.enqueuePlantUmlShell(shell, { prioritize: true });
+      }
+    });
+  }
+
+  enqueuePlantUmlShell(shell, { prioritize = false } = {}) {
+    if (!shell?.isConnected || shell.dataset.plantumlHydrated === 'true' || shell.dataset.plantumlQueued === 'true') {
+      return;
+    }
+
+    shell.dataset.plantumlQueued = 'true';
+    if (prioritize) {
+      this.pendingPlantUmlShells.unshift(shell);
+    } else {
+      this.pendingPlantUmlShells.push(shell);
+    }
+
+    if (this.hydrationPaused) {
+      return;
+    }
+
+    this.updateHydrationPhase();
+    this.schedulePlantUmlHydration();
+  }
+
+  schedulePlantUmlHydration() {
+    if (this.hydrationPaused || this.plantUmlHydrationInProgress || this.plantUmlIdleId !== null) {
+      return;
+    }
+
+    this.plantUmlIdleId = requestIdleRender(() => {
+      this.plantUmlIdleId = null;
+      void this.flushPlantUmlHydrationQueue();
+    }, IDLE_RENDER_TIMEOUT_MS);
+  }
+
+  async flushPlantUmlHydrationQueue() {
+    if (this.hydrationPaused || this.plantUmlHydrationInProgress) {
+      return;
+    }
+
+    const shells = [];
+    while (this.pendingPlantUmlShells.length > 0 && shells.length < PLANTUML_BATCH_SIZE) {
+      const nextShell = this.pendingPlantUmlShells.shift();
+      if (!nextShell?.isConnected || nextShell.dataset.plantumlHydrated === 'true') {
+        continue;
+      }
+
+      nextShell.removeAttribute('data-plantuml-queued');
+      shells.push(nextShell);
+    }
+
+    if (shells.length === 0) {
+      this.updateHydrationPhase();
+      return;
+    }
+
+    this.plantUmlHydrationInProgress = true;
+    this.setPhase('hydrating');
+
+    for (const shell of shells) {
+      await this.hydratePlantUmlShell(shell);
+    }
+
+    this.plantUmlHydrationInProgress = false;
+
+    if (this.pendingPlantUmlShells.length > 0) {
+      this.schedulePlantUmlHydration();
+    }
+
+    this.updateHydrationPhase();
+  }
+
+  async hydratePlantUmlShell(shell) {
+    if (!shell?.isConnected || shell.dataset.plantumlHydrated === 'true') {
+      return;
+    }
+
+    const sourceNode = shell.querySelector('.plantuml-source');
+    const source = sourceNode?.textContent ?? '';
+    if (!source.trim()) {
+      return;
+    }
+
+    const placeholder = shell.querySelector('.plantuml-placeholder-card');
+    placeholder?.remove();
+
+    try {
+      const svgMarkup = await this.fetchPlantUmlSvg(source);
+
+      if (!shell.isConnected) {
+        return;
+      }
+
+      this.enhancePlantUmlDiagram(shell, svgMarkup);
+      shell.dataset.plantumlHydrated = 'true';
+      shell.dataset.plantumlInstanceId = String(++this.plantUmlInstanceCounter);
+    } catch (error) {
+      console.warn('[preview] PlantUML render failed:', error);
+      shell.querySelector(':scope > .plantuml-toolbar')?.remove();
+      shell.querySelector(':scope > .plantuml-frame')?.remove();
+      if (!shell.querySelector('.plantuml-placeholder-card')) {
+        sourceNode?.after(createPlantUmlPlaceholderCard(
+          shell.dataset.plantumlKey || 'plantuml',
+          error instanceof Error ? error.message : 'Render failed',
+        ));
+      }
+    }
+  }
+
   updateHydrationPhase() {
     if (this.hydrationPaused) {
-      if (this.pendingMermaidShells.length > 0 || this.mermaidHydrationInProgress) {
+      if (
+        this.pendingMermaidShells.length > 0
+        || this.pendingPlantUmlShells.length > 0
+        || this.mermaidHydrationInProgress
+        || this.plantUmlHydrationInProgress
+      ) {
         this.setPhase('base');
         return;
       }
     }
 
-    if (this.mermaidHydrationInProgress || this.pendingMermaidShells.length > 0) {
+    if (
+      this.mermaidHydrationInProgress
+      || this.plantUmlHydrationInProgress
+      || this.pendingMermaidShells.length > 0
+      || this.pendingPlantUmlShells.length > 0
+    ) {
       this.setPhase('hydrating');
       return;
     }
@@ -794,6 +1143,304 @@ export class PreviewRenderer {
       isLargeDocument: this.isLargeDocument,
       stats: this.currentStats,
     });
+  }
+
+  async fetchPlantUmlSvg(source) {
+    const cacheKey = source;
+    if (this.plantUmlSvgCache.has(cacheKey)) {
+      return this.plantUmlSvgCache.get(cacheKey);
+    }
+
+    if (this.plantUmlInflightRequests.has(cacheKey)) {
+      return this.plantUmlInflightRequests.get(cacheKey);
+    }
+
+    const request = fetch('/api/plantuml/render', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ source }),
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.ok || typeof data.svg !== 'string') {
+          throw new Error(data?.error || 'Failed to render PlantUML');
+        }
+
+        const sanitized = sanitizeSvgMarkup(data.svg);
+        this.plantUmlSvgCache.set(cacheKey, sanitized);
+        return sanitized;
+      })
+      .finally(() => {
+        this.plantUmlInflightRequests.delete(cacheKey);
+      });
+
+    this.plantUmlInflightRequests.set(cacheKey, request);
+    return request;
+  }
+
+  resetPlantUmlShell(shell, { clearCache = false, message = 'Renders server-side when visible' } = {}) {
+    const source = shell.querySelector('.plantuml-source')?.textContent ?? '';
+    if (clearCache && source) {
+      this.plantUmlSvgCache.delete(source);
+      this.plantUmlInflightRequests.delete(source);
+    }
+
+    shell.removeAttribute('data-plantuml-hydrated');
+    shell.removeAttribute('data-plantuml-instance-id');
+    shell.removeAttribute('data-plantuml-queued');
+    shell.classList.remove('is-maximized');
+    if (!this.previewElement?.querySelector('.plantuml-shell.is-maximized')) {
+      document.body.classList.remove('plantuml-maximized-open');
+    }
+    shell.querySelector(':scope > .plantuml-toolbar')?.remove();
+    shell.querySelector(':scope > .plantuml-frame')?.remove();
+    if (!shell.querySelector('.plantuml-placeholder-card')) {
+      shell.querySelector('.plantuml-source')?.after(createPlantUmlPlaceholderCard(
+        shell.dataset.plantumlKey || 'plantuml',
+        message,
+      ));
+    }
+  }
+
+  enhancePlantUmlDiagram(shell, svgMarkup) {
+    const container = document.createElement('div');
+    container.innerHTML = svgMarkup;
+    const svg = container.querySelector('svg');
+    if (!svg) {
+      throw new Error('Renderer returned invalid SVG');
+    }
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'plantuml-toolbar';
+
+    const frame = document.createElement('div');
+    frame.className = 'plantuml-frame';
+    const decreaseButton = this.createPlantUmlToolButton('−', 'Zoom out');
+    const increaseButton = this.createPlantUmlToolButton('+', 'Zoom in');
+    const resetButton = this.createPlantUmlToolButton('Reset', 'Reset zoom');
+    const reloadButton = this.createPlantUmlToolButton('Reload', 'Reload diagram');
+    const maximizeButton = this.createPlantUmlToolButton('Max', 'Maximize diagram');
+    maximizeButton.classList.add('plantuml-maximize-btn');
+    const zoomLabel = document.createElement('span');
+    zoomLabel.className = 'plantuml-zoom-label';
+    zoomLabel.setAttribute('aria-live', 'polite');
+
+    toolbar.append(decreaseButton, zoomLabel, resetButton, increaseButton, reloadButton, maximizeButton);
+
+    const { width: baseWidth, height: baseHeight } = getSvgSize(svg);
+    let currentZoom = PLANTUML_ZOOM.default;
+    let defaultZoom = 1;
+    let zoomAnimationFrameId = null;
+    let isPanning = false;
+    let activePointerId = null;
+    let panStartX = 0;
+    let panStartY = 0;
+    let panStartScrollLeft = 0;
+    let panStartScrollTop = 0;
+
+    svg.style.display = 'block';
+    svg.style.margin = '0 auto';
+    svg.style.maxWidth = 'none';
+
+    const calculateDefaultZoom = () => {
+      const viewport = getFrameViewportSize(frame);
+      if (!Number.isFinite(baseWidth) || baseWidth <= 0 || viewport.width <= 0) {
+        return PLANTUML_ZOOM.default;
+      }
+
+      return clamp(Math.min(PLANTUML_ZOOM.default, viewport.width / baseWidth), PLANTUML_ZOOM.min, PLANTUML_ZOOM.max);
+    };
+
+    const applyZoom = (nextZoom) => {
+      currentZoom = clamp(nextZoom, PLANTUML_ZOOM.min, PLANTUML_ZOOM.max);
+
+      svg.style.width = `${baseWidth * currentZoom}px`;
+      svg.style.height = `${baseHeight * currentZoom}px`;
+      zoomLabel.textContent = `${Math.round(currentZoom * 100)}%`;
+
+      decreaseButton.disabled = currentZoom <= PLANTUML_ZOOM.min;
+      increaseButton.disabled = currentZoom >= PLANTUML_ZOOM.max;
+
+      const viewport = getFrameViewportSize(frame);
+      const isPannable = (baseWidth * currentZoom) > viewport.width || (baseHeight * currentZoom) > viewport.height;
+      frame.classList.toggle('is-pannable', isPannable);
+    };
+
+    const getViewportCenter = () => ({
+      x: frame.scrollLeft + (frame.clientWidth / 2),
+      y: frame.scrollTop + (frame.clientHeight / 2),
+    });
+
+    const restoreViewportCenter = (previousZoom, nextZoom, center) => {
+      if (previousZoom === 0) {
+        return;
+      }
+
+      const scale = nextZoom / previousZoom;
+      frame.scrollLeft = (center.x * scale) - (frame.clientWidth / 2);
+      frame.scrollTop = (center.y * scale) - (frame.clientHeight / 2);
+    };
+
+    const animateZoomTo = (nextZoom) => {
+      const targetZoom = clamp(nextZoom, PLANTUML_ZOOM.min, PLANTUML_ZOOM.max);
+      const startZoom = currentZoom;
+
+      if (targetZoom === startZoom) {
+        return;
+      }
+
+      const center = getViewportCenter();
+      const startedAt = performance.now();
+
+      if (zoomAnimationFrameId) {
+        cancelAnimationFrame(zoomAnimationFrameId);
+      }
+
+      const tick = (now) => {
+        const progress = clamp((now - startedAt) / PLANTUML_ZOOM.animationDurationMs, 0, 1);
+        const easedProgress = easeOutCubic(progress);
+        const animatedZoom = startZoom + ((targetZoom - startZoom) * easedProgress);
+
+        applyZoom(animatedZoom);
+        restoreViewportCenter(startZoom, animatedZoom, center);
+
+        if (progress < 1) {
+          zoomAnimationFrameId = requestAnimationFrame(tick);
+          return;
+        }
+
+        zoomAnimationFrameId = null;
+        applyZoom(targetZoom);
+        restoreViewportCenter(startZoom, targetZoom, center);
+      };
+
+      zoomAnimationFrameId = requestAnimationFrame(tick);
+    };
+
+    const zoomBy = (delta) => {
+      animateZoomTo(currentZoom + delta);
+    };
+
+    decreaseButton.addEventListener('click', () => zoomBy(-PLANTUML_ZOOM.step));
+    increaseButton.addEventListener('click', () => zoomBy(PLANTUML_ZOOM.step));
+    resetButton.addEventListener('click', () => {
+      defaultZoom = calculateDefaultZoom();
+      animateZoomTo(defaultZoom);
+    });
+
+    const syncMaximizeButtonState = () => {
+      const isMaximized = shell.classList.contains('is-maximized');
+      maximizeButton.textContent = isMaximized ? 'Restore' : 'Max';
+      maximizeButton.setAttribute('aria-label', isMaximized ? 'Restore diagram size' : 'Maximize diagram');
+    };
+
+    const setMaximizedState = (shouldMaximize) => {
+      if (shouldMaximize) {
+        const activeContainer = this.previewElement.querySelector('.plantuml-shell.is-maximized');
+        if (activeContainer && activeContainer !== shell) {
+          activeContainer.classList.remove('is-maximized');
+          const activeButton = activeContainer.querySelector('.plantuml-maximize-btn');
+          if (activeButton) {
+            activeButton.textContent = 'Max';
+            activeButton.setAttribute('aria-label', 'Maximize diagram');
+          }
+        }
+
+        shell.classList.add('is-maximized');
+        document.body.classList.add('plantuml-maximized-open');
+        syncMaximizeButtonState();
+        requestAnimationFrame(() => applyZoom(currentZoom));
+        return;
+      }
+
+      shell.classList.remove('is-maximized');
+      if (!this.previewElement.querySelector('.plantuml-shell.is-maximized')) {
+        document.body.classList.remove('plantuml-maximized-open');
+      }
+      syncMaximizeButtonState();
+      requestAnimationFrame(() => applyZoom(currentZoom));
+    };
+
+    reloadButton.addEventListener('click', () => {
+      this.resetPlantUmlShell(shell, {
+        clearCache: true,
+        message: 'Refreshing…',
+      });
+      this.enqueuePlantUmlShell(shell, { prioritize: true });
+    });
+
+    syncMaximizeButtonState();
+    maximizeButton.addEventListener('click', () => {
+      setMaximizedState(!shell.classList.contains('is-maximized'));
+    });
+
+    const stopPanning = () => {
+      if (!isPanning) {
+        return;
+      }
+
+      isPanning = false;
+      frame.classList.remove('is-dragging');
+
+      if (activePointerId !== null && typeof frame.releasePointerCapture === 'function') {
+        try {
+          frame.releasePointerCapture(activePointerId);
+        } catch {
+          // Ignore capture release issues during drag end.
+        }
+      }
+
+      activePointerId = null;
+    };
+
+    frame.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 || !frame.classList.contains('is-pannable')) {
+        return;
+      }
+
+      if (zoomAnimationFrameId) {
+        cancelAnimationFrame(zoomAnimationFrameId);
+        zoomAnimationFrameId = null;
+      }
+
+      isPanning = true;
+      activePointerId = event.pointerId;
+      panStartX = event.clientX;
+      panStartY = event.clientY;
+      panStartScrollLeft = frame.scrollLeft;
+      panStartScrollTop = frame.scrollTop;
+
+      frame.classList.add('is-dragging');
+      frame.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+
+    frame.addEventListener('pointermove', (event) => {
+      if (!isPanning) {
+        return;
+      }
+
+      frame.scrollLeft = panStartScrollLeft - (event.clientX - panStartX);
+      frame.scrollTop = panStartScrollTop - (event.clientY - panStartY);
+    });
+
+    frame.addEventListener('pointerup', stopPanning);
+    frame.addEventListener('pointercancel', stopPanning);
+    frame.addEventListener('lostpointercapture', stopPanning);
+
+    frame.appendChild(svg);
+    const sourceNode = shell.querySelector('.plantuml-source');
+    shell.replaceChildren();
+    if (sourceNode) {
+      sourceNode.hidden = true;
+      shell.appendChild(sourceNode);
+    }
+    shell.append(toolbar, frame);
+
+    defaultZoom = calculateDefaultZoom();
+    applyZoom(defaultZoom);
   }
 
   enhanceMermaidDiagram(shell, renderedDiagram) {
@@ -1016,6 +1663,15 @@ export class PreviewRenderer {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'mermaid-zoom-btn';
+    button.setAttribute('aria-label', ariaLabel);
+    button.textContent = label;
+    return button;
+  }
+
+  createPlantUmlToolButton(label, ariaLabel) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'plantuml-tool-btn';
     button.setAttribute('aria-label', ariaLabel);
     button.textContent = label;
     return button;

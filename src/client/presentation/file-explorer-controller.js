@@ -8,6 +8,7 @@ export class FileExplorerController {
     this.treeContainer = document.getElementById('fileTree');
     this.newFileButton = document.getElementById('newFileBtn');
     this.newDrawingButton = document.getElementById('newDrawingBtn');
+    this.newPlantumlButton = document.getElementById('newPlantumlBtn');
     this.newFolderButton = document.getElementById('newFolderBtn');
     this.refreshButton = document.getElementById('refreshFilesBtn');
     this.searchInput = document.getElementById('fileSearchInput');
@@ -21,6 +22,7 @@ export class FileExplorerController {
   initialize() {
     this.newFileButton?.addEventListener('click', () => this.handleNewFile());
     this.newDrawingButton?.addEventListener('click', () => this.handleNewDrawing());
+    this.newPlantumlButton?.addEventListener('click', () => this.handleNewPlantUml());
     this.newFolderButton?.addEventListener('click', () => this.handleNewFolder());
     this.refreshButton?.addEventListener('click', () => this.refresh());
     this.searchInput?.addEventListener('input', (e) => {
@@ -44,7 +46,7 @@ export class FileExplorerController {
   flattenTree(nodes) {
     const files = [];
     for (const node of nodes) {
-      if (node.type === 'file' || node.type === 'excalidraw') {
+      if (node.type === 'file' || node.type === 'excalidraw' || node.type === 'plantuml') {
         files.push(node.path);
       } else if (node.type === 'directory' && node.children) {
         files.push(...this.flattenTree(node.children, node.path));
@@ -79,7 +81,7 @@ export class FileExplorerController {
     this.treeContainer.innerHTML = '';
 
     if (this.tree.length === 0) {
-      this.treeContainer.innerHTML = '<div class="file-tree-empty">No markdown files found</div>';
+      this.treeContainer.innerHTML = '<div class="file-tree-empty">No vault files found</div>';
       return;
     }
 
@@ -103,10 +105,23 @@ export class FileExplorerController {
 
     const fragment = document.createDocumentFragment();
     for (const filePath of matches) {
-      const item = this.createFileItem(filePath.split('/').pop(), filePath, 0);
+      const item = this.createFileItem(filePath.split('/').pop(), filePath, 0, this.getFileType(filePath));
       fragment.appendChild(item);
     }
     this.treeContainer.appendChild(fragment);
+  }
+
+  getFileType(filePath) {
+    const normalized = String(filePath || '').toLowerCase();
+    if (normalized.endsWith('.excalidraw')) {
+      return 'excalidraw';
+    }
+
+    if (normalized.endsWith('.puml')) {
+      return 'plantuml';
+    }
+
+    return 'file';
   }
 
   renderNodes(nodes, container, depth) {
@@ -115,7 +130,7 @@ export class FileExplorerController {
         const dir = this.createDirectoryItem(node, depth);
         container.appendChild(dir);
       } else {
-        const file = this.createFileItem(node.name, node.path, depth, node.type === 'excalidraw');
+        const file = this.createFileItem(node.name, node.path, depth, node.type);
         container.appendChild(file);
       }
     }
@@ -159,11 +174,16 @@ export class FileExplorerController {
     return wrapper;
   }
 
-  createFileItem(name, filePath, depth, isExcalidraw = false) {
+  createFileItem(name, filePath, depth, fileType = 'file') {
     const button = document.createElement('button');
     button.className = 'file-tree-item file-tree-file';
+    const isExcalidraw = fileType === 'excalidraw';
+    const isPlantUml = fileType === 'plantuml';
     if (isExcalidraw) {
       button.classList.add('is-excalidraw');
+    }
+    if (isPlantUml) {
+      button.classList.add('is-plantuml');
     }
     if (filePath === this.activeFilePath) {
       button.classList.add('active');
@@ -173,10 +193,14 @@ export class FileExplorerController {
 
     const displayName = isExcalidraw
       ? name.replace(/\.excalidraw$/i, '')
-      : name.replace(/\.md$/i, '');
+      : isPlantUml
+        ? name.replace(/\.puml$/i, '')
+        : name.replace(/\.md$/i, '');
 
     const iconSvg = isExcalidraw
       ? '<svg class="file-tree-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>'
+      : isPlantUml
+        ? '<svg class="file-tree-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="6" rx="1"/><rect x="14" y="4" width="7" height="6" rx="1"/><rect x="8.5" y="14" width="7" height="6" rx="1"/><path d="M10 7h4"/><path d="M17.5 10v2.5"/><path d="M6.5 10v2.5"/><path d="M6.5 12.5h11"/></svg>'
       : '<svg class="file-tree-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
 
     button.innerHTML = `
@@ -312,6 +336,36 @@ export class FileExplorerController {
     }
   }
 
+  async handleNewPlantUml() {
+    const name = prompt('New PlantUML diagram name (e.g., "architecture"):');
+    if (!name) return;
+
+    const fileName = name.endsWith('.puml') ? name : `${name}.puml`;
+    const starter = [
+      '@startuml',
+      'Alice -> Bob: Hello',
+      '@enduml',
+      '',
+    ].join('\n');
+
+    try {
+      const response = await fetch('/api/file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: fileName, content: starter }),
+      });
+      const data = await response.json();
+      if (data.ok) {
+        await this.refresh();
+        this.onFileSelect?.(fileName);
+      } else {
+        alert(data.error || 'Failed to create PlantUML diagram');
+      }
+    } catch (error) {
+      alert(`Failed to create PlantUML diagram: ${error.message}`);
+    }
+  }
+
   async handleRename(filePath) {
     const currentName = filePath.split('/').pop();
     const newName = prompt('New name:', currentName);
@@ -319,7 +373,8 @@ export class FileExplorerController {
 
     const dir = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/') + 1) : '';
     const isExcalidraw = currentName.toLowerCase().endsWith('.excalidraw');
-    const ext = isExcalidraw ? '.excalidraw' : '.md';
+    const isPlantUml = currentName.toLowerCase().endsWith('.puml');
+    const ext = isExcalidraw ? '.excalidraw' : isPlantUml ? '.puml' : '.md';
     const newPath = dir + (newName.endsWith(ext) ? newName : `${newName}${ext}`);
 
     try {

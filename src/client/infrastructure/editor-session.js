@@ -93,6 +93,14 @@ function createEditorTheme(theme) {
   }, { dark: theme === 'dark' });
 }
 
+function createLanguageExtension(filePath) {
+  if (typeof filePath === 'string' && filePath.toLowerCase().endsWith('.puml')) {
+    return [];
+  }
+
+  return markdown({ base: markdownLanguage, codeLanguages: languages });
+}
+
 export class EditorSession {
   constructor({
     editorContainer,
@@ -205,7 +213,7 @@ export class EditorSession {
             ...foldKeymap,
             indentWithTab,
           ]),
-          markdown({ base: markdownLanguage, codeLanguages: languages }),
+          createLanguageExtension(filePath),
           this.themeCompartment.of(createEditorTheme(this.initialTheme)),
           this.syntaxThemeCompartment.of(this.initialTheme === 'dark' ? oneDark : []),
           this.lineWrappingCompartment.of(this.lineWrappingEnabled ? EditorView.lineWrapping : []),

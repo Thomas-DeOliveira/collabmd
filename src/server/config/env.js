@@ -38,6 +38,7 @@ export function loadConfig(overrides = {}) {
     httpRequestTimeoutMs: parsePositiveInt(process.env.HTTP_REQUEST_TIMEOUT_MS, 30_000),
     port: parsePort(process.env.PORT, 1234),
     nodeEnv,
+    plantumlServerUrl: process.env.PLANTUML_SERVER_URL || 'https://www.plantuml.com/plantuml',
     publicDir: resolve(projectRoot, 'public'),
     vaultDir,
     publicWsBaseUrl: process.env.PUBLIC_WS_BASE_URL || '',
