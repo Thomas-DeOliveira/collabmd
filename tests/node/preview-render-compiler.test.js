@@ -35,8 +35,8 @@ test('compilePreviewDocument emits stable excalidraw placeholder keys and wiki-l
     markdownText: markdown,
   });
 
-  assert.match(html, /data-embed-key="system-architecture\.excalidraw#0"/);
-  assert.match(html, /data-embed-key="system-architecture\.excalidraw#1"/);
+  assert.match(html, /data-embed-key="sample-excalidraw\.excalidraw#0"/);
+  assert.match(html, /data-embed-key="sample-excalidraw\.excalidraw#1"/);
   assert.match(html, /class="wiki-link"/);
   assert.match(html, /data-mermaid-key="mermaid-[a-z0-9]+-0"/);
   assert.match(html, /data-mermaid-source-hash="[a-z0-9]+"/);

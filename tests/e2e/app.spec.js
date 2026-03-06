@@ -356,13 +356,13 @@ test('opens excalidraw files with a direct iframe preview', async ({ page }) => 
   await page.goto('/');
   await expect(page.locator('#fileTree')).toBeVisible();
 
-  await page.locator('#fileTree .file-tree-item', { hasText: 'system-architecture' }).first().click();
+  await page.locator('#fileTree .file-tree-item', { hasText: 'sample-excalidraw' }).first().click();
 
   const iframe = page.locator('#previewContent .excalidraw-embed iframe').first();
   await expect(iframe).toBeVisible();
-  await expect(iframe).toHaveAttribute('src', /file=system-architecture\.excalidraw/);
+  await expect(iframe).toHaveAttribute('src', /file=sample-excalidraw\.excalidraw/);
   await expect(iframe).not.toHaveAttribute('src', /mode=embed/);
-  await expect(page.locator('#previewContent .excalidraw-embed-label')).toHaveText('system-architecture');
+  await expect(page.locator('#previewContent .excalidraw-embed-label')).toHaveText('sample-excalidraw');
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
   await expect(page.locator('#editorPane')).not.toBeVisible();
   await expect(page.locator('#backlinksPanel')).toHaveClass(/hidden/);
@@ -959,19 +959,33 @@ test('keeps editor, preview, and outline aligned in heavy documents after lazy h
   await openFile(page, 'sample-full.md');
   await page.locator('#outlineToggle').click();
 
-  const targetOutlineItem = page.locator('#outlineNav .outline-item[data-source-line="682"]').first();
+  const outlineItems = page.locator('#outlineNav .outline-item[data-source-line]');
+  await expect.poll(async () => (
+    outlineItems.count()
+  ), { timeout: 60000 }).toBeGreaterThan(0);
+
+  const outlineItemCount = await outlineItems.count();
+
+  // Pick a heading near the end of the document, but not the very last one, so
+  // preview alignment still has room to place it near the top of the viewport.
+  const targetIndex = outlineItemCount >= 3 ? outlineItemCount - 3 : outlineItemCount - 1;
+  const targetOutlineItem = outlineItems.nth(targetIndex);
   await expect(targetOutlineItem).toBeVisible({ timeout: 60000 });
+
+  const targetLine = Number.parseInt(await targetOutlineItem.getAttribute('data-source-line') || '', 10);
+  expect(Number.isFinite(targetLine)).toBeTruthy();
+
   await targetOutlineItem.click();
 
   await page.waitForTimeout(1500);
 
   await expect.poll(async () => {
     const lineNumbers = await getVisibleEditorLineNumbers(page);
-    return lineNumbers.includes(682);
+    return lineNumbers.includes(targetLine);
   }, { timeout: 60000 }).toBeTruthy();
 
   await expect.poll(async () => (
-    getPreviewHeadingOffset(page, 682)
+    getPreviewHeadingOffset(page, targetLine)
   ), { timeout: 60000 }).toBeLessThan(260);
 });
 
