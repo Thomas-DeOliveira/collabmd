@@ -154,6 +154,8 @@ docker build -t collabmd .
 docker run -p 1234:1234 -v /path/to/vault:/data collabmd
 ```
 
+The container listens on `0.0.0.0:1234` and stores vault files at `/data`.
+
 ### Local docker-compose with a private PlantUML server
 
 The included `docker-compose.yml` starts CollabMD together with a local `plantuml/plantuml-server:jetty` container and points `PLANTUML_SERVER_URL` at the private service automatically.
@@ -194,8 +196,11 @@ Recommended Coolify setup:
 1. Use the included `Dockerfile`.
 2. Expose port `1234`.
 3. Mount a persistent volume to `/data` containing your markdown files.
-4. Run a single replica only because room state is in-process and not shared across instances.
-5. Set `PUBLIC_WS_BASE_URL` only if your WebSocket endpoint differs from the app origin.
+4. Add a health check for `GET /health`.
+5. Run a single replica only because room state is in-process and not shared across instances.
+6. Set `PUBLIC_WS_BASE_URL` only if your WebSocket endpoint differs from the app origin.
+
+For a standard Coolify reverse-proxy setup, the default same-origin WebSocket routing works as-is and you should not need `PUBLIC_WS_BASE_URL`.
 
 Health check: `GET /health`
 

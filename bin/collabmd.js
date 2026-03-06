@@ -12,7 +12,7 @@ const { values, positionals } = parseArgs({
     help: { type: 'boolean', short: 'h', default: false },
     'local-plantuml': { type: 'boolean', default: false },
     port: { type: 'string', short: 'p', default: '1234' },
-    host: { type: 'string', default: '127.0.0.1' },
+    host: { type: 'string' },
     'no-tunnel': { type: 'boolean', default: false },
     tunnel: { type: 'boolean', default: true },
     version: { type: 'boolean', short: 'v', default: false },
@@ -39,7 +39,7 @@ if (values.help) {
 
   Options:
     -p, --port <port>    Port to listen on (default: 1234)
-    --host <host>        Host to bind to (default: 127.0.0.1)
+    --host <host>        Host to bind to (default: HOST env var, otherwise 127.0.0.1)
     --local-plantuml     Start the bundled docker-compose PlantUML service and use it
     --no-tunnel          Don't start Cloudflare Tunnel
     -v, --version        Show version
@@ -56,8 +56,8 @@ if (values.help) {
 }
 
 const vaultPath = resolve(positionals[0] || '.');
-const port = parseInt(values.port, 10) || 1234;
-const host = values.host || '127.0.0.1';
+const port = parseInt(values.port ?? process.env.PORT ?? '1234', 10) || 1234;
+const host = values.host || process.env.HOST || '127.0.0.1';
 const enableTunnel = !values['no-tunnel'];
 const useLocalPlantUml = values['local-plantuml'];
 
