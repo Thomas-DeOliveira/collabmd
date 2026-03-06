@@ -541,6 +541,34 @@ test('embedded excalidraw maximize preserves layout and modal sizing', async ({ 
   expect(afterMaximize.hitMaximizedEmbed).toBeTruthy();
 });
 
+test('embedded excalidraw matches mermaid width in preview-only view', async ({ page }) => {
+  test.slow();
+
+  await openFile(page, 'sample-full.md');
+  await page.locator('.view-btn[data-view="preview"]').click();
+  await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
+
+  await expect.poll(async () => (
+    page.locator('#previewContent .excalidraw-embed iframe').count()
+  ), { timeout: 60000 }).toBeGreaterThan(0);
+
+  const widths = await page.evaluate(() => {
+    const mermaid = document.querySelector('#previewContent .mermaid-shell');
+    const excalidraw = document.querySelector('#previewContent .excalidraw-embed');
+    if (!mermaid || !excalidraw) {
+      return null;
+    }
+
+    return {
+      mermaidWidth: mermaid.getBoundingClientRect().width,
+      excalidrawWidth: excalidraw.getBoundingClientRect().width,
+    };
+  });
+
+  expect(widths).not.toBeNull();
+  expect(Math.abs(widths.mermaidWidth - widths.excalidrawWidth)).toBeLessThanOrEqual(2);
+});
+
 test('preserves Mermaid instances across unrelated preview rerenders', async ({ page }) => {
   test.slow();
 
