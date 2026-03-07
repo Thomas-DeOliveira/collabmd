@@ -33,7 +33,7 @@ Prefer video? [Open the WebM demo](./docs/assets/collabmd-demo.webm).
 
 ### Requirements
 
-- Node.js >= 20
+- Node.js 24
 - npm
 
 ### From source
@@ -158,14 +158,21 @@ The container listens on `0.0.0.0:1234` and stores vault files at `/data`.
 
 ### Local docker-compose with a private PlantUML server
 
-The included `docker-compose.yml` starts CollabMD together with a local `plantuml/plantuml-server:jetty` container and points `PLANTUML_SERVER_URL` at the private service automatically.
+The included `docker-compose.yml` runs a prebuilt CollabMD image together with a local `plantuml/plantuml-server:jetty` container and points `PLANTUML_SERVER_URL` at the private service automatically.
 
 ```bash
 mkdir -p data/vault
-docker compose up --build
+docker build -t collabmd:local .
+docker compose up
 ```
 
 Open `http://localhost:1234`.
+
+By default, compose uses `COLLABMD_IMAGE=collabmd:local`. To run the published GitHub Container Registry image instead:
+
+```bash
+COLLABMD_IMAGE=ghcr.io/<owner>/<repo>:latest docker compose up
+```
 
 The PlantUML container is also published on loopback by default at `http://127.0.0.1:18080`, so the host-based CLI can reuse it with:
 
@@ -176,13 +183,13 @@ npm run start:local-plantuml
 To use an existing vault on your machine instead of `./data/vault`:
 
 ```bash
-HOST_VAULT_DIR=/absolute/path/to/vault docker compose up --build
+HOST_VAULT_DIR=/absolute/path/to/vault docker compose up
 ```
 
 To change the host port:
 
 ```bash
-COLLABMD_HOST_PORT=3000 docker compose up --build
+COLLABMD_HOST_PORT=3000 docker compose up
 ```
 
 To change the local PlantUML host port used by both `docker compose` and `--local-plantuml`:

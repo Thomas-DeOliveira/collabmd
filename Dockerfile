@@ -15,6 +15,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=1234
+ENV COLLABMD_VAULT_DIR=/data
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
@@ -22,11 +23,13 @@ RUN npm ci --omit=dev
 COPY --from=build /app/public ./public
 COPY --from=build /app/src ./src
 COPY --from=build /app/bin ./bin
+COPY --from=build /app/scripts ./scripts
 
 # Default vault directory — mount a volume here
 VOLUME ["/data"]
-ENV COLLABMD_VAULT_DIR=/data
 
 EXPOSE 1234
 
-CMD ["node", "bin/collabmd.js", "--no-tunnel", "/data"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -qO- http://127.0.0.1:1234/health || exit 1
+
+CMD ["node", "bin/collabmd.js", "/data", "--no-tunnel"]
