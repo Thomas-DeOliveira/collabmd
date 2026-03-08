@@ -1,4 +1,14 @@
 import { PreviewRenderer } from './preview-renderer.js';
+import { WorkspaceSessionController } from './workspace-session-controller.js';
+import {
+  isDiagramFilePath,
+  isExcalidrawFilePath,
+  isMermaidFilePath,
+  isPlantUmlFilePath,
+  stripVaultFileExtension,
+  supportsBacklinksForFilePath,
+  supportsCommentsForFilePath,
+} from '../../domain/file-kind.js';
 import { USER_NAME_MAX_LENGTH, normalizeUserName } from '../domain/room.js';
 import { resolveWikiTarget } from '../domain/vault-utils.js';
 import { LOBBY_CHAT_MESSAGE_MAX_LENGTH, LobbyPresence } from '../infrastructure/lobby-presence.js';
@@ -86,7 +96,6 @@ export class CollabMdApp {
       hour: 'numeric',
       minute: '2-digit',
     });
-    this.editorSessionModulePromise = null;
     this.quickSwitcherModulePromise = null;
     this.commentThreads = [];
     this.isTabActive = false;
@@ -182,6 +191,7 @@ export class CollabMdApp {
       onBlocked: () => this.handleTabBlocked({ reason: 'active-elsewhere' }),
       onStolen: () => this.handleTabBlocked({ reason: 'taken-over' }),
     });
+    this.workspaceSession = new WorkspaceSessionController(this);
 
     if (this.chatNotificationPermission !== 'granted') {
       this.chatNotificationsEnabled = false;
@@ -189,15 +199,15 @@ export class CollabMdApp {
   }
 
   isExcalidrawFile(filePath) {
-    return typeof filePath === 'string' && filePath.toLowerCase().endsWith('.excalidraw');
+    return isExcalidrawFilePath(filePath);
   }
 
   isMermaidFile(filePath) {
-    return typeof filePath === 'string' && /\.(?:mmd|mermaid)$/i.test(filePath);
+    return isMermaidFilePath(filePath);
   }
 
   isPlantUmlFile(filePath) {
-    return typeof filePath === 'string' && /\.(?:puml|plantuml)$/i.test(filePath);
+    return isPlantUmlFilePath(filePath);
   }
 
   createDiagramPreviewDocument(language, source = '') {
@@ -221,10 +231,9 @@ export class CollabMdApp {
   }
 
   getDisplayName(filePath) {
-    return String(filePath ?? '')
+    return stripVaultFileExtension(String(filePath ?? '')
       .split('/')
-      .pop()
-      .replace(/\.(?:md|markdown|mdx|excalidraw|puml|plantuml|mmd|mermaid)$/i, '');
+      .pop());
   }
 
   resetPreviewMode() {
@@ -237,7 +246,7 @@ export class CollabMdApp {
     const isExcalidraw = this.isExcalidrawFile(filePath);
     const isMermaid = this.isMermaidFile(filePath);
     const isPlantUml = this.isPlantUmlFile(filePath);
-    const isDiagramFile = isExcalidraw || isMermaid || isPlantUml;
+    const isDiagramFile = isDiagramFilePath(filePath);
     this.elements.outlineToggle?.classList.toggle('hidden', isDiagramFile);
     this.elements.commentsToggle?.classList.toggle('hidden', isDiagramFile);
     this.elements.commentSelectionButton?.classList.toggle('hidden', isDiagramFile);
@@ -506,47 +515,11 @@ export class CollabMdApp {
   }
 
   showEmptyState() {
-    this.sessionLoadToken += 1;
-    this.cleanupSession();
-    this.resetPreviewMode();
-    this.elements.outlineToggle?.classList.remove('hidden');
-    this.elements.commentsToggle?.classList.add('hidden');
-    this.elements.commentSelectionButton?.classList.add('hidden');
-    this.currentFilePath = null;
-    this.lobby.setCurrentFile(null);
-    this.fileExplorer.setActiveFile(null);
-
-    this.elements.emptyState?.classList.remove('hidden');
-    this.elements.editorPage?.classList.add('hidden');
-    this.elements.previewContent.innerHTML = '';
-    this.elements.previewContent.dataset.renderPhase = 'ready';
-    clearTimeout(this._previewLayoutSyncTimer);
-    this._pendingPreviewLayoutSync = false;
-    this._previewHydrationPaused = false;
-    this.previewRenderer.setHydrationPaused(false);
-    this.excalidrawEmbed.setHydrationPaused(false);
-    this.scrollSyncController.setLargeDocumentMode(false);
-    this.scrollSyncController.invalidatePreviewBlocks();
-
-    // Re-render global presence (users are still visible on the empty state)
-    this.renderAvatars();
-    this.renderPresence();
-    this.backlinksPanel.clear();
-    this.updateCommentThreads([]);
-    this.commentsPanel.setCurrentFile(null, { supported: false });
-
-    if (this.elements.activeFileName) {
-      this.elements.activeFileName.textContent = 'CollabMD';
-    }
+    this.workspaceSession.showEmptyState();
   }
 
   loadEditorSessionClass() {
-    if (!this.editorSessionModulePromise) {
-      this.editorSessionModulePromise = import('../infrastructure/editor-session.js')
-        .then((module) => module.EditorSession);
-    }
-
-    return this.editorSessionModulePromise;
+    return this.workspaceSession.loadEditorSessionClass();
   }
 
   async ensureQuickSwitcher() {
@@ -576,131 +549,11 @@ export class CollabMdApp {
   }
 
   async openFile(filePath) {
-    if (!this.isTabActive) {
-      return;
-    }
-
-    // Re-dispatching the same hash can otherwise tear down and recreate the
-    // active Yjs session for the same file, which opens a reconnect window
-    // where multiple same-tab sessions briefly overlap.
-    if (filePath === this.currentFilePath && this.session) {
-      this.fileExplorer.setActiveFile(filePath);
-      this.lobby.setCurrentFile(filePath);
-      return;
-    }
-
-    const loadToken = this.sessionLoadToken + 1;
-    this.sessionLoadToken = loadToken;
-    const isExcalidraw = this.isExcalidrawFile(filePath);
-    const isMermaid = this.isMermaidFile(filePath);
-    const isPlantUml = this.isPlantUmlFile(filePath);
-    const supportsComments = !isExcalidraw && !isMermaid && !isPlantUml;
-
-    this.cleanupSession();
-    this.layoutController.reset();
-    this.resetPreviewMode();
-    this.connectionHelpShown = false;
-    this.connectionState = { status: 'connecting', unreachable: false };
-    this.currentFilePath = filePath;
-    this.lobby.setCurrentFile(filePath);
-
-    this.fileExplorer.setActiveFile(filePath);
-    this.syncFileChrome(filePath);
-    this.commentsPanel.setCurrentFile(filePath, { supported: supportsComments });
-    this.updateCommentThreads([]);
-
-    this.elements.emptyState?.classList.add('hidden');
-    this.elements.editorPage?.classList.remove('hidden');
-
-    const displayName = this.getDisplayName(filePath);
-    if (this.elements.activeFileName) {
-      this.elements.activeFileName.textContent = displayName;
-    }
-
-    this.showEditorLoading();
-    this.previewRenderer.beginDocumentLoad();
-    this.renderPresence();
-
-    const EditorSession = await this.loadEditorSessionClass();
-    const session = new EditorSession({
-      editorContainer: this.elements.editorContainer,
-      lineWrappingEnabled: this.getStoredLineWrapping(),
-      initialTheme: this.themeController.getTheme(),
-      lineInfoElement: this.elements.lineInfo,
-      onAwarenessChange: (users) => this.updateFileAwareness(users),
-      onConnectionChange: (state) => this.handleConnectionChange(state),
-      onCommentsChange: (threads) => this.updateCommentThreads(threads),
-      onContentChange: () => {
-        if (isExcalidraw) {
-          return;
-        }
-
-        this.previewRenderer.queueRender();
-        if (this.commentThreads.length > 0) {
-          this.updateCommentThreads(this.session?.getCommentThreads() ?? []);
-        }
-        if (!isMermaid && !isPlantUml) {
-          this.scheduleBacklinkRefresh();
-        }
-      },
-      preferredUserName: this.getStoredUserName(),
-      localUser: this.lobby.getLocalUser(),
-      getFileList: () => this.fileExplorer.flatFiles,
-    });
-
-    this.session = session;
-
-    try {
-      await session.initialize(filePath);
-
-      if (loadToken !== this.sessionLoadToken) {
-        session.destroy();
-        return;
-      }
-
-      this.scrollSyncController.attachEditorScroller(session.getScrollContainer());
-      session.applyTheme(this.themeController.getTheme());
-      if (isExcalidraw) {
-        this.renderExcalidrawFilePreview(filePath);
-      }
-      this.syncWrapToggle();
-      this.updateCommentThreads(session.getCommentThreads());
-      if (isExcalidraw || isMermaid || isPlantUml) {
-        this.backlinksPanel.clear();
-      } else {
-        this.backlinksPanel.load(filePath);
-      }
-    } catch (error) {
-      console.error('[app] Failed to initialize editor:', error);
-      session.destroy();
-      this.scrollSyncController.attachEditorScroller(null);
-      if (this.session === session) {
-        this.session = null;
-      }
-
-      if (loadToken !== this.sessionLoadToken) return;
-
-      this.showEditorLoadError();
-      this.syncWrapToggle();
-      this.toastController.show('Failed to initialize editor');
-    }
+    await this.workspaceSession.openFile(filePath);
   }
 
   cleanupSession() {
-    this.session?.destroy();
-    this.session = null;
-    this.scrollSyncController.attachEditorScroller(null);
-    this.scrollSyncController.setLargeDocumentMode(false);
-    this.scrollSyncController.invalidatePreviewBlocks();
-    this.outlineController.cleanup();
-    // Keep followedUserClientId — follow persists across file switches
-    this.followedCursorSignature = '';
-    clearTimeout(this._backlinkRefreshTimer);
-    clearTimeout(this._previewLayoutSyncTimer);
-    this._pendingPreviewLayoutSync = false;
-    this._previewHydrationPaused = false;
-    this.previewRenderer.setHydrationPaused(false);
-    this.excalidrawEmbed.setHydrationPaused(false);
+    this.workspaceSession.cleanupSession();
   }
 
   handleWikiLinkClick(target) {
@@ -847,7 +700,7 @@ export class CollabMdApp {
   }
 
   supportsComments(filePath = this.currentFilePath) {
-    return Boolean(filePath) && !this.isExcalidrawFile(filePath) && !this.isMermaidFile(filePath) && !this.isPlantUmlFile(filePath);
+    return supportsCommentsForFilePath(filePath);
   }
 
   startCommentFromEditorSelection() {
@@ -1745,12 +1598,7 @@ export class CollabMdApp {
   scheduleBacklinkRefresh() {
     clearTimeout(this._backlinkRefreshTimer);
     this._backlinkRefreshTimer = setTimeout(() => {
-      if (
-        this.currentFilePath
-        && !this.isExcalidrawFile(this.currentFilePath)
-        && !this.isMermaidFile(this.currentFilePath)
-        && !this.isPlantUmlFile(this.currentFilePath)
-      ) {
+      if (supportsBacklinksForFilePath(this.currentFilePath)) {
         this.backlinksPanel.load(this.currentFilePath);
       }
     }, 2000);

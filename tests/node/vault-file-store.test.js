@@ -226,10 +226,10 @@ test('VaultFileStore rejects path traversal', async (t) => {
   assert.equal(result, null);
 });
 
-test('VaultFileStore counts markdown files', async (t) => {
+test('VaultFileStore counts vault files', async (t) => {
   const { store, cleanup } = await createVaultStore();
   t.after(cleanup);
 
-  const count = await store.countMarkdownFiles();
+  const count = await store.countVaultFiles();
   assert.equal(count, 2);
 });

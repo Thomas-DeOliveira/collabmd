@@ -1,12 +1,16 @@
+import {
+  getVaultFileExtension,
+  getVaultTreeNodeType,
+  isMermaidFilePath,
+  isPlantUmlFilePath,
+  stripVaultFileExtension,
+} from '../../domain/file-kind.js';
 import { escapeHtml } from '../domain/vault-utils.js';
 
 const MARKDOWN_EXTENSION_PATTERN = /\.(?:md|markdown|mdx)$/i;
-const DISPLAY_NAME_EXTENSION_PATTERN = /\.(?:md|markdown|mdx|excalidraw|puml|plantuml|mmd|mermaid)$/i;
-const MERMAID_EXTENSION_PATTERN = /\.(?:mmd|mermaid)$/i;
-const PLANTUML_EXTENSION_PATTERN = /\.(?:puml|plantuml)$/i;
 
 function stripVaultExtension(name) {
-  return String(name ?? '').replace(DISPLAY_NAME_EXTENSION_PATTERN, '');
+  return stripVaultFileExtension(name);
 }
 
 function getPathLeaf(path) {
@@ -182,46 +186,16 @@ export class FileExplorerController {
   }
 
   getFileType(filePath) {
-    const normalized = String(filePath || '').toLowerCase();
-    if (normalized.endsWith('.excalidraw')) {
-      return 'excalidraw';
-    }
-
-    if (MERMAID_EXTENSION_PATTERN.test(normalized)) {
-      return 'mermaid';
-    }
-
-    if (PLANTUML_EXTENSION_PATTERN.test(normalized)) {
-      return 'plantuml';
-    }
-
-    return 'file';
+    return getVaultTreeNodeType(filePath) ?? 'file';
   }
 
   getFileExtension(filePath) {
+    const vaultExtension = getVaultFileExtension(filePath);
+    if (vaultExtension) {
+      return vaultExtension;
+    }
+
     const normalized = String(filePath ?? '');
-    const lower = normalized.toLowerCase();
-
-    if (lower.endsWith('.excalidraw')) {
-      return '.excalidraw';
-    }
-
-    if (lower.endsWith('.mermaid')) {
-      return '.mermaid';
-    }
-
-    if (lower.endsWith('.mmd')) {
-      return '.mmd';
-    }
-
-    if (lower.endsWith('.plantuml')) {
-      return '.plantuml';
-    }
-
-    if (lower.endsWith('.puml')) {
-      return '.puml';
-    }
-
     const markdownMatch = normalized.match(MARKDOWN_EXTENSION_PATTERN);
     return markdownMatch ? markdownMatch[0] : '.md';
   }
@@ -920,7 +894,7 @@ export class FileExplorerController {
         }
 
         const composedPath = composeChildPath(context.normalizedParentDir, normalizedPath);
-        const filePath = MERMAID_EXTENSION_PATTERN.test(composedPath)
+        const filePath = isMermaidFilePath(composedPath)
           ? composedPath
           : `${composedPath}.mmd`;
         const starter = [
@@ -961,7 +935,7 @@ export class FileExplorerController {
         }
 
         const composedPath = composeChildPath(context.normalizedParentDir, normalizedPath);
-        const filePath = PLANTUML_EXTENSION_PATTERN.test(composedPath)
+        const filePath = isPlantUmlFilePath(composedPath)
           ? composedPath
           : `${composedPath}.puml`;
         const starter = [

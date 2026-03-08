@@ -1,6 +1,11 @@
 import { readFile } from 'fs/promises';
 import { extname, normalize, resolve } from 'path';
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from 'node:zlib';
+import {
+  isExcalidrawFilePath,
+  isMermaidFilePath,
+  isPlantUmlFilePath,
+} from '../../../domain/file-kind.js';
 
 const CONTENT_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -14,18 +19,6 @@ const ESM_UPSTREAM_ORIGIN = 'https://esm.sh';
 const ESM_TEXT_CONTENT_TYPE_PATTERN = /\b(?:javascript|ecmascript|css|json|text\/plain|text\/css)\b/i;
 const COMPRESSIBLE_CONTENT_TYPE_PATTERN = /^(?:text\/|application\/(?:javascript|json|xml)|image\/svg\+xml)/i;
 const MIN_COMPRESSIBLE_BYTES = 1024;
-
-function isExcalidrawPath(filePath) {
-  return typeof filePath === 'string' && filePath.toLowerCase().endsWith('.excalidraw');
-}
-
-function isMermaidPath(filePath) {
-  return typeof filePath === 'string' && /\.(?:mmd|mermaid)$/i.test(filePath);
-}
-
-function isPlantUmlPath(filePath) {
-  return typeof filePath === 'string' && /\.(?:puml|plantuml)$/i.test(filePath);
-}
 
 const SECURITY_HEADERS = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -529,11 +522,11 @@ export function createRequestHandler(
       }
 
       try {
-        const content = isExcalidrawPath(filePath)
+        const content = isExcalidrawFilePath(filePath)
           ? await vaultFileStore.readExcalidrawFile(filePath)
-          : isMermaidPath(filePath)
+          : isMermaidFilePath(filePath)
             ? await vaultFileStore.readMermaidFile(filePath)
-          : isPlantUmlPath(filePath)
+            : isPlantUmlFilePath(filePath)
             ? await vaultFileStore.readPlantUmlFile(filePath)
             : await vaultFileStore.readMarkdownFile(filePath);
         if (content === null) {
@@ -556,11 +549,11 @@ export function createRequestHandler(
           jsonResponse(req, res, 400, { error: 'Missing path or content' });
           return;
         }
-        const result = isExcalidrawPath(body.path)
+        const result = isExcalidrawFilePath(body.path)
           ? await vaultFileStore.writeExcalidrawFile(body.path, body.content)
-          : isMermaidPath(body.path)
+          : isMermaidFilePath(body.path)
             ? await vaultFileStore.writeMermaidFile(body.path, body.content)
-          : isPlantUmlPath(body.path)
+            : isPlantUmlFilePath(body.path)
             ? await vaultFileStore.writePlantUmlFile(body.path, body.content)
             : await vaultFileStore.writeMarkdownFile(body.path, body.content);
         if (!result.ok) {

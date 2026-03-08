@@ -78,7 +78,7 @@ export function createAppServer(config = loadConfig()) {
   let vaultFileCount = 0;
 
   async function listen() {
-    vaultFileCount = await vaultFileStore.countMarkdownFiles();
+    vaultFileCount = await vaultFileStore.countVaultFiles();
     await backlinkIndex.build();
 
     return new Promise((resolve, reject) => {

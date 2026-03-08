@@ -1,9 +1,10 @@
+import { stripVaultFileExtension } from '../../domain/file-kind.js';
 import { escapeHtml } from '../domain/vault-utils.js';
 
 const MAX_VISIBLE_RESULTS = 12;
 
 function stripDisplayExtension(filePath) {
-  return String(filePath ?? '').replace(/\.(?:md|markdown|mdx|excalidraw|puml|plantuml|mmd|mermaid)$/i, '');
+  return stripVaultFileExtension(filePath);
 }
 
 export class QuickSwitcherController {

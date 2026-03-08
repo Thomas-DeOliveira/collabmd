@@ -46,7 +46,7 @@ server.listen().then(({ host, port, wsPath }) => {
   console.log(`  http://${host}:${port}`);
   console.log(`  ws route: ${wsPath}`);
   console.log(`  vault: ${server.config.vaultDir}`);
-  console.log(`  files: ${server.vaultFileCount} markdown files`);
+  console.log(`  files: ${server.vaultFileCount} vault files`);
   console.log('');
 }).catch((error) => {
   console.error('[server] Failed to start:', error.message);

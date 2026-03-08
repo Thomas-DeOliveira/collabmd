@@ -1,33 +1,17 @@
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'fs/promises';
-import { basename, dirname, extname, join, normalize, relative, resolve } from 'path';
-const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.mdx']);
-const EXCALIDRAW_EXTENSION = '.excalidraw';
-const MERMAID_EXTENSIONS = new Set(['.mmd', '.mermaid']);
-const PLANTUML_EXTENSIONS = new Set(['.puml', '.plantuml']);
-const VAULT_FILE_EXTENSIONS = new Set([...MARKDOWN_EXTENSIONS, EXCALIDRAW_EXTENSION, ...MERMAID_EXTENSIONS, ...PLANTUML_EXTENSIONS]);
+import { dirname, join, normalize, relative, resolve } from 'path';
+import {
+  getVaultTreeNodeType,
+  isExcalidrawFilePath,
+  isMarkdownFilePath,
+  isMermaidFilePath,
+  isPlantUmlFilePath,
+  isVaultFilePath,
+} from '../../../domain/file-kind.js';
+
 const IGNORED_DIRECTORIES = new Set(['.git', '.obsidian', '.trash', 'node_modules', '.DS_Store']);
 const COMMENT_STORAGE_ROOT = '.collabmd/comments';
 const YJS_SNAPSHOT_STORAGE_ROOT = '.collabmd/yjs';
-
-function isMarkdownFile(filePath) {
-  return MARKDOWN_EXTENSIONS.has(extname(filePath).toLowerCase());
-}
-
-function isExcalidrawFile(filePath) {
-  return extname(filePath).toLowerCase() === EXCALIDRAW_EXTENSION;
-}
-
-function isMermaidFile(filePath) {
-  return MERMAID_EXTENSIONS.has(extname(filePath).toLowerCase());
-}
-
-function isPlantUmlFile(filePath) {
-  return PLANTUML_EXTENSIONS.has(extname(filePath).toLowerCase());
-}
-
-function isVaultFile(filePath) {
-  return VAULT_FILE_EXTENSIONS.has(extname(filePath).toLowerCase());
-}
 
 function isIgnored(name) {
   return IGNORED_DIRECTORIES.has(name) || name.startsWith('.');
@@ -47,7 +31,7 @@ function sanitizePath(vaultDir, requestedPath) {
 
 function getCommentThreadPath(vaultDir, filePath) {
   const absoluteVaultPath = sanitizePath(vaultDir, filePath);
-  if (!absoluteVaultPath || !isVaultFile(absoluteVaultPath)) {
+  if (!absoluteVaultPath || !isVaultFilePath(absoluteVaultPath)) {
     return null;
   }
 
@@ -57,7 +41,7 @@ function getCommentThreadPath(vaultDir, filePath) {
 
 function getYjsSnapshotPath(vaultDir, filePath) {
   const absoluteVaultPath = sanitizePath(vaultDir, filePath);
-  if (!absoluteVaultPath || !isVaultFile(absoluteVaultPath)) {
+  if (!absoluteVaultPath || !isVaultFilePath(absoluteVaultPath)) {
     return null;
   }
 
@@ -104,17 +88,11 @@ export class VaultFileStore {
           type: 'directory',
           children,
         });
-      } else if (isVaultFile(entry.name)) {
+      } else if (isVaultFilePath(entry.name)) {
         entries.push({
           name: entry.name,
           path: relativePath,
-          type: isExcalidrawFile(entry.name)
-            ? 'excalidraw'
-            : isMermaidFile(entry.name)
-              ? 'mermaid'
-            : isPlantUmlFile(entry.name)
-              ? 'plantuml'
-              : 'file',
+          type: getVaultTreeNodeType(entry.name),
         });
       }
     }
@@ -124,7 +102,7 @@ export class VaultFileStore {
 
   async readMarkdownFile(filePath) {
     const absolute = sanitizePath(this.vaultDir, filePath);
-    if (!absolute || !isMarkdownFile(absolute)) {
+    if (!absolute || !isMarkdownFilePath(absolute)) {
       return null;
     }
 
@@ -205,7 +183,7 @@ export class VaultFileStore {
 
   async readExcalidrawFile(filePath) {
     const absolute = sanitizePath(this.vaultDir, filePath);
-    if (!absolute || !isExcalidrawFile(absolute)) {
+    if (!absolute || !isExcalidrawFilePath(absolute)) {
       return null;
     }
 
@@ -224,7 +202,7 @@ export class VaultFileStore {
     { invalidateCollaborationSnapshot = true } = {},
   ) {
     const absolute = sanitizePath(this.vaultDir, filePath);
-    if (!absolute || !isExcalidrawFile(absolute)) {
+    if (!absolute || !isExcalidrawFilePath(absolute)) {
       return { ok: false, error: 'Invalid file path — must end in .excalidraw' };
     }
 
@@ -243,7 +221,7 @@ export class VaultFileStore {
 
   async readPlantUmlFile(filePath) {
     const absolute = sanitizePath(this.vaultDir, filePath);
-    if (!absolute || !isPlantUmlFile(absolute)) {
+    if (!absolute || !isPlantUmlFilePath(absolute)) {
       return null;
     }
 
@@ -258,7 +236,7 @@ export class VaultFileStore {
 
   async readMermaidFile(filePath) {
     const absolute = sanitizePath(this.vaultDir, filePath);
-    if (!absolute || !isMermaidFile(absolute)) {
+    if (!absolute || !isMermaidFilePath(absolute)) {
       return null;
     }
 
@@ -277,7 +255,7 @@ export class VaultFileStore {
     { invalidateCollaborationSnapshot = true } = {},
   ) {
     const absolute = sanitizePath(this.vaultDir, filePath);
-    if (!absolute || !isMermaidFile(absolute)) {
+    if (!absolute || !isMermaidFilePath(absolute)) {
       return { ok: false, error: 'Invalid file path — must end in .mmd or .mermaid' };
     }
 
@@ -300,7 +278,7 @@ export class VaultFileStore {
     { invalidateCollaborationSnapshot = true } = {},
   ) {
     const absolute = sanitizePath(this.vaultDir, filePath);
-    if (!absolute || !isPlantUmlFile(absolute)) {
+    if (!absolute || !isPlantUmlFilePath(absolute)) {
       return { ok: false, error: 'Invalid file path — must end in .puml or .plantuml' };
     }
 
@@ -323,7 +301,7 @@ export class VaultFileStore {
     { invalidateCollaborationSnapshot = true } = {},
   ) {
     const absolute = sanitizePath(this.vaultDir, filePath);
-    if (!absolute || !isMarkdownFile(absolute)) {
+    if (!absolute || !isMarkdownFilePath(absolute)) {
       return { ok: false, error: 'Invalid file path' };
     }
 
@@ -372,7 +350,7 @@ export class VaultFileStore {
 
   async createFile(filePath, content = '') {
     const absolute = sanitizePath(this.vaultDir, filePath);
-    if (!absolute || !isVaultFile(absolute)) {
+    if (!absolute || !isVaultFilePath(absolute)) {
       return { ok: false, error: 'Invalid file path — must end in .md, .excalidraw, .mmd, .mermaid, .puml, or .plantuml' };
     }
 
@@ -392,7 +370,7 @@ export class VaultFileStore {
 
   async deleteFile(filePath) {
     const absolute = sanitizePath(this.vaultDir, filePath);
-    if (!absolute || !isVaultFile(absolute)) {
+    if (!absolute || !isVaultFilePath(absolute)) {
       return { ok: false, error: 'Invalid file path — must end in .md, .excalidraw, .mmd, .mermaid, .puml, or .plantuml' };
     }
 
@@ -420,11 +398,11 @@ export class VaultFileStore {
       return { ok: false, error: 'Invalid file path' };
     }
 
-    if (!isVaultFile(absoluteOld)) {
+    if (!isVaultFilePath(absoluteOld)) {
       return { ok: false, error: 'Old path must be a vault file (.md, .excalidraw, .mmd, .mermaid, .puml, or .plantuml)' };
     }
 
-    if (!isVaultFile(absoluteNew)) {
+    if (!isVaultFilePath(absoluteNew)) {
       return { ok: false, error: 'New path must be a vault file (.md, .excalidraw, .mmd, .mermaid, .puml, or .plantuml)' };
     }
 
@@ -481,7 +459,7 @@ export class VaultFileStore {
     }
   }
 
-  async countMarkdownFiles() {
+  async countVaultFiles() {
     return this.countFilesInDir(this.vaultDir);
   }
 
@@ -501,7 +479,7 @@ export class VaultFileStore {
 
       if (entry.isDirectory()) {
         count += await this.countFilesInDir(fullPath);
-      } else if (isVaultFile(entry.name)) {
+      } else if (isVaultFilePath(entry.name)) {
         count += 1;
       }
     }
