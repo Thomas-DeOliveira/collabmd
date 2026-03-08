@@ -54,7 +54,7 @@ function getStaticCacheControl(pathname = '', extension = '') {
     }
 
     if (extension === '.css' || extension === '.js') {
-      return 'public, max-age=3600, stale-while-revalidate=86400';
+      return 'public, max-age=0, must-revalidate';
     }
 
     return 'public, max-age=300, stale-while-revalidate=3600';

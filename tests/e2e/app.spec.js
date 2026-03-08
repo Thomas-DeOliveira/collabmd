@@ -42,6 +42,35 @@ async function openSampleFull(page, { plantUmlLabel = 'sample-full-plantuml' } =
   await openFile(page, 'sample-full.md');
 }
 
+async function duplicateVaultFile(page, sourcePath, targetPath) {
+  await page.evaluate(async ({ sourcePath: source, targetPath: target }) => {
+    const sourceResponse = await fetch(`/api/file?path=${encodeURIComponent(source)}`);
+    if (!sourceResponse.ok) {
+      throw new Error(`Failed to read ${source}`);
+    }
+    const sourceData = await sourceResponse.json();
+    if (typeof sourceData?.content !== 'string') {
+      throw new Error(sourceData?.error || `Missing file content for ${source}`);
+    }
+
+    const createResponse = await fetch('/api/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        path: target,
+        content: sourceData.content,
+      }),
+    });
+    const createData = await createResponse.json();
+    if (!createData?.ok) {
+      throw new Error(createData?.error || `Failed to create ${target}`);
+    }
+  }, {
+    sourcePath,
+    targetPath,
+  });
+}
+
 async function waitForExcalidrawTestHarness(page) {
   await expect.poll(async () => (
     page.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__?.isReady?.() || false)
@@ -574,6 +603,8 @@ test('opens excalidraw files with a direct iframe preview', async ({ page }) => 
   await expect(iframe).toHaveAttribute('src', /file=sample-excalidraw\.excalidraw/);
   await expect(iframe).not.toHaveAttribute('src', /mode=embed/);
   await expect(page.locator('#previewContent .excalidraw-embed-label')).toHaveText('sample-excalidraw');
+  await expect(page.locator('#previewContent .excalidraw-embed-placeholder')).toHaveCount(0);
+  await expect(page.locator('#previewContent')).not.toContainText('Loading Excalidraw preview…');
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
   await expect(page.locator('#editorPane')).not.toBeVisible();
   await expect(page.locator('#backlinksPanel')).toHaveClass(/hidden/);
@@ -970,6 +1001,99 @@ test('preserves excalidraw iframe instances across unrelated preview rerenders',
   ), { timeout: 60000 }).toBe('alive');
 });
 
+test('reuses an embedded excalidraw iframe when opening the same file directly', async ({ page }) => {
+  test.slow();
+
+  await openSampleFull(page);
+
+  const embeddedIframe = page.locator('#previewContent .excalidraw-embed iframe[src*="sample-excalidraw.excalidraw"]').first();
+  await expect.poll(async () => (
+    embeddedIframe.count()
+  ), { timeout: 60000 }).toBeGreaterThan(0);
+
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('#previewContent .excalidraw-embed iframe[src*="sample-excalidraw.excalidraw"]');
+      return iframe?.contentWindow?.document?.readyState || '';
+    })
+  ), { timeout: 60000 }).toBe('complete');
+
+  await page.evaluate(() => {
+    const iframe = document.querySelector('#previewContent .excalidraw-embed iframe[src*="sample-excalidraw.excalidraw"]');
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.__collabmdDirectPreviewReuseProbe = 'alive';
+    }
+  });
+
+  const firstInstanceId = await embeddedIframe.getAttribute('data-instance-id');
+
+  await page.locator('#fileTree .file-tree-item', { hasText: 'sample-excalidraw' }).first().click();
+  await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
+
+  const directIframe = page.locator('#previewContent .excalidraw-embed iframe').first();
+  await expect(directIframe).toBeVisible();
+  await expect(directIframe).toHaveAttribute('src', /file=sample-excalidraw\.excalidraw/);
+  await expect(page.locator('#previewContent')).not.toContainText('Loading Excalidraw preview…');
+
+  await expect.poll(async () => (
+    page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('data-instance-id')
+  ), { timeout: 60000 }).toBe(firstInstanceId);
+
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+      return iframe?.contentWindow?.__collabmdDirectPreviewReuseProbe || '';
+    })
+  ), { timeout: 60000 }).toBe('alive');
+});
+
+test('switching away from a direct excalidraw preview hides stale iframe overlays immediately', async ({ page }) => {
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48"><text x="8" y="28">switch-puml</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await page.goto('/');
+  await expect(page.locator('#fileTree')).toBeVisible();
+  await page.locator('#fileTree .file-tree-item', { hasText: 'sample-excalidraw' }).first().click();
+  await expect(page.locator('#previewContent .excalidraw-embed iframe')).toBeVisible();
+
+  await page.locator('#fileTree .file-tree-item', { hasText: 'README' }).first().click();
+  await waitForEditor(page);
+  await expect(page.locator('#previewContent .excalidraw-embed iframe').first()).toBeHidden();
+  await expect(page.locator('#previewContent')).toContainText('My Vault');
+
+  await page.locator('#fileTree .file-tree-item', { hasText: 'sample-plantuml' }).first().click();
+  await waitForEditor(page);
+  await expect(page.locator('#previewContent .excalidraw-embed iframe').first()).toBeHidden();
+  await expect(page.locator('#previewContent .plantuml-frame')).toContainText('switch-puml');
+});
+
+test('switching from an unrelated direct excalidraw file to sample-full removes the stale overlay', async ({ page }) => {
+  await stubPlantUmlRender(page, 'sample-full-switch');
+  await page.goto('/');
+  await expect(page.locator('#fileTree')).toBeVisible();
+
+  await duplicateVaultFile(page, 'sample-excalidraw.excalidraw', 'new-diagram.excalidraw');
+  await page.locator('#refreshFilesBtn').click();
+  await expect(page.locator('#fileTree')).toContainText('new-diagram');
+
+  await page.locator('#fileTree .file-tree-item', { hasText: 'new-diagram' }).first().click();
+  await expect(page.locator('#previewContent .excalidraw-embed[data-file="new-diagram.excalidraw"] iframe')).toBeVisible();
+
+  await page.locator('#fileTree .file-tree-item', { hasText: 'sample-full' }).first().click();
+  await waitForEditor(page);
+  await expect(page.locator('#previewContent .excalidraw-embed[data-file="new-diagram.excalidraw"]')).toBeHidden();
+  await expect(page.locator('#previewContent')).toContainText('CollabMD');
+  await expect(page.locator('#previewContent .excalidraw-embed[data-file="sample-excalidraw.excalidraw"]')).toBeVisible();
+});
+
 test('embedded excalidraw maximize preserves layout and modal sizing', async ({ page }) => {
   test.slow();
 
@@ -1036,21 +1160,19 @@ test('embedded excalidraw matches mermaid width in preview-only view', async ({ 
     page.locator('#previewContent .excalidraw-embed iframe').count()
   ), { timeout: 60000 }).toBeGreaterThan(0);
 
-  const widths = await page.evaluate(() => {
-    const mermaid = document.querySelector('#previewContent .mermaid-shell');
-    const excalidraw = document.querySelector('#previewContent .excalidraw-embed');
-    if (!mermaid || !excalidraw) {
-      return null;
-    }
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const mermaid = document.querySelector('#previewContent .mermaid-shell');
+      const excalidraw = document.querySelector('#previewContent .excalidraw-embed');
+      if (!mermaid || !excalidraw) {
+        return Number.POSITIVE_INFINITY;
+      }
 
-    return {
-      mermaidWidth: mermaid.getBoundingClientRect().width,
-      excalidrawWidth: excalidraw.getBoundingClientRect().width,
-    };
-  });
-
-  expect(widths).not.toBeNull();
-  expect(Math.abs(widths.mermaidWidth - widths.excalidrawWidth)).toBeLessThanOrEqual(2);
+      return Math.abs(
+        mermaid.getBoundingClientRect().width - excalidraw.getBoundingClientRect().width,
+      );
+    })
+  ), { timeout: 60000 }).toBeLessThanOrEqual(2);
 });
 
 test('preserves Mermaid instances across unrelated preview rerenders', async ({ page }) => {

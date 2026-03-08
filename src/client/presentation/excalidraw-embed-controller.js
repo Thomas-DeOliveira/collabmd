@@ -102,6 +102,9 @@ export class ExcalidrawEmbedController {
     this.hydrationIdleId = null;
     this.hydrationQueue = [];
     this.hydrationInProgress = false;
+    if (this.overlayRoot) {
+      this.overlayRoot.hidden = true;
+    }
 
     this.embedEntries.forEach((entry) => {
       entry.queued = false;
@@ -138,6 +141,7 @@ export class ExcalidrawEmbedController {
     }));
 
     const { nextEntries, removedEntries } = reconcileEmbedEntries(this.embedEntries, descriptors);
+    this._adoptReusableEntries(nextEntries, removedEntries);
     removedEntries.forEach((entry) => this._destroyEntry(entry));
     this.embedEntries = nextEntries;
 
@@ -327,20 +331,51 @@ export class ExcalidrawEmbedController {
     }
 
     entry.placeholder = placeholder;
-    if (this._isFilePreviewEntry(entry)) {
-      if (!entry.wrapper?.isConnected) {
-        placeholder.replaceWith(entry.wrapper);
-      }
+    this._syncMountedEntryMetadata(entry);
+    if (this._shouldInlineFilePreview(entry)) {
+      entry.wrapper.style.position = '';
+      entry.wrapper.style.top = '';
+      entry.wrapper.style.left = '';
+      entry.wrapper.style.width = '';
+      entry.wrapper.style.margin = '';
+      entry.wrapper.style.pointerEvents = 'auto';
+      placeholder.replaceWith(entry.wrapper);
       entry.placeholder = null;
       return;
     }
 
     const overlayRoot = this._ensureOverlayRoot();
+    overlayRoot.hidden = false;
     if (entry.wrapper?.parentElement !== overlayRoot) {
       overlayRoot.appendChild(entry.wrapper);
     }
 
     this._syncEntryLayout(entry);
+  }
+
+  _adoptReusableEntries(nextEntries, removedEntries) {
+    nextEntries.forEach((nextEntry, key) => {
+      if (nextEntry.wrapper || nextEntry.iframe) {
+        return;
+      }
+
+      const removedIndex = removedEntries.findIndex((entry) => (
+        entry.filePath === nextEntry.filePath
+        && (entry.wrapper || entry.iframe)
+      ));
+      if (removedIndex < 0) {
+        return;
+      }
+
+      const [reusedEntry] = removedEntries.splice(removedIndex, 1);
+      reusedEntry.filePath = nextEntry.filePath;
+      reusedEntry.key = nextEntry.key;
+      reusedEntry.label = nextEntry.label;
+      reusedEntry.placeholder = nextEntry.placeholder;
+      reusedEntry.queued = false;
+      reusedEntry.reusedFromEmbed = this._isFilePreviewEntry(nextEntry);
+      nextEntries.set(key, reusedEntry);
+    });
   }
 
   _destroyEntry(entry) {
@@ -422,6 +457,17 @@ export class ExcalidrawEmbedController {
   _updateEmbedLabel(entry) {
     if (entry.labelElement) {
       entry.labelElement.textContent = entry.label.replace(/\.excalidraw$/i, '');
+    }
+  }
+
+  _syncMountedEntryMetadata(entry) {
+    if (entry.wrapper) {
+      entry.wrapper.dataset.embedKey = entry.key;
+      entry.wrapper.dataset.file = entry.filePath;
+    }
+
+    if (entry.iframe) {
+      entry.iframe.title = `Excalidraw: ${entry.filePath}`;
     }
   }
 
@@ -607,8 +653,12 @@ export class ExcalidrawEmbedController {
     return entry?.key === `${entry?.filePath}#file-preview`;
   }
 
+  _shouldInlineFilePreview(entry) {
+    return this._isFilePreviewEntry(entry) && !entry?.reusedFromEmbed;
+  }
+
   _resetPlaceholderLayout(entry) {
-    if (!entry?.placeholder?.isConnected || this._isFilePreviewEntry(entry)) {
+    if (!entry?.placeholder?.isConnected || this._shouldInlineFilePreview(entry)) {
       return;
     }
 
@@ -619,7 +669,7 @@ export class ExcalidrawEmbedController {
   }
 
   _syncEntryLayout(entry) {
-    if (!entry?.wrapper || this._isFilePreviewEntry(entry)) {
+    if (!entry?.wrapper || this._shouldInlineFilePreview(entry)) {
       return;
     }
 
@@ -635,6 +685,9 @@ export class ExcalidrawEmbedController {
     placeholder.classList.add('is-hydrated');
     placeholder.dataset.embedHydrated = 'true';
     placeholder.style.pointerEvents = 'none';
+    if (this._isFilePreviewEntry(entry) && placeholder.childElementCount > 0) {
+      placeholder.replaceChildren();
+    }
 
     const isMaximized = entry.wrapper.classList.contains('is-maximized');
     const headerHeight = entry.wrapper.querySelector('.excalidraw-embed-header')?.offsetHeight || 0;
@@ -671,7 +724,7 @@ export class ExcalidrawEmbedController {
 
   syncLayout() {
     this.embedEntries.forEach((entry) => {
-      if (entry.wrapper && !this._isFilePreviewEntry(entry)) {
+      if (entry.wrapper && !this._shouldInlineFilePreview(entry)) {
         this._syncEntryLayout(entry);
       }
     });

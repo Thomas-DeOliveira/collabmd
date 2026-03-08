@@ -11,6 +11,7 @@ export function reconcileEmbedEntries(currentEntries, placeholderDescriptors) {
       label: descriptor.label,
       placeholder: descriptor.placeholder,
       queued: false,
+      reusedFromEmbed: false,
       wrapper: null,
     };
 

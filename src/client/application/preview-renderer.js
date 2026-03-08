@@ -343,6 +343,20 @@ export class PreviewRenderer {
     return this.renderHost;
   }
 
+  normalizePreviewChildren(renderHost = this.renderHost) {
+    if (!this.previewElement) {
+      return;
+    }
+
+    Array.from(this.previewElement.children).forEach((child) => {
+      if (child === renderHost || child.dataset.excalidrawOverlayRoot === 'true') {
+        return;
+      }
+
+      child.remove();
+    });
+  }
+
   getReservedPreviewHeight() {
     const currentRenderHeight = this.renderHost?.getBoundingClientRect?.().height ?? 0;
     const containerHeight = this.previewContainer?.clientHeight ?? 0;
@@ -356,6 +370,7 @@ export class PreviewRenderer {
     this.preservedMermaidShells.clear();
     this.preservedPlantUmlShells.clear();
     this.clearActivePlantUmlShell();
+    this.onBeforeRenderCommit?.(this.previewElement);
     this.pendingRenderVersion += 1;
     this.activeRenderVersion = this.pendingRenderVersion;
     this.readyRenderVersion = 0;
@@ -363,6 +378,7 @@ export class PreviewRenderer {
     this.isLargeDocument = false;
     this.resetWorker('Document changed');
     const renderHost = this.ensureRenderHost();
+    this.normalizePreviewChildren(renderHost);
     const reservedHeight = this.getReservedPreviewHeight();
     if (renderHost) {
       renderHost.replaceChildren();
@@ -683,6 +699,7 @@ export class PreviewRenderer {
 
     this.onBeforeRenderCommit?.(this.previewElement);
     const renderHost = this.ensureRenderHost();
+    this.normalizePreviewChildren(renderHost);
     if (renderHost) {
       renderHost.innerHTML = html;
     }

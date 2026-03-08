@@ -88,7 +88,7 @@ test('HTTP server serves health, runtime config, and static assets', async (t) =
 
   const assetHeadResponse = await httpRequest(`${app.baseUrl}/assets/css/style.css`, { method: 'HEAD' });
   assert.equal(assetHeadResponse.statusCode, 200);
-  assert.equal(assetHeadResponse.headers['cache-control'], 'public, max-age=3600, stale-while-revalidate=86400');
+  assert.equal(assetHeadResponse.headers['cache-control'], 'public, max-age=0, must-revalidate');
 
   const compressedAssetResponse = await httpRequest(`${app.baseUrl}/assets/css/style.css`, {
     headers: {

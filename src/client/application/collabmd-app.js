@@ -254,7 +254,8 @@ export class CollabMdApp {
     this.excalidrawEmbed.detachForCommit();
     this.resetPreviewMode();
     previewElement.classList.add('is-excalidraw-file-preview');
-    previewElement.replaceChildren();
+    const renderHost = this.previewRenderer.ensureRenderHost();
+    this.previewRenderer.normalizePreviewChildren(renderHost);
 
     const placeholder = document.createElement('div');
     placeholder.className = 'excalidraw-embed-placeholder';
@@ -265,7 +266,10 @@ export class CollabMdApp {
     loadingShell.className = 'preview-shell';
     loadingShell.textContent = 'Loading Excalidraw preview…';
     placeholder.appendChild(loadingShell);
-    previewElement.appendChild(placeholder);
+    if (renderHost) {
+      renderHost.replaceChildren(placeholder);
+      renderHost.style.minHeight = '';
+    }
 
     previewElement.dataset.renderPhase = 'ready';
     this.outlineController.refresh();

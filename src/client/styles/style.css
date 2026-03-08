@@ -1226,6 +1226,13 @@
   min-height: 100%;
 }
 
+.preview-content.is-excalidraw-file-preview [data-preview-render-host="true"] {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 100%;
+}
+
 .preview-content.is-plantuml-file-preview .plantuml-shell {
   margin: 0;
   min-height: 100%;
@@ -2680,6 +2687,10 @@ body.excalidraw-maximized-open .resizer {
 
 .excalidraw-embed-placeholder-btn:hover {
   background: var(--color-surface-offset);
+}
+
+.excalidraw-embed-placeholder.is-hydrated {
+  visibility: hidden;
 }
 
 .excalidraw-embed-header {
