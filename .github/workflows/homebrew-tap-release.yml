@@ -1,0 +1,90 @@
+name: Homebrew Tap Release
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish to the Homebrew tap (for example v0.1.0)
+        required: true
+        type: string
+
+env:
+  FORMULA_NAME: collabmd
+  TAP_REPOSITORY: andes90/homebrew-tap
+
+jobs:
+  update-homebrew-tap:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Resolve release metadata
+        id: release
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ inputs.tag }}"
+          fi
+
+          VERSION="${TAG#v}"
+          TARBALL_URL="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
+
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tarball_url=${TARBALL_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release tarball and compute checksum
+        id: checksum
+        run: |
+          curl -fsSL "${{ steps.release.outputs.tarball_url }}" -o source.tar.gz
+          SHA256="$(sha256sum source.tar.gz | awk '{print $1}')"
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+
+      - name: Render Homebrew formula
+        run: |
+          node scripts/render-homebrew-formula.mjs \
+            --version "${{ steps.release.outputs.version }}" \
+            --sha256 "${{ steps.checksum.outputs.sha256 }}" \
+            --owner "${{ github.repository_owner }}" \
+            --repo "${{ github.event.repository.name }}" \
+            --output packaging/homebrew-tap/Formula/${{ env.FORMULA_NAME }}.rb
+
+      - name: Clone tap repository
+        env:
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          test -n "${HOMEBREW_TAP_GITHUB_TOKEN}"
+          git clone "https://x-access-token:${HOMEBREW_TAP_GITHUB_TOKEN}@github.com/${{ env.TAP_REPOSITORY }}.git" tap-repo
+
+      - name: Sync tap contents
+        run: |
+          mkdir -p tap-repo/Formula
+          cp packaging/homebrew-tap/README.md tap-repo/README.md
+          cp packaging/homebrew-tap/Formula/${{ env.FORMULA_NAME }}.rb tap-repo/Formula/${{ env.FORMULA_NAME }}.rb
+
+      - name: Commit and push tap update
+        working-directory: tap-repo
+        run: |
+          if git diff --quiet; then
+            echo "No Homebrew tap changes to publish."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md Formula/${{ env.FORMULA_NAME }}.rb
+          git commit -m "collabmd ${{ steps.release.outputs.version }}"
+          git push

@@ -9,7 +9,8 @@
   "scripts": {
     "build": "node scripts/build-client.mjs",
     "capture:readme-assets": "node scripts/capture-readme-assets.mjs",
-    "check": "npm run build && node --check bin/collabmd.js && node --check src/server/index.js && node --check src/server/create-app-server.js && node --check scripts/build-client.mjs && node --check scripts/cloudflare-tunnel.mjs && node --check scripts/local-plantuml-compose.mjs",
+    "check": "npm run build && node --check bin/collabmd.js && node --check src/server/index.js && node --check src/server/create-app-server.js && node --check scripts/build-client.mjs && node --check scripts/cloudflare-tunnel.mjs && node --check scripts/local-plantuml-compose.mjs && node --check scripts/render-homebrew-formula.mjs",
+    "homebrew:formula": "node scripts/render-homebrew-formula.mjs",
     "plantuml:up": "node scripts/local-plantuml-compose.mjs up",
     "plantuml:down": "node scripts/local-plantuml-compose.mjs down",
     "start": "npm run build && node bin/collabmd.js",
