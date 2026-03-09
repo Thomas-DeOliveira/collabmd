@@ -74,9 +74,7 @@ const formula = `class ${className} < Formula
       rescue ErrorDuringExecution
         sleep 1
       else
-        if output != "ok"
-          sleep 1
-        end
+        sleep 1 if output != "ok"
       end
     end
 
