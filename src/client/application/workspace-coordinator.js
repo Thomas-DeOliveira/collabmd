@@ -178,6 +178,14 @@ export class WorkspaceCoordinator {
       this.attachEditorScroller(this.scrollContainerForSession(session));
       session.applyTheme(this.getTheme());
       await session.waitForInitialSync();
+      session.ensureInitialContent?.();
+
+      if (loadToken !== this.stateStore.get('sessionLoadToken')) {
+        session.destroy();
+        return;
+      }
+
+      this.onFileOpenReady(session);
       session.requestMeasure();
       await this.waitForNextPaint();
 
@@ -186,7 +194,6 @@ export class WorkspaceCoordinator {
         return;
       }
 
-      this.onFileOpenReady(session);
       if (isExcalidraw) {
         this.onRenderExcalidrawPreview(filePath);
       }

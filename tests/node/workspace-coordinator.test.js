@@ -1,0 +1,187 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { EditorSession } from '../../src/client/infrastructure/editor-session.js';
+import { WorkspaceCoordinator } from '../../src/client/application/workspace-coordinator.js';
+
+function createStateStore() {
+  const state = new Map([
+    ['commentThreads', []],
+    ['connectionState', null],
+    ['connectionHelpShown', false],
+    ['currentFilePath', null],
+    ['sessionLoadToken', 0],
+  ]);
+
+  return {
+    get(key) {
+      return state.get(key);
+    },
+    nextSessionLoadToken() {
+      const nextToken = (state.get('sessionLoadToken') ?? 0) + 1;
+      state.set('sessionLoadToken', nextToken);
+      return nextToken;
+    },
+    set(key, value) {
+      state.set(key, value);
+    },
+  };
+}
+
+function createCoordinator(overrides = {}) {
+  const events = [];
+  const stateStore = createStateStore();
+  const session = overrides.session ?? {
+    applyTheme() {
+      events.push('apply-theme');
+    },
+    destroy() {
+      events.push('destroy');
+    },
+    ensureInitialContent() {
+      events.push('ensure-content');
+    },
+    getCommentThreads() {
+      return [];
+    },
+    getScrollContainer() {
+      return null;
+    },
+    initialize: async () => {
+      events.push('initialize');
+    },
+    requestMeasure() {
+      events.push('measure');
+    },
+    waitForInitialSync: async () => {
+      events.push('wait-sync');
+    },
+  };
+
+  const coordinator = new WorkspaceCoordinator({
+    attachEditorScroller: () => {},
+    beginDocumentLoad: () => {
+      events.push('begin-load');
+    },
+    cleanupAfterSessionDestroy: () => {
+      events.push('cleanup-session');
+    },
+    createEditorSession: () => session,
+    getDisplayName: () => 'README',
+    getFileList: () => [],
+    getLineWrappingEnabled: () => true,
+    getLocalUser: () => null,
+    getStoredUserName: () => 'Tester',
+    getTheme: () => 'light',
+    isExcalidrawFile: () => false,
+    isMermaidFile: () => false,
+    isPlantUmlFile: () => false,
+    isTabActive: () => true,
+    loadEditorSessionClass: async () => EditorSession,
+    loadBacklinks: () => {
+      events.push('load-backlinks');
+    },
+    onBeforeFileOpen: () => {
+      events.push('before-open');
+    },
+    onCommentsChange: () => {
+      events.push('comments-change');
+    },
+    onConnectionChange: () => {},
+    onContentChange: () => {
+      events.push('content-change');
+    },
+    onFileAwarenessChange: () => {},
+    onFileOpenError: () => {
+      events.push('open-error');
+    },
+    onFileOpenReady: () => {
+      events.push('open-ready');
+    },
+    onRenderExcalidrawPreview: () => {
+      events.push('render-excalidraw');
+    },
+    onSyncWrapToggle: () => {
+      events.push('sync-wrap');
+    },
+    onUpdateActiveFile: () => {},
+    onUpdateCurrentFile: () => {},
+    onUpdateLobbyCurrentFile: () => {},
+    onUpdateVisibleChrome: () => {},
+    onViewModeReset: () => {
+      events.push('reset-view');
+    },
+    renderPresence: () => {
+      events.push('render-presence');
+    },
+    scrollContainerForSession: () => null,
+    setCommentsFile: () => {},
+    showEditorLoading: () => {
+      events.push('show-loading');
+    },
+    stateStore,
+    ...overrides,
+  });
+
+  coordinator.waitForNextPaint = async () => {
+    events.push('wait-next-paint');
+  };
+
+  return { coordinator, events, session, stateStore };
+}
+
+test('EditorSession emitContentChange deduplicates repeated content', () => {
+  const notifications = [];
+  const session = Object.create(EditorSession.prototype);
+  session.onContentChange = () => {
+    notifications.push('change');
+  };
+  session.getText = () => 'hello';
+  session.hasDeliveredContent = false;
+  session.lastDeliveredContent = null;
+
+  assert.equal(session.emitContentChange(), true);
+  assert.equal(session.emitContentChange(), false);
+
+  session.getText = () => 'hello world';
+  assert.equal(session.emitContentChange(), true);
+  assert.deepEqual(notifications, ['change', 'change']);
+});
+
+test('WorkspaceCoordinator marks file open before post-paint work completes', async () => {
+  const { coordinator, events } = createCoordinator();
+
+  await coordinator.openFile('README.md');
+
+  assert.ok(events.indexOf('open-ready') >= 0);
+  assert.ok(events.indexOf('wait-next-paint') >= 0);
+  assert.ok(events.indexOf('open-ready') < events.indexOf('wait-next-paint'));
+  assert.ok(events.indexOf('ensure-content') > events.indexOf('wait-sync'));
+  assert.ok(events.indexOf('load-backlinks') > events.indexOf('wait-next-paint'));
+});
+
+test('WorkspaceCoordinator ensures initial content after sync wait even without early content events', async () => {
+  let ensureCalls = 0;
+  const { coordinator } = createCoordinator({
+    session: {
+      applyTheme() {},
+      destroy() {},
+      ensureInitialContent() {
+        ensureCalls += 1;
+      },
+      getCommentThreads() {
+        return [];
+      },
+      getScrollContainer() {
+        return null;
+      },
+      initialize: async () => {},
+      requestMeasure() {},
+      waitForInitialSync: async () => {},
+    },
+  });
+
+  await coordinator.openFile('README.md');
+
+  assert.equal(ensureCalls, 1);
+});

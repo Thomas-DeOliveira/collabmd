@@ -173,6 +173,8 @@ export class EditorSession {
     this.initialSyncComplete = false;
     this.initialSyncPromise = Promise.resolve();
     this.resolveInitialSync = null;
+    this.hasDeliveredContent = false;
+    this.lastDeliveredContent = null;
   }
 
   async initialize(filePath) {
@@ -190,6 +192,8 @@ export class EditorSession {
 
     this.provider = provider;
     this.initialSyncComplete = false;
+    this.hasDeliveredContent = false;
+    this.lastDeliveredContent = null;
     this.initialSyncPromise = new Promise((resolve) => {
       this.resolveInitialSync = resolve;
     });
@@ -211,7 +215,7 @@ export class EditorSession {
       this.initialSyncComplete = true;
       this.resolveInitialSync?.();
       this.resolveInitialSync = null;
-      this.onContentChange?.();
+      this.emitContentChange();
     });
 
     awareness.on('change', () => {
@@ -225,7 +229,7 @@ export class EditorSession {
 
     const updateListener = EditorView.updateListener.of((update) => {
       if (update.docChanged) {
-        this.onContentChange?.();
+        this.emitContentChange();
       }
 
       if (update.selectionSet || update.docChanged) {
@@ -287,7 +291,22 @@ export class EditorSession {
     this.updateCursorInfo(this.editorView.state);
     this.onAwarenessChange?.(this.collectUsers(awareness));
     this.onCommentsChange?.(this.getCommentThreads());
+  }
+
+  emitContentChange({ force = false } = {}) {
+    const nextContent = this.getText();
+    if (!force && this.hasDeliveredContent && nextContent === this.lastDeliveredContent) {
+      return false;
+    }
+
+    this.hasDeliveredContent = true;
+    this.lastDeliveredContent = nextContent;
     this.onContentChange?.();
+    return true;
+  }
+
+  ensureInitialContent() {
+    return this.emitContentChange();
   }
 
   applyTheme(theme) {
@@ -626,6 +645,8 @@ export class EditorSession {
     this.resolveInitialSync = null;
     this.initialSyncComplete = false;
     this.initialSyncPromise = Promise.resolve();
+    this.hasDeliveredContent = false;
+    this.lastDeliveredContent = null;
 
     this.provider?.disconnect();
     this.provider?.destroy();
