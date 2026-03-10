@@ -1,4 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process';
+import { createReadStream } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -24,6 +25,48 @@ function createRequestError(statusCode, message) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+function createEmptyStats() {
+  return {
+    additions: 0,
+    deletions: 0,
+  };
+}
+
+function createEmptySummary() {
+  return {
+    additions: 0,
+    changedFiles: 0,
+    deletions: 0,
+    staged: 0,
+    untracked: 0,
+    workingTree: 0,
+  };
+}
+
+function createEmptyBranchStatus() {
+  return {
+    ahead: 0,
+    behind: 0,
+    detached: false,
+    hasCommits: false,
+    name: null,
+    upstream: null,
+  };
+}
+
+function createEmptyStatusResponse() {
+  return {
+    branch: createEmptyBranchStatus(),
+    isGitRepo: false,
+    sections: [
+      { files: [], key: 'staged', label: 'Staged Changes' },
+      { files: [], key: 'working-tree', label: 'Changes' },
+      { files: [], key: 'untracked', label: 'Untracked' },
+    ],
+    summary: createEmptySummary(),
+  };
 }
 
 function decodeQuotedPath(pathValue) {
@@ -291,6 +334,78 @@ function parseNumstatEntries(output) {
     });
 }
 
+function createSectionMap(sections = []) {
+  return new Map(sections.map((section) => [section.key, section]));
+}
+
+function createDiffResponse({
+  files = [],
+  isGitRepo = true,
+  metaOnly = false,
+  path = null,
+  scope = 'working-tree',
+  summary = {
+    additions: 0,
+    deletions: 0,
+    filesChanged: 0,
+  },
+} = {}) {
+  return {
+    files,
+    isGitRepo,
+    metaOnly,
+    path,
+    scope,
+    summary,
+  };
+}
+
+async function mapWithConcurrency(items, limit, iteratee) {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (cursor < items.length) {
+      const currentIndex = cursor;
+      cursor += 1;
+      results[currentIndex] = await iteratee(items[currentIndex], currentIndex);
+    }
+  }));
+
+  return results;
+}
+
+async function countFileLines(filePath) {
+  return new Promise((resolve, reject) => {
+    const stream = createReadStream(filePath, { encoding: 'utf8' });
+    let lineCount = 0;
+    let sawData = false;
+    let lastCharacter = '\n';
+
+    stream.on('data', (chunk) => {
+      if (!chunk) {
+        return;
+      }
+
+      sawData = true;
+      lastCharacter = chunk[chunk.length - 1];
+      lineCount += chunk.match(/\n/gu)?.length ?? 0;
+    });
+    stream.on('error', reject);
+    stream.on('end', () => {
+      if (sawData && lastCharacter !== '\n') {
+        lineCount += 1;
+      }
+      resolve(lineCount);
+    });
+  });
+}
+
 function getStatusPriority(status) {
   switch (status) {
     case 'deleted':
@@ -524,10 +639,7 @@ function buildSyntheticAddedFileDiff(pathValue, content) {
     isBinary: false,
     oldPath: null,
     path: pathValue,
-    stats: {
-      additions: 0,
-      deletions: 0,
-    },
+    stats: createEmptyStats(),
     status: 'untracked',
     synthetic: true,
   };
@@ -575,6 +687,8 @@ export class GitService {
       expiresAt: 0,
       value: null,
     };
+    this.pendingDiffRequests = new Map();
+    this.pendingStatusPromise = null;
   }
 
   async isGitRepo() {
@@ -606,35 +720,14 @@ export class GitService {
       expiresAt: 0,
       value: null,
     };
+    this.pendingDiffRequests.clear();
+    this.pendingStatusPromise = null;
   }
 
   async getStatus({ force = false } = {}) {
     const isGitRepo = await this.isGitRepo();
     if (!isGitRepo) {
-      return {
-        branch: {
-          ahead: 0,
-          behind: 0,
-          detached: false,
-          hasCommits: false,
-          name: null,
-          upstream: null,
-        },
-        isGitRepo: false,
-        sections: [
-          { files: [], key: 'staged', label: 'Staged Changes' },
-          { files: [], key: 'working-tree', label: 'Changes' },
-          { files: [], key: 'untracked', label: 'Untracked' },
-        ],
-        summary: {
-          additions: 0,
-          changedFiles: 0,
-          deletions: 0,
-          staged: 0,
-          untracked: 0,
-          workingTree: 0,
-        },
-      };
+      return createEmptyStatusResponse();
     }
 
     const now = Date.now();
@@ -642,40 +735,50 @@ export class GitService {
       return this.statusCache.value;
     }
 
-    const parsed = parseStatusOutput(
-      await this.execGit(['status', '--porcelain=v1', '--branch', '--untracked-files=all']),
-    );
-    const sections = [
-      { files: parsed.sections.staged, key: 'staged', label: 'Staged Changes' },
-      { files: parsed.sections['working-tree'], key: 'working-tree', label: 'Changes' },
-      { files: parsed.sections.untracked, key: 'untracked', label: 'Untracked' },
-    ];
-    const localSummary = await this.getLocalChangeSummary(sections);
-    const response = {
-      branch: parsed.branch,
-      isGitRepo: true,
-      sections,
-      summary: {
-        ...parsed.summary,
-        additions: localSummary.additions,
-        deletions: localSummary.deletions,
-      },
-    };
+    if (this.pendingStatusPromise) {
+      return this.pendingStatusPromise;
+    }
 
-    this.statusCache = {
-      expiresAt: now + this.statusCacheTtlMs,
-      value: response,
-    };
+    const statusPromise = (async () => {
+      const parsed = parseStatusOutput(
+        await this.execGit(['status', '--porcelain=v1', '--branch', '--untracked-files=all']),
+      );
+      const sections = [
+        { files: parsed.sections.staged, key: 'staged', label: 'Staged Changes' },
+        { files: parsed.sections['working-tree'], key: 'working-tree', label: 'Changes' },
+        { files: parsed.sections.untracked, key: 'untracked', label: 'Untracked' },
+      ];
+      const localSummary = await this.getLocalChangeSummary({
+        hasHeadCommit: parsed.branch.hasCommits,
+        untrackedFiles: parsed.sections.untracked,
+      });
+      const response = {
+        branch: parsed.branch,
+        isGitRepo: true,
+        sections,
+        summary: {
+          ...parsed.summary,
+          additions: localSummary.additions,
+          deletions: localSummary.deletions,
+        },
+      };
 
-    return response;
-  }
+      this.statusCache = {
+        expiresAt: Date.now() + this.statusCacheTtlMs,
+        value: response,
+      };
 
-  async hasHeadCommit() {
+      return response;
+    })();
+
+    this.pendingStatusPromise = statusPromise;
+
     try {
-      await this.execGit(['rev-parse', '--verify', 'HEAD']);
-      return true;
-    } catch {
-      return false;
+      return await statusPromise;
+    } finally {
+      if (this.pendingStatusPromise === statusPromise) {
+        this.pendingStatusPromise = null;
+      }
     }
   }
 
@@ -758,24 +861,38 @@ export class GitService {
     };
   }
 
-  async getLocalChangeSummary(sections = []) {
-    const hasHeadCommit = await this.hasHeadCommit();
+  async countUntrackedFileAdditions(files = []) {
+    const counts = await mapWithConcurrency(files, 4, async (file) => {
+      try {
+        return await countFileLines(join(this.vaultDir, file.path));
+      } catch {
+        return 0;
+      }
+    });
+
+    return counts.reduce((total, count) => total + count, 0);
+  }
+
+  async buildSyntheticUntrackedDiffs(files = []) {
+    const results = await mapWithConcurrency(files, 2, async (file) => {
+      try {
+        const content = await readFile(join(this.vaultDir, file.path), 'utf8');
+        return buildSyntheticAddedFileDiff(file.path, content);
+      } catch {
+        return null;
+      }
+    });
+
+    return results.filter(Boolean);
+  }
+
+  async getLocalChangeSummary({ hasHeadCommit = false, untrackedFiles = [] } = {}) {
     const trackedSummary = parseNumstatOutput(
       await this.execGit(hasHeadCommit
         ? ['diff', '--numstat', 'HEAD']
         : ['diff', '--cached', '--numstat']),
     );
-    const untrackedFiles = sections.find((section) => section.key === 'untracked')?.files ?? [];
-    let untrackedAdditions = 0;
-
-    for (const file of untrackedFiles) {
-      try {
-        const content = await readFile(join(this.vaultDir, file.path), 'utf8');
-        untrackedAdditions += splitContentLines(content).length;
-      } catch {
-        // Ignore disappearing files between status refreshes.
-      }
-    }
+    const untrackedAdditions = await this.countUntrackedFileAdditions(untrackedFiles);
 
     return {
       additions: trackedSummary.additions + untrackedAdditions,
@@ -783,7 +900,7 @@ export class GitService {
     };
   }
 
-  async buildDiffCommandArgs({ numstat = false, path = null, scope = 'working-tree' } = {}) {
+  buildDiffCommandArgs({ hasHeadCommit = true, numstat = false, path = null, scope = 'working-tree' } = {}) {
     const args = numstat
       ? ['diff', '--numstat']
       : ['diff', '--no-color', '--no-ext-diff', '--find-renames'];
@@ -791,7 +908,7 @@ export class GitService {
     if (scope === 'staged') {
       args.push('--cached');
     } else if (scope === 'all') {
-      if (await this.hasHeadCommit()) {
+      if (hasHeadCommit) {
         args.push('HEAD');
       } else {
         args.push('--cached');
@@ -808,6 +925,7 @@ export class GitService {
   getScopedFiles(status, scope = 'working-tree', path = null) {
     const orderedFiles = [];
     const fileMap = new Map();
+    const sectionMap = createSectionMap(status.sections);
     const candidateSections = scope === 'staged'
       ? ['staged']
       : scope === 'all'
@@ -815,24 +933,17 @@ export class GitService {
         : ['working-tree', 'untracked'];
 
     for (const sectionKey of candidateSections) {
-      const section = status.sections.find((entry) => entry.key === sectionKey);
+      const section = sectionMap.get(sectionKey);
       for (const file of section?.files ?? []) {
         if (path && file.path !== path) {
           continue;
         }
 
-        if (!fileMap.has(file.path)) {
-          const merged = mergeScopedFile(null, file, scope);
-          fileMap.set(file.path, merged);
-          orderedFiles.push(merged);
-          continue;
-        }
-
-        const merged = mergeScopedFile(fileMap.get(file.path), file, scope);
+        const existing = fileMap.get(file.path) ?? null;
+        const merged = mergeScopedFile(existing, file, scope);
         fileMap.set(file.path, merged);
-        const index = orderedFiles.findIndex((entry) => entry.path === file.path);
-        if (index >= 0) {
-          orderedFiles[index] = merged;
+        if (!existing) {
+          orderedFiles.push(merged);
         }
       }
     }
@@ -840,24 +951,26 @@ export class GitService {
     return orderedFiles;
   }
 
-  async getScopeSummary({ files = [], path = null, scope = 'working-tree' } = {}) {
-    const trackedSummary = parseNumstatOutput(
-      await this.execGit(await this.buildDiffCommandArgs({
-        numstat: true,
-        path,
-        scope,
-      })),
+  async getScopeSummary({
+    files = [],
+    hasHeadCommit = false,
+    path = null,
+    scope = 'working-tree',
+  } = {}) {
+    const trackedFiles = files.filter((entry) => entry.status !== 'untracked');
+    const trackedSummary = trackedFiles.length > 0
+      ? parseNumstatOutput(
+        await this.execGit(this.buildDiffCommandArgs({
+          hasHeadCommit,
+          numstat: true,
+          path,
+          scope,
+        })),
+      )
+      : createEmptyStats();
+    const untrackedAdditions = await this.countUntrackedFileAdditions(
+      files.filter((entry) => entry.status === 'untracked'),
     );
-    let untrackedAdditions = 0;
-
-    for (const file of files.filter((entry) => entry.status === 'untracked')) {
-      try {
-        const content = await readFile(join(this.vaultDir, file.path), 'utf8');
-        untrackedAdditions += splitContentLines(content).length;
-      } catch {
-        // Ignore disappearing files between requests.
-      }
-    }
 
     return {
       additions: trackedSummary.additions + untrackedAdditions,
@@ -869,81 +982,187 @@ export class GitService {
   async getDiff({ allowLargePatch = false, metaOnly = false, path = null, scope = 'working-tree' } = {}) {
     const isGitRepo = await this.isGitRepo();
     if (!isGitRepo) {
-      return {
+      return createDiffResponse({
         files: [],
         isGitRepo: false,
         metaOnly,
         scope,
-        summary: {
-          additions: 0,
-          deletions: 0,
-          filesChanged: 0,
-        },
-      };
+      });
     }
 
     const normalizedPath = path ? normalizeRelativePath(path) : null;
     const resolvedScope = scope === 'staged' || scope === 'all'
       ? scope
       : 'working-tree';
-    const status = await this.getStatus();
-    const scopedFiles = this.getScopedFiles(status, resolvedScope, normalizedPath);
-    const scopeSummary = await this.getScopeSummary({
-      files: scopedFiles,
+    const requestKey = JSON.stringify({
+      allowLargePatch: Boolean(allowLargePatch),
+      metaOnly: Boolean(metaOnly),
       path: normalizedPath,
       scope: resolvedScope,
     });
 
-    if (metaOnly) {
-      return {
-        files: scopedFiles,
-        isGitRepo: true,
-        metaOnly: true,
-        path: normalizedPath,
-        scope: resolvedScope,
-        summary: scopeSummary,
-      };
+    if (this.pendingDiffRequests.has(requestKey)) {
+      return this.pendingDiffRequests.get(requestKey);
     }
 
-    const diffText = await this.execGit(await this.buildDiffCommandArgs({
+    const requestPromise = this.getDiffUncached({
+      allowLargePatch,
+      metaOnly,
       path: normalizedPath,
       scope: resolvedScope,
-    }));
-    const parsedFiles = parseUnifiedDiff(diffText);
+    });
+    this.pendingDiffRequests.set(requestKey, requestPromise);
 
-    if (resolvedScope !== 'staged') {
-      const untrackedFiles = status.sections
-        .find((section) => section.key === 'untracked')
-        ?.files
-        ?.filter((file) => !normalizedPath || file.path === normalizedPath)
-        ?? [];
+    try {
+      return await requestPromise;
+    } finally {
+      if (this.pendingDiffRequests.get(requestKey) === requestPromise) {
+        this.pendingDiffRequests.delete(requestKey);
+      }
+    }
+  }
 
-      for (const file of untrackedFiles) {
-        if (parsedFiles.some((entry) => entry.path === file.path)) {
-          continue;
-        }
+  async getDiffUncached({ allowLargePatch = false, metaOnly = false, path = null, scope = 'working-tree' } = {}) {
+    const status = await this.getStatus();
+    const scopedFiles = this.getScopedFiles(status, scope, path);
+    const hasHeadCommit = Boolean(status.branch?.hasCommits);
 
-        const content = await readFile(join(this.vaultDir, file.path), 'utf8');
-        parsedFiles.push(buildSyntheticAddedFileDiff(file.path, content));
+    if (metaOnly) {
+      const scopeSummary = await this.getScopeSummary({
+        files: scopedFiles,
+        hasHeadCommit,
+        path,
+        scope,
+      });
+
+      return createDiffResponse({
+        files: scopedFiles,
+        metaOnly: true,
+        path,
+        scope,
+        summary: scopeSummary,
+      });
+    }
+
+    const isSinglePathRequest = Boolean(path);
+    const currentFile = isSinglePathRequest ? scopedFiles[0] ?? null : null;
+    if (currentFile?.status === 'untracked') {
+      const fileLineCount = await this.countUntrackedFileAdditions([currentFile]);
+      const summary = {
+        additions: fileLineCount,
+        deletions: 0,
+        filesChanged: scopedFiles.length,
+      };
+
+      if (!allowLargePatch && fileLineCount > this.maxInitialPatchLines) {
+        return createDiffResponse({
+          files: [{
+            ...currentFile,
+            canLoadFullPatch: true,
+            hunks: [],
+            patchLineCount: fileLineCount,
+            stats: {
+              additions: fileLineCount,
+              deletions: 0,
+            },
+            tooLarge: true,
+          }],
+          metaOnly: false,
+          path,
+          scope,
+          summary,
+        });
+      }
+
+      const syntheticFiles = await this.buildSyntheticUntrackedDiffs([currentFile]);
+      const detail = syntheticFiles[0] ?? {
+        ...currentFile,
+        hunks: [],
+        stats: {
+          additions: fileLineCount,
+          deletions: 0,
+        },
+      };
+
+      return createDiffResponse({
+        files: [{
+          ...currentFile,
+          ...detail,
+          canLoadFullPatch: false,
+          patchLineCount: countPatchLines(detail),
+          tooLarge: false,
+        }],
+        metaOnly: false,
+        path,
+        scope,
+        summary,
+      });
+    }
+
+    let singleFileSummary = null;
+    if (isSinglePathRequest) {
+      singleFileSummary = await this.getScopeSummary({
+        files: scopedFiles,
+        hasHeadCommit,
+        path,
+        scope,
+      });
+
+      if (
+        currentFile
+        && !allowLargePatch
+        && singleFileSummary.filesChanged > 0
+        && (singleFileSummary.additions + singleFileSummary.deletions) > this.maxInitialPatchLines
+      ) {
+        return createDiffResponse({
+          files: [{
+            ...currentFile,
+            canLoadFullPatch: true,
+            hunks: [],
+            patchLineCount: singleFileSummary.additions + singleFileSummary.deletions,
+            stats: {
+              additions: singleFileSummary.additions,
+              deletions: singleFileSummary.deletions,
+            },
+            tooLarge: true,
+          }],
+          metaOnly: false,
+          path,
+          scope,
+          summary: singleFileSummary,
+        });
       }
     }
 
+    const diffText = await this.execGit(this.buildDiffCommandArgs({
+      hasHeadCommit,
+      path,
+      scope,
+    }));
+    const parsedFiles = parseUnifiedDiff(diffText);
+
+    if (scope !== 'staged') {
+      const untrackedFiles = this.getScopedFiles(status, 'working-tree', path)
+        .filter((file) => file.status === 'untracked');
+      const trackedPathSet = new Set(parsedFiles.map((entry) => entry.path));
+      const missingUntrackedFiles = untrackedFiles.filter((file) => !trackedPathSet.has(file.path));
+      parsedFiles.push(...await this.buildSyntheticUntrackedDiffs(missingUntrackedFiles));
+    }
+
+    const parsedFileMap = new Map(parsedFiles.map((file) => [file.path, file]));
     const mergedFiles = scopedFiles.map((file) => {
-      const detail = parsedFiles.find((entry) => entry.path === file.path) ?? null;
+      const detail = parsedFileMap.get(file.path) ?? null;
       if (!detail) {
         return {
           ...file,
           hunks: [],
-          stats: file.stats ?? {
-            additions: 0,
-            deletions: 0,
-          },
+          stats: file.stats ?? createEmptyStats(),
         };
       }
 
       const patchLineCount = countPatchLines(detail);
       if (
-        normalizedPath
+        isSinglePathRequest
         && !allowLargePatch
         && (
           patchLineCount > this.maxInitialPatchLines
@@ -980,13 +1199,12 @@ export class GitService {
       filesChanged: 0,
     });
 
-    return {
+    return createDiffResponse({
       files: mergedFiles,
-      isGitRepo: true,
       metaOnly: false,
-      path: normalizedPath,
-      scope: resolvedScope,
-      summary: normalizedPath ? summary : scopeSummary,
-    };
+      path,
+      scope,
+      summary: isSinglePathRequest ? singleFileSummary ?? summary : summary,
+    });
   }
 }

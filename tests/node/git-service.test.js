@@ -42,6 +42,22 @@ async function createFixtureRepository() {
   return repoDir;
 }
 
+function createCountingExecFileImpl({ delayStatusMs = 0 } = {}) {
+  const calls = [];
+
+  return {
+    calls,
+    execFileImpl: async (...args) => {
+      const [, gitArgs = []] = args;
+      calls.push(gitArgs);
+      if (delayStatusMs > 0 && gitArgs[0] === '-c' && gitArgs[2] === 'status') {
+        await new Promise((resolve) => setTimeout(resolve, delayStatusMs));
+      }
+      return execFile(...args);
+    },
+  };
+}
+
 test('GitService reports sections and diffs for staged, unstaged, and untracked files', async (t) => {
   const repoDir = await createFixtureRepository();
   t.after(async () => {
@@ -142,7 +158,9 @@ test('GitService guards large file patches until explicitly requested', async (t
     'utf8',
   );
 
+  const guardedCounter = createCountingExecFileImpl();
   const gitService = new GitService({
+    execFileImpl: guardedCounter.execFileImpl,
     maxInitialPatchLines: 20,
     vaultDir: repoDir,
   });
@@ -152,14 +170,91 @@ test('GitService guards large file patches until explicitly requested', async (t
   assert.equal(guardedDiff.files[0].tooLarge, true);
   assert.equal(guardedDiff.files[0].canLoadFullPatch, true);
   assert.deepEqual(guardedDiff.files[0].hunks, []);
+  assert.equal(guardedCounter.calls.length, 3);
+  assert.equal(
+    guardedCounter.calls.some((args) => args[2] === 'diff' && !args.includes('--numstat')),
+    false,
+  );
 
-  const fullDiff = await gitService.getDiff({
+  const fullCounter = createCountingExecFileImpl();
+  const fullDiffService = new GitService({
+    execFileImpl: fullCounter.execFileImpl,
+    maxInitialPatchLines: 20,
+    vaultDir: repoDir,
+  });
+
+  const fullDiff = await fullDiffService.getDiff({
     allowLargePatch: true,
     path: 'large.md',
     scope: 'working-tree',
   });
   assert.equal(fullDiff.files[0].tooLarge, false);
   assert.equal(fullDiff.files[0].hunks.length > 0, true);
+  assert.equal(
+    fullCounter.calls.some((args) => args[2] === 'diff' && !args.includes('--numstat')),
+    true,
+  );
+});
+
+test('GitService avoids redundant subprocesses for status and meta diff requests', async (t) => {
+  const repoDir = await createFixtureRepository();
+  t.after(async () => {
+    await rm(repoDir, { force: true, recursive: true });
+  });
+
+  const statusCounter = createCountingExecFileImpl();
+  const statusService = new GitService({
+    execFileImpl: statusCounter.execFileImpl,
+    statusCacheTtlMs: 0,
+    vaultDir: repoDir,
+  });
+  await statusService.getStatus({ force: true });
+  assert.equal(statusCounter.calls.length, 2);
+  assert.equal(statusCounter.calls.some((args) => args.includes('rev-parse')), false);
+
+  const diffCounter = createCountingExecFileImpl();
+  const diffService = new GitService({
+    execFileImpl: diffCounter.execFileImpl,
+    statusCacheTtlMs: 0,
+    vaultDir: repoDir,
+  });
+  const metaDiff = await diffService.getDiff({ metaOnly: true, scope: 'all' });
+  assert.equal(metaDiff.summary.filesChanged, 3);
+  assert.equal(diffCounter.calls.length, 3);
+  assert.equal(diffCounter.calls.some((args) => args.includes('rev-parse')), false);
+});
+
+test('GitService coalesces concurrent status and diff requests', async (t) => {
+  const repoDir = await createFixtureRepository();
+  t.after(async () => {
+    await rm(repoDir, { force: true, recursive: true });
+  });
+
+  const statusCounter = createCountingExecFileImpl({ delayStatusMs: 50 });
+  const statusService = new GitService({
+    execFileImpl: statusCounter.execFileImpl,
+    statusCacheTtlMs: 0,
+    vaultDir: repoDir,
+  });
+  const [firstStatus, secondStatus] = await Promise.all([
+    statusService.getStatus({ force: true }),
+    statusService.getStatus({ force: true }),
+  ]);
+  assert.equal(firstStatus.summary.changedFiles, secondStatus.summary.changedFiles);
+  assert.equal(statusCounter.calls.length, 2);
+
+  const diffCounter = createCountingExecFileImpl({ delayStatusMs: 50 });
+  const diffService = new GitService({
+    execFileImpl: diffCounter.execFileImpl,
+    statusCacheTtlMs: 0,
+    vaultDir: repoDir,
+  });
+  const [firstDiff, secondDiff] = await Promise.all([
+    diffService.getDiff({ metaOnly: true, scope: 'all' }),
+    diffService.getDiff({ metaOnly: true, scope: 'all' }),
+  ]);
+  assert.equal(firstDiff.summary.filesChanged, secondDiff.summary.filesChanged);
+  assert.equal(diffCounter.calls.length, 3);
 });
 
 test('GitService stages, unstages, and commits all staged changes', async (t) => {

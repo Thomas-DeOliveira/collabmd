@@ -33,7 +33,9 @@ export function createGitApiHandler({ gitService = null }) {
 
     if (requestUrl.pathname === '/api/git/status' && req.method === 'GET') {
       try {
-        const status = await gitService.getStatus();
+        const status = await gitService.getStatus({
+          force: isTruthyParam(requestUrl.searchParams.get('force')),
+        });
         jsonResponse(req, res, 200, status);
       } catch (error) {
         const statusCode = getRequestErrorStatusCode(error);
