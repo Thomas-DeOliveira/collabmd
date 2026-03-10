@@ -43,6 +43,8 @@ const formula = `class ${className} < Formula
   depends_on "node"
 
   def install
+    system "npm", "install", *std_npm_args(prefix: false), "--include=dev"
+    system "npm", "run", "build"
     system "npm", "install", *std_npm_args
     bin.install_symlink libexec/"bin/${packageJson.name}"
   end
@@ -65,20 +67,24 @@ const formula = `class ${className} < Formula
       err: log_path
     )
 
-    output = nil
+    health_output = nil
 
     Timeout.timeout(15) do
       loop do
-        output = shell_output("curl -fsS http://127.0.0.1:#{port}/health", 2).strip
-        break if output == "ok"
+        health_output = shell_output("curl -fsS http://127.0.0.1:#{port}/health", 2).strip
+        break if health_output == "ok"
       rescue ErrorDuringExecution
         sleep 1
       else
-        sleep 1 if output != "ok"
+        sleep 1 if health_output != "ok"
       end
     end
 
-    assert_equal "ok", output
+    assert_equal "ok", health_output
+
+    asset_response = shell_output("curl -i -fsS http://127.0.0.1:#{port}/assets/css/style.css", 2)
+    assert_match "Content-Type: text/css; charset=utf-8", asset_response
+    assert_match "--color-bg", asset_response
   ensure
     begin
       Process.kill("TERM", pid)
