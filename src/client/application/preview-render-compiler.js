@@ -18,6 +18,19 @@ function hashString(source = '') {
   return (hash >>> 0).toString(36);
 }
 
+function normalizePreviewTypography(content = '') {
+  return String(content)
+    .replace(/<->/g, '↔')
+    .replace(/<=>/g, '⇔')
+    .replace(/->/g, '→')
+    .replace(/<-/g, '←')
+    .replace(/=>/g, '⇒');
+}
+
+function escapePreviewText(content = '') {
+  return escapeHtml(normalizePreviewTypography(content));
+}
+
 function createMermaidPlaceholder({ key, sourceAttributes, sourceHash, sourceText }) {
   return `<div class="mermaid-shell"${sourceAttributes} data-mermaid-key="${escapeHtml(key)}" data-mermaid-source-hash="${escapeHtml(sourceHash)}"><div class="mermaid-placeholder-card"><div class="mermaid-placeholder-copy"><strong>Mermaid diagram</strong><span>Loads when visible</span></div><button type="button" class="mermaid-placeholder-btn" data-mermaid-key="${escapeHtml(key)}">Render</button></div><pre class="mermaid-source" hidden>${escapeHtml(sourceText)}</pre></div>`;
 }
@@ -51,7 +64,7 @@ function renderInlineWikiText(content, {
 
   while ((match = regex.exec(content)) !== null) {
     if (match.index > lastIndex) {
-      html += escapeHtml(content.slice(lastIndex, match.index));
+      html += escapePreviewText(content.slice(lastIndex, match.index));
     }
 
     if (match[1]) {
@@ -63,7 +76,7 @@ function renderInlineWikiText(content, {
         excalidrawEmbedCounts.set(target, occurrenceIndex + 1);
         html += createExcalidrawPlaceholder({
           embedKey: `${target}#${occurrenceIndex}`,
-          label: label.replace(/\.excalidraw$/i, ''),
+          label: normalizePreviewTypography(label.replace(/\.excalidraw$/i, '')),
           target,
         });
       } else if (/\.(?:mmd|mermaid)$/i.test(target)) {
@@ -71,7 +84,7 @@ function renderInlineWikiText(content, {
         mermaidEmbedCounts.set(target, occurrenceIndex + 1);
         html += createMermaidEmbedShell({
           embedKey: `${target}#${occurrenceIndex}`,
-          label: label.replace(/\.(?:mmd|mermaid)$/i, ''),
+          label: normalizePreviewTypography(label.replace(/\.(?:mmd|mermaid)$/i, '')),
           target,
         });
       } else {
@@ -79,7 +92,7 @@ function renderInlineWikiText(content, {
         plantUmlEmbedCounts.set(target, occurrenceIndex + 1);
         html += createPlantUmlEmbedShell({
           embedKey: `${target}#${occurrenceIndex}`,
-          label: label.replace(/\.(?:puml|plantuml)$/i, ''),
+          label: normalizePreviewTypography(label.replace(/\.(?:puml|plantuml)$/i, '')),
           target,
         });
       }
@@ -88,15 +101,15 @@ function renderInlineWikiText(content, {
       const display = (match[4] || match[3]).trim();
       const resolved = resolveWikiTarget(target, fileList);
       const classes = resolved ? 'wiki-link' : 'wiki-link wiki-link-new';
-      const title = resolved ? display : `Create "${target}"`;
-      html += `<a class="${classes}" href="#" data-wiki-target="${escapeHtml(target)}" title="${escapeHtml(title)}">${escapeHtml(display)}</a>`;
+      const title = resolved ? normalizePreviewTypography(display) : `Create "${target}"`;
+      html += `<a class="${classes}" href="#" data-wiki-target="${escapeHtml(target)}" title="${escapeHtml(title)}">${escapePreviewText(display)}</a>`;
     }
 
     lastIndex = regex.lastIndex;
   }
 
   if (lastIndex < content.length) {
-    html += escapeHtml(content.slice(lastIndex));
+    html += escapePreviewText(content.slice(lastIndex));
   }
 
   return html;

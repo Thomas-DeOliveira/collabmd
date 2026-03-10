@@ -119,6 +119,28 @@ test('compilePreviewDocument emits stable .plantuml embed shell keys', () => {
   assert.equal(stats.plantumlBlocks, 2);
 });
 
+test('compilePreviewDocument normalizes ASCII arrows in preview text', () => {
+  const markdown = [
+    '## Pie Chart -> Test',
+    '',
+    'Low <- Mid <-> High => Max',
+    '',
+    '[[README|Flow -> Docs]]',
+    '',
+    '`Inline -> code`',
+  ].join('\n');
+
+  const { html } = compilePreviewDocument({
+    fileList: ['README.md'],
+    markdownText: markdown,
+  });
+
+  assert.match(html, /<h2[^>]*>Pie Chart → Test<\/h2>/);
+  assert.match(html, /<p[^>]*>Low ← Mid ↔ High ⇒ Max<\/p>/);
+  assert.match(html, />Flow → Docs<\/a>/);
+  assert.match(html, /<code>Inline -&gt; code<\/code>/);
+});
+
 test('large-document classification triggers on any configured threshold', () => {
   const largeByChars = analyzeMarkdownComplexity('a'.repeat(LARGE_DOCUMENT_CHAR_THRESHOLD));
   assert.equal(isLargeDocumentStats(largeByChars), true);
