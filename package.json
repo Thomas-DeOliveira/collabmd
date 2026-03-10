@@ -1,6 +1,6 @@
 {
   "name": "collabmd",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "type": "module",
   "description": "Collaborative markdown vault — like Obsidian, but online. Serve any directory of markdown files for realtime collaborative editing.",
   "files": [
@@ -67,6 +67,11 @@
     "y-protocols": "^1.0.0",
     "y-websocket": "^3.0.0",
     "yjs": "^13.0.0"
+  },
+  "overrides": {
+    "@excalidraw/excalidraw": {
+      "@radix-ui/react-tabs": "1.1.13"
+    }
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
