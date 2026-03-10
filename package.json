@@ -1,12 +1,15 @@
 {
   "name": "collabmd",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Collaborative markdown vault — like Obsidian, but online. Serve any directory of markdown files for realtime collaborative editing.",
   "files": [
     "README.md",
     "bin/",
+    "docker-compose.yml",
     "public/",
+    "scripts/cloudflare-tunnel.mjs",
+    "scripts/local-plantuml-compose.mjs",
     "server.js",
     "src/"
   ],
