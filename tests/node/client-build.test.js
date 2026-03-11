@@ -16,7 +16,7 @@ test('client build emits the preview worker and main bundle references the emitt
   const mainBundle = await readFile(mainBundlePath, 'utf8');
   assert.match(
     mainBundle,
-    /new URL\("\.\/application\/preview-render-worker\.js",import\.meta\.url\)/,
+    /new URL\("\.\/(?:application\/)?preview-render-worker\.js",import\.meta\.url\)/,
   );
 });
 

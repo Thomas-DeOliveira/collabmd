@@ -198,8 +198,6 @@ async function bundleExcalidrawApp() {
 
   const hashedJsFile = hashedJsPath.replace(/\\/g, '/').split('/').pop();
   const hashedCssFile = hashedCssPath.replace(/\\/g, '/').split('/').pop();
-  const hashedJsAbsolutePath = resolve(clientOutputDir, hashedJsFile);
-
   await writeFile(
     excalidrawLoaderOutput,
     `import "./${hashedJsFile}";\n`,

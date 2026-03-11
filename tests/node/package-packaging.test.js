@@ -28,16 +28,42 @@ async function packProject() {
   const tempRoot = await mkdtemp(resolve(tmpdir(), 'collabmd-pack-'));
   const packDir = resolve(tempRoot, 'pack');
   const unpackDir = resolve(tempRoot, 'unpack');
+  const npmCacheDir = resolve(tempRoot, 'npm-cache');
+  const npmConfigDir = resolve(tempRoot, 'xdg-config');
+  const npmHomeDir = resolve(tempRoot, 'home');
+  const npmLogDir = resolve(tempRoot, 'npm-logs');
+  const npmTempDir = resolve(tempRoot, 'npm-tmp');
 
   await mkdir(packDir, { recursive: true });
   await mkdir(unpackDir, { recursive: true });
+  await mkdir(npmCacheDir, { recursive: true });
+  await mkdir(npmConfigDir, { recursive: true });
+  await mkdir(npmHomeDir, { recursive: true });
+  await mkdir(npmLogDir, { recursive: true });
+  await mkdir(npmTempDir, { recursive: true });
+
+  const npmEnv = {
+    ...process.env,
+    HOME: npmHomeDir,
+    USERPROFILE: npmHomeDir,
+    XDG_CACHE_HOME: npmCacheDir,
+    XDG_CONFIG_HOME: npmConfigDir,
+    npm_config_cache: npmCacheDir,
+    npm_config_logs_dir: npmLogDir,
+    npm_config_loglevel: 'error',
+    npm_config_tmp: npmTempDir,
+    npm_config_update_notifier: 'false',
+    npm_config_userconfig: resolve(npmHomeDir, '.npmrc'),
+  };
 
   await execFile('npm', ['run', 'build'], {
     cwd: rootDir,
+    env: npmEnv,
   });
 
   const { stdout } = await execFile('npm', ['pack', '--pack-destination', packDir, '--json'], {
     cwd: rootDir,
+    env: npmEnv,
   });
   const [packResult] = JSON.parse(stdout);
   const tarballPath = resolve(packDir, packResult.filename);

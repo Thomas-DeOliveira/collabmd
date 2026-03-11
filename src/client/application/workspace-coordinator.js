@@ -1,8 +1,5 @@
-import {
-  isMarkdownFilePath,
-  supportsBacklinksForFilePath,
-  supportsCommentsForFilePath,
-} from '../../domain/file-kind.js';
+import { FileOpenLifecycle } from './file-open-lifecycle.js';
+import { WorkspaceChromeController } from './workspace-chrome-controller.js';
 
 export class WorkspaceCoordinator {
   constructor({
@@ -73,13 +70,35 @@ export class WorkspaceCoordinator {
     this.onUpdateCurrentFile = onUpdateCurrentFile;
     this.onUpdateLobbyCurrentFile = onUpdateLobbyCurrentFile;
     this.onUpdateVisibleChrome = onUpdateVisibleChrome;
-    this.onViewModeReset = onViewModeReset;
     this.renderPresence = renderPresence;
-    this.scrollContainerForSession = scrollContainerForSession;
-    this.setCommentsFile = setCommentsFile;
-    this.showEditorLoading = showEditorLoading;
     this.stateStore = stateStore;
     this.session = null;
+    this.lifecycle = new FileOpenLifecycle({
+      attachEditorScroller,
+      createEditorSession,
+      loadEditorSessionClass: () => this.loadEditorSessionClassPort(),
+      scrollContainerForSession,
+    });
+    this.chromeController = new WorkspaceChromeController({
+      beginDocumentLoad,
+      getDisplayName,
+      loadBacklinks,
+      onBeforeFileOpen,
+      onCommentsChange,
+      onFileOpenError,
+      onFileOpenReady,
+      onRenderExcalidrawPreview,
+      onSyncWrapToggle,
+      onUpdateActiveFile,
+      onUpdateCurrentFile,
+      onUpdateLobbyCurrentFile,
+      onUpdateVisibleChrome,
+      onViewModeReset,
+      renderPresence,
+      setCommentsFile,
+      showEditorLoading,
+      stateStore,
+    });
   }
 
   getSession() {
@@ -101,7 +120,7 @@ export class WorkspaceCoordinator {
   cleanupSession() {
     this.session?.destroy();
     this.session = null;
-    this.attachEditorScroller(null);
+    this.lifecycle.clearSessionScroller();
     this.cleanupAfterSessionDestroy();
   }
 
@@ -120,29 +139,10 @@ export class WorkspaceCoordinator {
     const isExcalidraw = this.isExcalidrawFile(filePath);
     const isMermaid = this.isMermaidFile(filePath);
     const isPlantUml = this.isPlantUmlFile(filePath);
-    const supportsComments = supportsCommentsForFilePath(filePath);
 
     this.cleanupSession();
-    this.onViewModeReset();
-    this.onBeforeFileOpen();
-    this.stateStore.set('connectionHelpShown', false);
-    this.stateStore.set('connectionState', { status: 'connecting', unreachable: false });
-    this.stateStore.set('currentFilePath', filePath);
-    this.onUpdateCurrentFile(filePath);
-    this.onUpdateLobbyCurrentFile(filePath);
-    this.onUpdateActiveFile(filePath);
-    this.onUpdateVisibleChrome(filePath, {
-      displayName: this.getDisplayName(filePath),
-      isMarkdown: isMarkdownFilePath(filePath),
-    });
-    this.setCommentsFile(filePath, { supported: supportsComments });
-    this.onCommentsChange([]);
-    this.showEditorLoading();
-    this.beginDocumentLoad();
-    this.renderPresence();
-
-    const EditorSession = await this.loadEditorSessionClass();
-    const session = this.createEditorSession(EditorSession, {
+    const chromeState = this.chromeController.prepareForFileOpen(filePath);
+    const session = await this.lifecycle.createSession({
       filePath,
       getFileList: this.getFileList,
       lineWrappingEnabled: this.getLineWrappingEnabled(),
@@ -175,7 +175,7 @@ export class WorkspaceCoordinator {
         return;
       }
 
-      this.attachEditorScroller(this.scrollContainerForSession(session));
+      this.lifecycle.attachSessionScroller(session);
       session.applyTheme(this.getTheme());
       await session.waitForInitialSync();
       session.ensureInitialContent?.();
@@ -185,7 +185,7 @@ export class WorkspaceCoordinator {
         return;
       }
 
-      this.onFileOpenReady(session);
+      this.chromeController.markFileOpenReady(session);
       session.requestMeasure();
       await this.waitForNextPaint();
 
@@ -193,19 +193,16 @@ export class WorkspaceCoordinator {
         session.destroy();
         return;
       }
-
-      if (isExcalidraw) {
-        this.onRenderExcalidrawPreview(filePath);
-      }
-      this.onSyncWrapToggle();
-      this.onCommentsChange(session.getCommentThreads());
-      if (supportsBacklinksForFilePath(filePath)) {
-        this.loadBacklinks(filePath);
-      }
+      this.chromeController.finalizeFileOpen({
+        filePath,
+        isExcalidraw,
+        session,
+        supportsBacklinks: chromeState.supportsBacklinks,
+      });
     } catch (error) {
       console.error('[app] Failed to initialize editor:', error);
       session.destroy();
-      this.attachEditorScroller(null);
+      this.lifecycle.clearSessionScroller();
       if (this.session === session) {
         this.session = null;
       }
@@ -214,7 +211,7 @@ export class WorkspaceCoordinator {
         return;
       }
 
-      this.onFileOpenError();
+      this.chromeController.handleFileOpenError();
     }
   }
 }

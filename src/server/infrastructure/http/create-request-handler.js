@@ -97,6 +97,13 @@ export function createRequestHandler(
       return;
     }
 
+    if (config.nodeEnv === 'test' && requestUrl.pathname === '/api/test/reset-state' && req.method === 'POST') {
+      await roomRegistry?.reset?.();
+      await backlinkIndex?.build?.();
+      jsonResponse(req, res, 200, { ok: true });
+      return;
+    }
+
     if (await handleAuthApi(req, res, requestUrl)) {
       return;
     }

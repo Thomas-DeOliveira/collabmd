@@ -6,14 +6,16 @@ import * as decoding from 'lib0/decoding';
 
 import { MSG_AWARENESS, MSG_SYNC } from './protocol.js';
 import { CollaborationDocumentStore } from './collaboration-document-store.js';
+import { RoomClientStateStore } from './room-client-state-store.js';
+import { RoomPersistenceController } from './room-persistence-controller.js';
 import { populateCommentThreads, serializeCommentThreads } from '../../../domain/comment-threads.js';
 
-function closeSlowClient(ws, { maxBufferedAmountBytes, name }) {
-  if (ws.backpressureCloseIssued) {
+function closeSlowClient(ws, clientState, { maxBufferedAmountBytes, name }) {
+  if (!clientState || clientState.backpressureCloseIssued) {
     return false;
   }
 
-  ws.backpressureCloseIssued = true;
+  clientState.backpressureCloseIssued = true;
   console.warn(
     `[room:${name}] Closing slow client after bufferedAmount=${ws.bufferedAmount} bytes exceeded ${maxBufferedAmountBytes} bytes`,
   );
@@ -32,6 +34,7 @@ function closeSlowClient(ws, { maxBufferedAmountBytes, name }) {
 }
 
 function sendMessage(ws, payload, { maxBufferedAmountBytes, name }) {
+  const clientState = this?.getClientState?.(ws) ?? null;
   if (ws.readyState !== ws.OPEN) {
     return false;
   }
@@ -39,7 +42,7 @@ function sendMessage(ws, payload, { maxBufferedAmountBytes, name }) {
   const bufferedAmountBeforeSend = ws.bufferedAmount;
 
   if (bufferedAmountBeforeSend > maxBufferedAmountBytes) {
-    return closeSlowClient(ws, { maxBufferedAmountBytes, name });
+    return closeSlowClient(ws, clientState, { maxBufferedAmountBytes, name });
   }
 
   ws.send(payload, (error) => {
@@ -49,7 +52,7 @@ function sendMessage(ws, payload, { maxBufferedAmountBytes, name }) {
   });
 
   if (bufferedAmountBeforeSend > 0 && ws.bufferedAmount > maxBufferedAmountBytes) {
-    return closeSlowClient(ws, { maxBufferedAmountBytes, name });
+    return closeSlowClient(ws, clientState, { maxBufferedAmountBytes, name });
   }
 
   return true;
@@ -93,14 +96,22 @@ export class CollaborationRoom {
     this.doc = new Y.Doc({ gc: true });
     this.awareness = new awarenessProtocol.Awareness(this.doc);
     this.clients = new Set();
+    this.clientStates = new RoomClientStateStore();
     this.hydrated = false;
     this.hydratePromise = null;
-    this.persistTimer = null;
     this.deleted = false;
-    this.shutdownGeneration = 0;
-    this.finalizePromise = null;
-    this.destroyTimer = null;
+    this.destroyed = false;
     this.cachedInitialSyncMessage = null;
+    this.activePersistPromise = null;
+    this.persistence = new RoomPersistenceController({
+      idleGraceMs: this.idleGraceMs,
+      onDestroy: () => {
+        this.awareness.destroy();
+        this.doc.destroy();
+        this.onEmpty?.(this.name);
+      },
+      onPersist: () => this.persist(),
+    });
 
     this.awareness.setLocalState(null);
     this.registerDocListeners();
@@ -164,15 +175,7 @@ export class CollaborationRoom {
       syncProtocol.writeUpdate(encoder, update);
       const message = encoding.toUint8Array(encoder);
 
-      for (const client of this.clients) {
-        if (client !== origin) {
-          try {
-            sendMessage(client, message, this);
-          } catch (error) {
-            console.error(`[room:${this.name}] Failed to broadcast sync update:`, error.message);
-          }
-        }
-      }
+      this.broadcastToClients(message, { excludeClient: origin, failureLabel: 'sync update' });
     });
 
     this.awareness.on('update', ({ added, updated, removed }) => {
@@ -190,14 +193,40 @@ export class CollaborationRoom {
       );
       const message = encoding.toUint8Array(encoder);
 
-      for (const client of this.clients) {
-        try {
-          sendMessage(client, message, this);
-        } catch (error) {
-          console.error(`[room:${this.name}] Failed to broadcast awareness update:`, error.message);
-        }
-      }
+      this.broadcastToClients(message, { failureLabel: 'awareness update' });
     });
+  }
+
+  getClientState(ws) {
+    return this.clientStates.get(ws);
+  }
+
+  ensureClientState(ws) {
+    const existingState = this.getClientState(ws);
+    if (existingState) {
+      existingState.backpressureCloseIssued = false;
+      return existingState;
+    }
+
+    return this.clientStates.register(ws);
+  }
+
+  deleteClientState(ws) {
+    this.clientStates.unregister(ws);
+  }
+
+  broadcastToClients(message, { excludeClient = null, failureLabel = 'frame' } = {}) {
+    for (const client of this.clients) {
+      if (client === excludeClient) {
+        continue;
+      }
+
+      try {
+        sendMessage.call(this, client, message, this);
+      } catch (error) {
+        console.error(`[room:${this.name}] Failed to broadcast ${failureLabel}:`, error.message);
+      }
+    }
   }
 
   schedulePersist() {
@@ -205,12 +234,11 @@ export class CollaborationRoom {
       return;
     }
 
-    clearTimeout(this.persistTimer);
-    this.persistTimer = setTimeout(() => {
+    this.persistence.schedulePersist(async () => {
       this.persist().catch((error) => {
         console.error(`[room:${this.name}] Failed to persist document:`, error.message);
       });
-    }, 500);
+    });
   }
 
   async persist() {
@@ -218,13 +246,23 @@ export class CollaborationRoom {
       return;
     }
 
-    const content = this.doc.getText('codemirror').toString();
-    const commentThreads = serializeCommentThreads(this.doc.getArray('comments'));
-    await this.documentStore.persistState({
-      commentThreads,
-      content,
-      snapshot: Y.encodeStateAsUpdate(this.doc),
+    const persistPromise = (async () => {
+      const content = this.doc.getText('codemirror').toString();
+      const commentThreads = serializeCommentThreads(this.doc.getArray('comments'));
+      await this.documentStore.persistState({
+        commentThreads,
+        content,
+        snapshot: Y.encodeStateAsUpdate(this.doc),
+      });
+    })();
+
+    const trackedPromise = persistPromise.finally(() => {
+      if (this.activePersistPromise === trackedPromise) {
+        this.activePersistPromise = null;
+      }
     });
+    this.activePersistPromise = trackedPromise;
+    await trackedPromise;
   }
 
   rename(nextName) {
@@ -238,8 +276,7 @@ export class CollaborationRoom {
 
   markDeleted() {
     this.deleted = true;
-    clearTimeout(this.persistTimer);
-    clearTimeout(this.destroyTimer);
+    this.persistence.cancelAll();
   }
 
   unmarkDeleted() {
@@ -260,16 +297,14 @@ export class CollaborationRoom {
   }
 
   sendInitialSync(ws) {
-    return sendMessage(ws, this.getInitialSyncMessage(), this);
+    return sendMessage.call(this, ws, this.getInitialSyncMessage(), this);
   }
 
   async addClient(ws, { sendInitialSync: shouldSendInitialSync = true } = {}) {
-    this.shutdownGeneration += 1;
-    clearTimeout(this.destroyTimer);
-    this.destroyTimer = null;
+    this.persistence.markActivity();
     await this.hydrate();
 
-    ws.controlledClientIds = new Set();
+    this.ensureClientState(ws);
     this.clients.add(ws);
 
     if (shouldSendInitialSync) {
@@ -284,17 +319,25 @@ export class CollaborationRoom {
         awarenessEncoder,
         awarenessProtocol.encodeAwarenessUpdate(this.awareness, Array.from(awarenessStates.keys())),
       );
-      sendMessage(ws, encoding.toUint8Array(awarenessEncoder), this);
+      sendMessage.call(this, ws, encoding.toUint8Array(awarenessEncoder), this);
     }
   }
 
   removeClient(ws) {
-    if (ws.controlledClientIds?.size) {
-      awarenessProtocol.removeAwarenessStates(this.awareness, Array.from(ws.controlledClientIds), ws);
-      ws.controlledClientIds.clear();
+    if (this.destroyed) {
+      this.clients.delete(ws);
+      this.deleteClientState(ws);
+      return;
+    }
+
+    const clientState = this.getClientState(ws);
+    if (clientState?.controlledClientIds.size) {
+      awarenessProtocol.removeAwarenessStates(this.awareness, Array.from(clientState.controlledClientIds), ws);
+      clientState.controlledClientIds.clear();
     }
 
     this.clients.delete(ws);
+    this.deleteClientState(ws);
 
     if (this.clients.size > 0) {
       return;
@@ -303,46 +346,49 @@ export class CollaborationRoom {
     this.finalizeIfIdle();
   }
 
-  finalizeIfIdle() {
-    if (this.clients.size > 0) {
+  async destroy() {
+    if (this.destroyed) {
       return;
     }
 
-    const generation = ++this.shutdownGeneration;
-    if (this.finalizePromise) {
-      return;
-    }
+    this.destroyed = true;
+    this.persistence.cancelAll();
+    await Promise.allSettled([
+      this.persistence.finalizePromise,
+      this.activePersistPromise,
+    ]);
 
-    this.finalizePromise = (async () => {
-      clearTimeout(this.persistTimer);
-      this.persistTimer = null;
-
+    for (const client of this.clients) {
       try {
-        await this.persist();
-      } catch (error) {
-        console.error(`[room:${this.name}] Failed to persist final room state:`, error.message);
-      }
-
-      if (this.clients.size > 0 || generation !== this.shutdownGeneration) {
-        return;
-      }
-
-      this.destroyTimer = setTimeout(() => {
-        if (this.clients.size > 0 || generation !== this.shutdownGeneration) {
-          return;
+        client.close(1001, 'Room reset');
+      } catch {
+        try {
+          client.terminate?.();
+        } catch {
+          // Ignore shutdown errors while force-resetting rooms.
         }
+      }
+    }
 
-        this.awareness.destroy();
-        this.doc.destroy();
-        this.onEmpty?.(this.name);
-      }, this.idleGraceMs);
-      this.destroyTimer.unref?.();
-    })().finally(() => {
-      this.finalizePromise = null;
+    this.clients.clear();
+    this.awareness.destroy();
+    this.doc.destroy();
+  }
+
+  finalizeIfIdle() {
+    return this.persistence.finalizeIfIdle({
+      isIdle: () => this.clients.size === 0,
+      onPersistError: (error) => {
+        console.error(`[room:${this.name}] Failed to persist final room state:`, error.message);
+      },
     });
   }
 
   handleMessage(ws, rawData) {
+    if (this.destroyed) {
+      return;
+    }
+
     const message = new Uint8Array(rawData);
 
     try {
@@ -356,7 +402,7 @@ export class CollaborationRoom {
           syncProtocol.readSyncMessage(decoder, encoder, this.doc, ws);
 
           if (encoding.length(encoder) > 1) {
-            sendMessage(ws, encoding.toUint8Array(encoder), this);
+            sendMessage.call(this, ws, encoding.toUint8Array(encoder), this);
           }
           break;
         }
@@ -364,12 +410,13 @@ export class CollaborationRoom {
         case MSG_AWARENESS: {
           const update = decoding.readVarUint8Array(decoder);
           const entries = readAwarenessEntries(update);
+          const clientState = this.ensureClientState(ws);
 
           for (const entry of entries) {
             if (entry.state === null) {
-              ws.controlledClientIds.delete(entry.clientId);
+              clientState.controlledClientIds.delete(entry.clientId);
             } else {
-              ws.controlledClientIds.add(entry.clientId);
+              clientState.controlledClientIds.add(entry.clientId);
             }
           }
 

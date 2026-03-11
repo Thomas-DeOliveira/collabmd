@@ -1,0 +1,93 @@
+import {
+  isMarkdownFilePath,
+  supportsBacklinksForFilePath,
+  supportsCommentsForFilePath,
+} from '../../domain/file-kind.js';
+
+export class WorkspaceChromeController {
+  constructor({
+    beginDocumentLoad,
+    getDisplayName,
+    loadBacklinks,
+    onBeforeFileOpen,
+    onCommentsChange,
+    onFileOpenError,
+    onFileOpenReady,
+    onRenderExcalidrawPreview,
+    onSyncWrapToggle,
+    onUpdateActiveFile,
+    onUpdateCurrentFile,
+    onUpdateLobbyCurrentFile,
+    onUpdateVisibleChrome,
+    onViewModeReset,
+    renderPresence,
+    setCommentsFile,
+    showEditorLoading,
+    stateStore,
+  }) {
+    this.beginDocumentLoad = beginDocumentLoad;
+    this.getDisplayName = getDisplayName;
+    this.loadBacklinks = loadBacklinks;
+    this.onBeforeFileOpen = onBeforeFileOpen;
+    this.onCommentsChange = onCommentsChange;
+    this.onFileOpenError = onFileOpenError;
+    this.onFileOpenReady = onFileOpenReady;
+    this.onRenderExcalidrawPreview = onRenderExcalidrawPreview;
+    this.onSyncWrapToggle = onSyncWrapToggle;
+    this.onUpdateActiveFile = onUpdateActiveFile;
+    this.onUpdateCurrentFile = onUpdateCurrentFile;
+    this.onUpdateLobbyCurrentFile = onUpdateLobbyCurrentFile;
+    this.onUpdateVisibleChrome = onUpdateVisibleChrome;
+    this.onViewModeReset = onViewModeReset;
+    this.renderPresence = renderPresence;
+    this.setCommentsFile = setCommentsFile;
+    this.showEditorLoading = showEditorLoading;
+    this.stateStore = stateStore;
+  }
+
+  prepareForFileOpen(filePath) {
+    const supportsComments = supportsCommentsForFilePath(filePath);
+
+    this.onViewModeReset();
+    this.onBeforeFileOpen();
+    this.stateStore.set('connectionHelpShown', false);
+    this.stateStore.set('connectionState', { status: 'connecting', unreachable: false });
+    this.stateStore.set('currentFilePath', filePath);
+    this.onUpdateCurrentFile(filePath);
+    this.onUpdateLobbyCurrentFile(filePath);
+    this.onUpdateActiveFile(filePath);
+    this.onUpdateVisibleChrome(filePath, {
+      displayName: this.getDisplayName(filePath),
+      isMarkdown: isMarkdownFilePath(filePath),
+    });
+    this.setCommentsFile(filePath, { supported: supportsComments });
+    this.onCommentsChange([]);
+    this.showEditorLoading();
+    this.beginDocumentLoad();
+    this.renderPresence();
+
+    return {
+      supportsBacklinks: supportsBacklinksForFilePath(filePath),
+      supportsComments,
+    };
+  }
+
+  markFileOpenReady(session) {
+    this.onFileOpenReady(session);
+  }
+
+  finalizeFileOpen({ filePath, isExcalidraw, session, supportsBacklinks }) {
+    if (isExcalidraw) {
+      this.onRenderExcalidrawPreview(filePath);
+    }
+    this.onSyncWrapToggle();
+    this.onCommentsChange(session.getCommentThreads());
+    if (supportsBacklinks) {
+      this.loadBacklinks(filePath);
+    }
+  }
+
+  handleFileOpenError() {
+    this.onFileOpenError();
+  }
+}

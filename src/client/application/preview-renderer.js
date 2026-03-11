@@ -1,11 +1,9 @@
 import { MermaidPreviewHydrator } from './mermaid-preview-hydrator.js';
 import { PlantUmlPreviewHydrator } from './plantuml-preview-hydrator.js';
-import {
-  cancelIdleRender,
-  IDLE_RENDER_TIMEOUT_MS,
-  requestIdleRender,
-} from './preview-diagram-utils.js';
+import { IDLE_RENDER_TIMEOUT_MS } from './preview-diagram-utils.js';
+import { PreviewRenderExecutor } from './preview-render-executor.js';
 import { getRenderProfile, isLargeDocumentStats } from './preview-render-profile.js';
+import { PreviewRenderScheduler } from './preview-render-scheduler.js';
 
 export class PreviewRenderer {
   constructor({
@@ -28,18 +26,11 @@ export class PreviewRenderer {
     this.previewElement = previewElement;
     this.renderHost = null;
 
-    this.frameId = null;
-    this.idleId = null;
-    this.timeoutId = null;
     this.pendingRenderVersion = 0;
     this.activeRenderVersion = 0;
     this.readyRenderVersion = 0;
     this.currentStats = null;
     this.isLargeDocument = false;
-    this.worker = null;
-    this.workerDisabled = false;
-    this.workerJob = null;
-    this.workerPrewarmId = null;
     this.hydrationPaused = false;
 
     this.handlePreviewClick = (event) => {
@@ -67,41 +58,17 @@ export class PreviewRenderer {
       }
     };
 
-    this.handleWorkerMessage = (event) => {
-      if (!this.workerJob || event.data?.renderVersion !== this.workerJob.renderVersion) {
-        return;
-      }
-
-      const job = this.workerJob;
-      this.workerJob = null;
-
-      if (event.data?.error) {
-        job.reject(new Error(event.data.error));
-        return;
-      }
-
-      job.resolve({
-        html: event.data.html,
-        stats: event.data.stats,
-      });
-    };
-
-    this.handleWorkerError = (event) => {
-      const error = new Error(event.message || 'Preview worker failed');
-      if (this.workerJob) {
-        this.workerJob.reject(error);
-        this.workerJob = null;
-      }
-
-      this.resetWorker('Preview worker failed', { disable: true });
-    };
-
     this.handleWindowResize = () => {
       this.plantUmlHydrator.scheduleActiveRefit();
     };
 
     this.mermaidHydrator = new MermaidPreviewHydrator(this);
     this.plantUmlHydrator = new PlantUmlPreviewHydrator(this);
+    this.renderScheduler = new PreviewRenderScheduler({ getRenderProfileFn: getRenderProfile });
+    this.renderExecutor = new PreviewRenderExecutor({
+      getFileList: () => this.getFileList?.() ?? [],
+      idleTimeoutMs: IDLE_RENDER_TIMEOUT_MS,
+    });
 
     this.previewElement?.addEventListener('click', this.handlePreviewClick);
     window.addEventListener('resize', this.handleWindowResize);
@@ -161,7 +128,7 @@ export class PreviewRenderer {
     this.readyRenderVersion = 0;
     this.currentStats = null;
     this.isLargeDocument = false;
-    if (this.workerJob) {
+    if (this.renderExecutor.hasPendingJob()) {
       this.resetWorker('Document changed');
     }
     const renderHost = this.ensureRenderHost();
@@ -198,34 +165,16 @@ export class PreviewRenderer {
 
   queueRender() {
     const markdownText = this.getContent();
-    const renderProfile = getRenderProfile(markdownText);
-
     this.cancelScheduledRender();
-
     this.pendingRenderVersion += 1;
     const scheduledVersion = this.pendingRenderVersion;
-
-    const scheduleRender = () => {
-      if (renderProfile.deferUntilIdle) {
-        this.idleId = requestIdleRender(() => {
-          this.idleId = null;
-          this.frameId = requestAnimationFrame(() => {
-            this.frameId = null;
-            this.timeoutId = null;
-            void this.render(markdownText, scheduledVersion);
-          });
-        }, IDLE_RENDER_TIMEOUT_MS);
-        return;
-      }
-
-      this.frameId = requestAnimationFrame(() => {
-        this.frameId = null;
-        this.timeoutId = null;
-        void this.render(markdownText, scheduledVersion);
-      });
-    };
-
-    this.timeoutId = setTimeout(scheduleRender, renderProfile.debounceMs);
+    this.renderScheduler.queue({
+      markdownText,
+      onRenderRequested: (queuedText, renderVersion) => {
+        void this.render(queuedText, renderVersion);
+      },
+      renderVersion: scheduledVersion,
+    });
   }
 
   async render(markdownText = this.getContent(), renderVersion = this.pendingRenderVersion) {
@@ -250,12 +199,10 @@ export class PreviewRenderer {
   }
 
   destroy() {
-    this.cancelScheduledRender();
+    this.renderScheduler.destroy();
     this.mermaidHydrator.destroy();
     this.plantUmlHydrator.destroy();
-    cancelIdleRender(this.workerPrewarmId);
-    this.workerPrewarmId = null;
-    this.resetWorker('Preview renderer destroyed');
+    this.renderExecutor.destroy();
     this.previewElement?.removeEventListener('click', this.handlePreviewClick);
     window.removeEventListener('resize', this.handleWindowResize);
   }
@@ -267,14 +214,7 @@ export class PreviewRenderer {
   }
 
   cancelScheduledRender() {
-    clearTimeout(this.timeoutId);
-    if (this.frameId) {
-      cancelAnimationFrame(this.frameId);
-    }
-    cancelIdleRender(this.idleId);
-    this.frameId = null;
-    this.idleId = null;
-    this.timeoutId = null;
+    this.renderScheduler.cancel();
   }
 
   cancelMermaidHydration() {
@@ -314,84 +254,15 @@ export class PreviewRenderer {
   }
 
   resetWorker(reason, { disable = false } = {}) {
-    this.cancelWorkerJob(reason);
-
-    if (this.worker) {
-      this.worker.removeEventListener('message', this.handleWorkerMessage);
-      this.worker.removeEventListener('error', this.handleWorkerError);
-      this.worker.terminate();
-      this.worker = null;
-    }
-
-    if (disable) {
-      this.workerDisabled = true;
-    }
-  }
-
-  cancelWorkerJob(reason) {
-    if (!this.workerJob) {
-      return;
-    }
-
-    this.workerJob.reject(new Error(reason));
-    this.workerJob = null;
+    this.renderExecutor.reset(reason, { disable });
   }
 
   scheduleWorkerPrewarm({ timeout = IDLE_RENDER_TIMEOUT_MS } = {}) {
-    if (this.workerDisabled || this.worker || this.workerPrewarmId !== null || typeof Worker !== 'function') {
-      return;
-    }
-
-    this.workerPrewarmId = requestIdleRender(() => {
-      this.workerPrewarmId = null;
-      this.ensureWorker();
-    }, timeout);
-  }
-
-  ensureWorker() {
-    if (this.workerDisabled || typeof Worker !== 'function') {
-      return null;
-    }
-
-    if (this.worker) {
-      return this.worker;
-    }
-
-    try {
-      this.worker = new Worker(new URL('./application/preview-render-worker.js', import.meta.url), { type: 'module' });
-      this.worker.addEventListener('message', this.handleWorkerMessage);
-      this.worker.addEventListener('error', this.handleWorkerError);
-      return this.worker;
-    } catch {
-      this.workerDisabled = true;
-      return null;
-    }
+    this.renderExecutor.schedulePrewarm({ timeout });
   }
 
   async compilePreview(markdownText, renderVersion) {
-    const worker = this.ensureWorker();
-
-    if (worker) {
-      if (this.workerJob) {
-        this.resetWorker('Superseded preview render');
-      }
-
-      const activeWorker = this.ensureWorker();
-      return new Promise((resolve, reject) => {
-        this.workerJob = { reject, renderVersion, resolve };
-        activeWorker.postMessage({
-          fileList: this.getFileList?.() ?? [],
-          markdownText,
-          renderVersion,
-        });
-      });
-    }
-
-    const { compilePreviewDocument } = await import('./preview-render-compiler.js');
-    return compilePreviewDocument({
-      fileList: this.getFileList?.() ?? [],
-      markdownText,
-    });
+    return this.renderExecutor.compile(markdownText, renderVersion);
   }
 
   commitBaseRender({ html, stats }, renderVersion) {

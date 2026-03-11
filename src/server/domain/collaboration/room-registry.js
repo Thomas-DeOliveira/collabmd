@@ -42,4 +42,11 @@ export class RoomRegistry {
     this.rooms.set(newName, room);
     return true;
   }
+
+  async reset() {
+    await Promise.allSettled(
+      Array.from(this.rooms.values(), (room) => room.destroy?.()),
+    );
+    this.rooms.clear();
+  }
 }

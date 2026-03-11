@@ -19,8 +19,9 @@
   "scripts": {
     "build": "node scripts/build-client.mjs",
     "capture:readme-assets": "node scripts/capture-readme-assets.mjs",
-    "check": "npm run build && node --check bin/collabmd.js && node --check src/server/index.js && node --check src/server/create-app-server.js && node --check scripts/build-client.mjs && node --check scripts/cloudflare-tunnel.mjs && node --check scripts/local-plantuml-compose.mjs && node --check scripts/render-homebrew-formula.mjs",
+    "check": "npm run build && npm run lint && npm run test:guardrails && npm run test:unit",
     "homebrew:formula": "node scripts/render-homebrew-formula.mjs",
+    "lint": "eslint .",
     "plantuml:up": "node scripts/local-plantuml-compose.mjs up",
     "plantuml:down": "node scripts/local-plantuml-compose.mjs down",
     "start": "npm run build && node bin/collabmd.js",
@@ -29,6 +30,7 @@
     "test": "npm run test:unit && npm run test:e2e",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
+    "test:guardrails": "node --test tests/node/architecture-boundaries.test.js tests/node/facade-structure.test.js",
     "test:unit": "npm run build && node --test --test-force-exit tests/node/*.test.js",
     "tunnel": "node scripts/cloudflare-tunnel.mjs"
   },
@@ -75,6 +77,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
-    "esbuild": "^0.27.3"
+    "esbuild": "^0.27.3",
+    "eslint": "^9.22.0",
+    "globals": "^16.0.0"
   }
 }

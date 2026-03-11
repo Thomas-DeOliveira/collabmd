@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -224,6 +224,31 @@ test('VaultFileStore rejects path traversal', async (t) => {
 
   const result = await store.readMarkdownFile('../../etc/passwd');
   assert.equal(result, null);
+});
+
+test('VaultFileStore rejects path traversal even when the target uses a vault extension', async (t) => {
+  const { store, cleanup, vaultDir } = await createVaultStore();
+  t.after(cleanup);
+
+  await writeFile(join(vaultDir, 'escape.md'), '# Escape\n', 'utf-8');
+
+  assert.equal(await store.readMarkdownFile('../escape.md'), null);
+
+  const createResult = await store.createFile('../created-outside.md', '# Nope\n');
+  assert.equal(createResult.ok, false);
+  assert.match(createResult.error, /must end in \.md, \.excalidraw, \.mmd, \.mermaid, \.puml, or \.plantuml/i);
+
+  const renameResult = await store.renameFile('README.md', '../escape.md');
+  assert.equal(renameResult.ok, false);
+  assert.equal(renameResult.error, 'Invalid file path');
+
+  const deleteResult = await store.deleteFile('../escape.md');
+  assert.equal(deleteResult.ok, false);
+  assert.match(deleteResult.error, /must end in \.md, \.excalidraw, \.mmd, \.mermaid, \.puml, or \.plantuml/i);
+
+  const directoryResult = await store.createDirectory('../outside-dir');
+  assert.equal(directoryResult.ok, false);
+  assert.equal(directoryResult.error, 'Invalid directory path');
 });
 
 test('VaultFileStore counts vault files', async (t) => {

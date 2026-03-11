@@ -1,7 +1,6 @@
 import { WebSocketServer } from 'ws';
-import * as decoding from 'lib0/decoding';
 
-import { MSG_SYNC } from '../../domain/collaboration/protocol.js';
+import { ClientSocketSession } from './client-socket-session.js';
 
 function rejectUpgrade(socket, statusCode, statusMessage, {
   body = '',
@@ -23,16 +22,6 @@ function rejectUpgrade(socket, statusCode, statusMessage, {
 function extractRoomName(pathname, wsBasePath) {
   const roomSegment = pathname.slice(wsBasePath.length + 1);
   return decodeURIComponent(roomSegment || 'default');
-}
-
-function isSyncMessage(payload) {
-  try {
-    const data = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
-    const decoder = decoding.createDecoder(data);
-    return decoding.readVarUint(decoder) === MSG_SYNC;
-  } catch {
-    return false;
-  }
 }
 
 function stripBasePath(pathname, basePath) {
@@ -71,11 +60,17 @@ export function attachCollaborationGateway({
     noServer: true,
     perMessageDeflate: false,
   });
+  const socketSessions = new Map();
   let isShuttingDown = false;
   let closePromise = null;
   const heartbeatTimer = setInterval(() => {
     websocketServer.clients.forEach((client) => {
-      if (client.isAlive === false) {
+      const session = socketSessions.get(client);
+      if (!session) {
+        return;
+      }
+
+      if (session.isAlive === false) {
         try {
           client.terminate();
         } catch {
@@ -84,7 +79,7 @@ export function attachCollaborationGateway({
         return;
       }
 
-      client.isAlive = false;
+      session.markHeartbeatPending();
 
       try {
         client.ping();
@@ -100,97 +95,23 @@ export function attachCollaborationGateway({
   heartbeatTimer.unref?.();
 
   websocketServer.on('connection', (ws, req, requestUrl) => {
-    ws.isAlive = true;
-    ws.on('pong', () => {
-      ws.isAlive = true;
+    const roomName = extractRoomName(requestUrl.pathname, wsBasePath);
+    const room = roomRegistry.getOrCreate(roomName);
+    const session = new ClientSocketSession({
+      onDisconnected: (disconnectedRoomName) => {
+        socketSessions.delete(ws);
+        const remaining = roomRegistry.rooms.get(disconnectedRoomName)?.clients.size ?? 0;
+        console.log(`[ws] "${disconnectedRoomName}" disconnected (${remaining} active client(s))`);
+      },
+      onFailed: () => {
+        socketSessions.delete(ws);
+      },
+      room,
+      roomName,
+      ws,
     });
-
-    void (async () => {
-      const roomName = extractRoomName(requestUrl.pathname, wsBasePath);
-      const room = roomRegistry.getOrCreate(roomName);
-      const pendingMessages = [];
-      let initialized = false;
-      let closedBeforeReady = false;
-      let initialSyncTimer = null;
-      let hasReceivedClientSync = false;
-      const clearInitialSyncTimer = () => {
-        if (initialSyncTimer) {
-          clearTimeout(initialSyncTimer);
-          initialSyncTimer = null;
-        }
-      };
-      const handleMessage = (payload) => {
-        if (isSyncMessage(payload)) {
-          hasReceivedClientSync = true;
-          clearInitialSyncTimer();
-        }
-
-        if (!initialized) {
-          pendingMessages.push(payload);
-          return;
-        }
-
-        room.handleMessage(ws, payload);
-      };
-      const handleClose = () => {
-        if (!initialized) {
-          closedBeforeReady = true;
-          clearInitialSyncTimer();
-          pendingMessages.length = 0;
-          return;
-        }
-
-        clearInitialSyncTimer();
-        room.removeClient(ws);
-        const remaining = roomRegistry.rooms.get(roomName)?.clients.size ?? 0;
-        console.log(`[ws] "${roomName}" disconnected (${remaining} active client(s))`);
-      };
-      const handleError = (error) => {
-        console.error(`[ws] "${roomName}" socket error:`, error.message);
-      };
-
-      ws.on('message', handleMessage);
-      ws.on('close', handleClose);
-      ws.on('error', handleError);
-
-      try {
-        await room.addClient(ws, { sendInitialSync: false });
-      } catch (error) {
-        ws.off('message', handleMessage);
-        ws.off('close', handleClose);
-        ws.off('error', handleError);
-        clearInitialSyncTimer();
-        console.error(`[ws] Failed to initialize room "${roomName}":`, error.message);
-        ws.close(1011, 'Room initialization failed');
-        return;
-      }
-
-      initialized = true;
-      while (pendingMessages.length > 0) {
-        room.handleMessage(ws, pendingMessages.shift());
-      }
-
-      if (!hasReceivedClientSync) {
-        initialSyncTimer = setTimeout(() => {
-          initialSyncTimer = null;
-          if (hasReceivedClientSync || ws.readyState !== ws.OPEN) {
-            return;
-          }
-          room.sendInitialSync(ws);
-        }, 0);
-        initialSyncTimer.unref?.();
-      }
-
-      if (closedBeforeReady) {
-        clearInitialSyncTimer();
-        room.removeClient(ws);
-        const remaining = roomRegistry.rooms.get(roomName)?.clients.size ?? 0;
-        console.log(`[ws] "${roomName}" disconnected (${remaining} active client(s))`);
-        return;
-      }
-
-      console.log(`[ws] "${roomName}" connected (${room.clients.size} active client(s))`);
-    })();
+    socketSessions.set(ws, session);
+    void session.initialize();
   });
 
   httpServer.on('upgrade', (req, socket, head) => {

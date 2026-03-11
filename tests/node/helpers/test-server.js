@@ -24,6 +24,7 @@ async function removeTempRoot(tempRoot, attempts = 5) {
 export async function startTestServer(overrides = {}) {
   const tempRoot = await mkdtemp(join(tmpdir(), 'collabmd-test-'));
   const vaultDir = join(tempRoot, 'vault');
+  const host = overrides.host ?? process.env.COLLABMD_TEST_HOST ?? '127.0.0.1';
   await mkdir(vaultDir, { recursive: true });
 
   // Seed a default test file
@@ -35,7 +36,7 @@ export async function startTestServer(overrides = {}) {
   });
   const config = {
     ...baseConfig,
-    host: '127.0.0.1',
+    host,
     nodeEnv: 'test',
     vaultDir,
     port: 0,

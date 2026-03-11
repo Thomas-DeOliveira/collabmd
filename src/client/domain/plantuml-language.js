@@ -180,7 +180,7 @@ const plantUmlStreamLanguage = StreamLanguage.define({
       return 'number';
     }
 
-    if (stream.match(/[<>{}\[\]():,]/u)) {
+    if (stream.match(/[<>{}[\]():,]/u)) {
       return 'punctuation';
     }
 

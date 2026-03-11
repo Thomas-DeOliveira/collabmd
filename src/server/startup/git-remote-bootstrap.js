@@ -9,7 +9,7 @@ const GIT_TIMEOUT_MS = 20_000;
 const GIT_MAX_BUFFER_BYTES = 5 * 1024 * 1024;
 
 function quoteShellArg(value) {
-  return `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
 }
 
 function createCleanup(...handlers) {

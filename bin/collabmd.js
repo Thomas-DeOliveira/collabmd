@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { parseArgs } from 'node:util';
-import { resolve, basename } from 'node:path';
+import { resolve } from 'node:path';
 import { stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -140,7 +140,7 @@ const server = createAppServer(config);
 let shutdownPromise = null;
 let tunnelProcess = null;
 
-function shutdown(signal) {
+function shutdown() {
   if (shutdownPromise) return shutdownPromise;
 
   console.log(`\n  Shutting down...`);
@@ -174,7 +174,6 @@ process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
 try {
   const info = await server.listen();
-  const vaultName = basename(vaultPath);
   const fileCount = server.vaultFileCount ?? 0;
   const bannerTitle = `CollabMD v${packageJson.version}`;
   const bannerLine = bannerTitle

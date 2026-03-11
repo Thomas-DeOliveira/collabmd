@@ -1,0 +1,188 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { WorkspaceRouteController } from '../../src/client/application/workspace-route-controller.js';
+
+function createClassListRecorder() {
+  const events = [];
+  return {
+    events,
+    add(token) {
+      events.push(['add', token]);
+    },
+    remove(token) {
+      events.push(['remove', token]);
+    },
+  };
+}
+
+function createController(overrides = {}) {
+  const events = [];
+  let sessionLoadToken = overrides.sessionLoadToken ?? 0;
+  let currentFilePath = overrides.currentFilePath ?? 'README.md';
+  let session = overrides.session ?? { id: 'session-1' };
+  const previewContent = {
+    dataset: {},
+    innerHTML: 'stale',
+  };
+
+  const controller = new WorkspaceRouteController({
+    backlinksPanel: { clear: () => events.push(['backlinks-clear']) },
+    clearInitialFileBootstrap: () => events.push(['clear-bootstrap']),
+    closeSidebarOnMobile: () => events.push(['close-sidebar']),
+    commentsPanel: {
+      setCurrentFile: (filePath, options) => events.push(['comments-file', filePath, options.supported]),
+    },
+    elements: {
+      activeFileName: { textContent: '' },
+      commentSelectionButton: { classList: createClassListRecorder() },
+      commentsToggle: { classList: createClassListRecorder() },
+      diffPage: { classList: createClassListRecorder() },
+      editorPage: { classList: createClassListRecorder() },
+      emptyState: { classList: createClassListRecorder() },
+      markdownToolbar: { classList: createClassListRecorder() },
+      outlineToggle: { classList: createClassListRecorder() },
+      previewContent,
+    },
+    excalidrawEmbed: {
+      setHydrationPaused: (value) => events.push(['embed-hydration', value]),
+    },
+    fileExplorer: {
+      setActiveFile: (filePath) => events.push(['explorer-active', filePath]),
+    },
+    getIsTabActive: () => overrides.isTabActive ?? true,
+    getSessionLoadToken: () => sessionLoadToken,
+    gitDiffView: {
+      hide: () => events.push(['diff-hide']),
+    },
+    gitPanel: {
+      setSelection: () => events.push(['git-selection']),
+    },
+    layoutController: {
+      reset: () => events.push(['layout-reset']),
+    },
+    lobby: {
+      setCurrentFile: (filePath) => events.push(['lobby-file', filePath]),
+    },
+    navigation: overrides.navigation ?? {
+      getHashRoute: () => ({ filePath: 'README.md', type: 'file' }),
+      navigateToFile: (filePath) => events.push(['navigate', filePath]),
+    },
+    previewRenderer: {
+      setHydrationPaused: (value) => events.push(['preview-hydration', value]),
+    },
+    renderAvatars: () => events.push(['render-avatars']),
+    renderPresence: () => events.push(['render-presence']),
+    resetPreviewMode: () => events.push(['reset-preview']),
+    scrollSyncController: {
+      invalidatePreviewBlocks: () => events.push(['invalidate-preview']),
+      setLargeDocumentMode: (value) => events.push(['large-doc', value]),
+    },
+    setCurrentFilePath: (value) => {
+      currentFilePath = value;
+      events.push(['current-file', value]);
+    },
+    setSession: (value) => {
+      session = value;
+      events.push(['session', value ? value.id : null]);
+    },
+    setSessionLoadToken: (value) => {
+      sessionLoadToken = value;
+      events.push(['session-token', value]);
+    },
+    setSidebarTab: (value) => events.push(['sidebar-tab', value]),
+    showGitDiff: async (route) => {
+      events.push(['show-git-diff', route.scope ?? 'all', route.filePath ?? null]);
+    },
+    syncMainChrome: ({ mode, title = null }) => events.push(['main-chrome', mode, title]),
+    updateCommentThreads: (threads) => events.push(['threads', threads.length]),
+    workspaceCoordinator: {
+      cleanupSession: () => events.push(['cleanup-session']),
+      getSession: () => ({ id: 'session-2' }),
+      openFile: async (filePath) => events.push(['open-file', filePath]),
+    },
+    ...overrides,
+  });
+
+  return {
+    controller,
+    currentFilePath: () => currentFilePath,
+    events,
+    previewContent,
+    session: () => session,
+    sessionLoadToken: () => sessionLoadToken,
+  };
+}
+
+test('WorkspaceRouteController routes hash changes to empty, git diff, and file views', async () => {
+  const empty = createController({
+    navigation: {
+      getHashRoute: () => ({ type: 'empty' }),
+      navigateToFile() {},
+    },
+  });
+  await empty.controller.handleHashChange();
+  assert.deepEqual(empty.events.slice(0, 3), [
+    ['git-selection'],
+    ['diff-hide'],
+    ['cleanup-session'],
+  ]);
+
+  const gitDiff = createController({
+    navigation: {
+      getHashRoute: () => ({ filePath: 'README.md', scope: 'working-tree', type: 'git-diff' }),
+      navigateToFile() {},
+    },
+  });
+  await gitDiff.controller.handleHashChange();
+  assert.deepEqual(gitDiff.events, [
+    ['sidebar-tab', 'git'],
+    ['show-git-diff', 'working-tree', 'README.md'],
+  ]);
+
+  const file = createController({
+    navigation: {
+      getHashRoute: () => ({ filePath: 'notes/today.md', type: 'file' }),
+      navigateToFile() {},
+    },
+  });
+  await file.controller.handleHashChange();
+  assert.deepEqual(file.events, [
+    ['sidebar-tab', 'files'],
+    ['git-selection'],
+    ['diff-hide'],
+    ['main-chrome', 'editor', null],
+    ['open-file', 'notes/today.md'],
+    ['session', 'session-2'],
+  ]);
+});
+
+test('WorkspaceRouteController resets editor state when showing the empty workspace', () => {
+  const { controller, currentFilePath, events, previewContent, session, sessionLoadToken } = createController();
+
+  controller.showEmptyState();
+
+  assert.equal(session(), null);
+  assert.equal(sessionLoadToken(), 1);
+  assert.equal(currentFilePath(), null);
+  assert.equal(previewContent.innerHTML, '');
+  assert.equal(previewContent.dataset.renderPhase, 'ready');
+  assert.equal(events.includes(['current-file', null]), false);
+  assert.deepEqual(events.filter(([type]) => type === 'current-file'), [['current-file', null]]);
+});
+
+test('WorkspaceRouteController resets into diff mode and keeps navigation helpers simple', () => {
+  const { controller, events, previewContent, session, sessionLoadToken } = createController();
+
+  controller.showDiffState();
+  controller.handleFileSelection('README.md', { closeSidebarOnMobile: true });
+
+  assert.equal(session(), null);
+  assert.equal(sessionLoadToken(), 1);
+  assert.equal(previewContent.innerHTML, '');
+  assert.equal(previewContent.dataset.renderPhase, 'ready');
+  assert.deepEqual(events.slice(-2), [
+    ['close-sidebar'],
+    ['navigate', 'README.md'],
+  ]);
+});
