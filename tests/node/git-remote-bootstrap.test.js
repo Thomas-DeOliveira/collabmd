@@ -53,9 +53,16 @@ async function createBareRemoteFixture(t, {
   };
 }
 
-function createBootstrapConfig(vaultDir, remoteDir) {
+function createBootstrapConfig(vaultDir, remoteDir, {
+  identityEmail = '',
+  identityName = '',
+} = {}) {
   return loadConfig({
     git: {
+      identity: {
+        email: identityEmail,
+        name: identityName,
+      },
       remote: {
         repoUrl: remoteDir,
         sshPrivateKeyBase64: Buffer.from('dummy-private-key', 'utf8').toString('base64'),
@@ -93,7 +100,10 @@ test('prepareConfigForStartup clones the configured repo into an empty vault dir
   const { remoteDir } = await createBareRemoteFixture(t);
   const tempRoot = await mkdtemp(join(tmpdir(), 'collabmd-bootstrap-clone-'));
   const vaultDir = join(tempRoot, 'vault');
-  const config = createBootstrapConfig(vaultDir, remoteDir);
+  const config = createBootstrapConfig(vaultDir, remoteDir, {
+    identityEmail: 'bot@example.com',
+    identityName: 'CollabMD Bot',
+  });
 
   t.after(async () => {
     await config.git?.cleanup?.();
@@ -104,9 +114,13 @@ test('prepareConfigForStartup clones the configured repo into an empty vault dir
 
   const content = await readFile(join(vaultDir, 'test.md'), 'utf8');
   const excludeContent = await readFile(join(vaultDir, '.git', 'info', 'exclude'), 'utf8');
+  const repoUserName = (await execFile('git', ['config', 'user.name'], { cwd: vaultDir })).stdout.trim();
+  const repoUserEmail = (await execFile('git', ['config', 'user.email'], { cwd: vaultDir })).stdout.trim();
   assert.match(content, /Hello from remote/);
   assert.equal(config.git.commandEnv?.GIT_TERMINAL_PROMPT, '0');
   assert.match(excludeContent, /^\.collabmd\/$/m);
+  assert.equal(repoUserName, 'CollabMD Bot');
+  assert.equal(repoUserEmail, 'bot@example.com');
 });
 
 test('prepareConfigForStartup reuses a matching checkout and fast-forwards it to the remote default branch', async (t) => {

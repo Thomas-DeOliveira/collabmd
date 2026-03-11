@@ -199,6 +199,8 @@ docker run \
   -v /path/to/persistent/vault:/data \
   -e COLLABMD_GIT_REPO_URL=git@github.com:your-org/your-private-vault.git \
   -e COLLABMD_GIT_SSH_PRIVATE_KEY_B64="$(base64 < ~/.ssh/id_ed25519 | tr -d '\n')" \
+  -e COLLABMD_GIT_USER_NAME="CollabMD Bot" \
+  -e COLLABMD_GIT_USER_EMAIL="bot@example.com" \
   collabmd
 ```
 
@@ -219,6 +221,8 @@ docker run \
   -e COLLABMD_GIT_REPO_URL=git@github.com:your-org/your-private-vault.git \
   -e COLLABMD_GIT_SSH_PRIVATE_KEY_FILE=/run/secrets/collabmd_git_key \
   -e COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE=/run/secrets/collabmd_known_hosts \
+  -e COLLABMD_GIT_USER_NAME="CollabMD Bot" \
+  -e COLLABMD_GIT_USER_EMAIL="bot@example.com" \
   collabmd
 ```
 
@@ -253,6 +257,8 @@ HOST_VAULT_DIR=/absolute/path/to/vault docker compose up
 ```
 
 To bootstrap the compose-managed vault from a private repo, set the git env vars in `.env` and keep `HOST_VAULT_DIR` on a persistent host path. For file-based SSH auth, point `COLLABMD_GIT_SSH_PRIVATE_KEY_FILE` and `COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE` at mounted secret paths; for simpler setups, set `COLLABMD_GIT_SSH_PRIVATE_KEY_B64` instead.
+
+If you want the in-app Git commit action to work inside the container, also set `COLLABMD_GIT_USER_NAME` and `COLLABMD_GIT_USER_EMAIL` so CollabMD can configure the checkout identity automatically.
 
 To change the host port:
 
@@ -392,6 +398,8 @@ scripts/
 | `COLLABMD_GIT_SSH_PRIVATE_KEY_FILE` | SSH private key file path for remote git auth; preferred over base64 input | |
 | `COLLABMD_GIT_SSH_PRIVATE_KEY_B64` | Base64-encoded SSH private key used when no key file path is provided | |
 | `COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE` | Optional `known_hosts` file path for strict SSH host verification | |
+| `COLLABMD_GIT_USER_NAME` | Git author/committer name configured for in-app commits in git-backed deployments | |
+| `COLLABMD_GIT_USER_EMAIL` | Git author/committer email configured for in-app commits in git-backed deployments | |
 | `WS_BASE_PATH` | WebSocket base path | `/ws` |
 | `PUBLIC_WS_BASE_URL` | Public WebSocket URL override for reverse proxies | |
 | `HTTP_KEEP_ALIVE_TIMEOUT_MS` | Keep-alive timeout | `5000` |

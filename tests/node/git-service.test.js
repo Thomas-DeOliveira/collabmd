@@ -301,6 +301,39 @@ test('GitService stages, unstages, and commits all staged changes', async (t) =>
   assert.equal((status.sections.find((section) => section.key === 'working-tree')?.files ?? []).length, 0);
 });
 
+test('GitService can commit staged changes when identity is provided through command env', async (t) => {
+  const repoDir = await mkdtemp(join(tmpdir(), 'collabmd-git-service-identity-'));
+  t.after(async () => {
+    await rm(repoDir, { force: true, recursive: true });
+  });
+
+  await runGit(repoDir, ['init']);
+  await writeFile(join(repoDir, 'a.md'), '# A\n', 'utf8');
+  await runGit(repoDir, ['add', 'a.md']);
+  await runGit(repoDir, ['commit', '-m', 'Initial commit']);
+  await runGit(repoDir, ['config', '--unset-all', 'user.name']).catch(() => undefined);
+  await runGit(repoDir, ['config', '--unset-all', 'user.email']).catch(() => undefined);
+
+  await writeFile(join(repoDir, 'a.md'), '# A\nidentity env\n', 'utf8');
+
+  const gitService = new GitService({
+    commandEnv: {
+      GIT_AUTHOR_EMAIL: 'bot@example.com',
+      GIT_AUTHOR_NAME: 'CollabMD Bot',
+      GIT_COMMITTER_EMAIL: 'bot@example.com',
+      GIT_COMMITTER_NAME: 'CollabMD Bot',
+    },
+    vaultDir: repoDir,
+  });
+
+  await gitService.stageFile('a.md');
+  const commitResult = await gitService.commitStaged({
+    message: 'Commit with env identity',
+  });
+
+  assert.equal(commitResult.commit.message, 'Commit with env identity');
+});
+
 test('GitService pushes and pulls against an upstream branch', async (t) => {
   const remoteDir = await mkdtemp(join(tmpdir(), 'collabmd-git-remote-'));
   const seedDir = await mkdtemp(join(tmpdir(), 'collabmd-git-seed-'));

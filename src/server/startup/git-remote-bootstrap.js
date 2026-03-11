@@ -277,11 +277,29 @@ function buildGitSshCommand({
   return commandParts.join(' ');
 }
 
+function buildGitIdentityEnv(identity = {}) {
+  const name = String(identity.name ?? '').trim();
+  const email = String(identity.email ?? '').trim();
+
+  if (!name || !email) {
+    return {};
+  }
+
+  return {
+    GIT_AUTHOR_EMAIL: email,
+    GIT_AUTHOR_NAME: name,
+    GIT_COMMITTER_EMAIL: email,
+    GIT_COMMITTER_NAME: name,
+  };
+}
+
 async function prepareGitCommandEnv(config) {
+  const identityEnv = buildGitIdentityEnv(config.identity);
+
   if (!config.remote.enabled) {
     return {
       cleanup: async () => {},
-      commandEnv: null,
+      commandEnv: Object.keys(identityEnv).length > 0 ? identityEnv : null,
     };
   }
 
@@ -291,6 +309,7 @@ async function prepareGitCommandEnv(config) {
   return {
     cleanup,
     commandEnv: {
+      ...identityEnv,
       GIT_SSH_COMMAND: buildGitSshCommand({
         knownHostsFile: config.remote.sshKnownHostsFile,
         privateKeyPath: privateKeyFile.path,
@@ -298,6 +317,24 @@ async function prepareGitCommandEnv(config) {
       GIT_TERMINAL_PROMPT: '0',
     },
   };
+}
+
+async function ensureRepositoryIdentity(vaultDir, config, options = {}) {
+  const name = String(config.identity?.name ?? '').trim();
+  const email = String(config.identity?.email ?? '').trim();
+
+  if (!name || !email) {
+    return;
+  }
+
+  await execGit(['config', 'user.name', name], {
+    ...options,
+    cwd: vaultDir,
+  });
+  await execGit(['config', 'user.email', email], {
+    ...options,
+    cwd: vaultDir,
+  });
 }
 
 export async function prepareConfigForStartup(config, options = {}) {
@@ -341,6 +378,10 @@ export async function prepareConfigForStartup(config, options = {}) {
           commandEnv: config.git.commandEnv,
         });
         await ensureLocalGitIgnore(config.vaultDir);
+        await ensureRepositoryIdentity(config.vaultDir, config.git, {
+          ...options,
+          commandEnv: config.git.commandEnv,
+        });
         return config;
       }
 
@@ -350,6 +391,10 @@ export async function prepareConfigForStartup(config, options = {}) {
           commandEnv: config.git.commandEnv,
         });
         await ensureLocalGitIgnore(config.vaultDir);
+        await ensureRepositoryIdentity(config.vaultDir, config.git, {
+          ...options,
+          commandEnv: config.git.commandEnv,
+        });
         return config;
       }
 
@@ -364,6 +409,10 @@ export async function prepareConfigForStartup(config, options = {}) {
       commandEnv: config.git.commandEnv,
     });
     await ensureLocalGitIgnore(config.vaultDir);
+    await ensureRepositoryIdentity(config.vaultDir, config.git, {
+      ...options,
+      commandEnv: config.git.commandEnv,
+    });
     return config;
   } catch (error) {
     await runtimeCleanup();

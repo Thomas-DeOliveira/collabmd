@@ -16,6 +16,12 @@ function withAuthEnvCleared(fn) {
   const previousGitPrivateKeyFile = process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_FILE;
   const previousGitPrivateKeyBase64 = process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_B64;
   const previousGitKnownHostsFile = process.env.COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE;
+  const previousGitUserName = process.env.COLLABMD_GIT_USER_NAME;
+  const previousGitUserEmail = process.env.COLLABMD_GIT_USER_EMAIL;
+  const previousAuthorName = process.env.GIT_AUTHOR_NAME;
+  const previousAuthorEmail = process.env.GIT_AUTHOR_EMAIL;
+  const previousCommitterName = process.env.GIT_COMMITTER_NAME;
+  const previousCommitterEmail = process.env.GIT_COMMITTER_EMAIL;
 
   delete process.env.AUTH_STRATEGY;
   delete process.env.AUTH_PASSWORD;
@@ -23,6 +29,12 @@ function withAuthEnvCleared(fn) {
   delete process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_FILE;
   delete process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_B64;
   delete process.env.COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE;
+  delete process.env.COLLABMD_GIT_USER_NAME;
+  delete process.env.COLLABMD_GIT_USER_EMAIL;
+  delete process.env.GIT_AUTHOR_NAME;
+  delete process.env.GIT_AUTHOR_EMAIL;
+  delete process.env.GIT_COMMITTER_NAME;
+  delete process.env.GIT_COMMITTER_EMAIL;
 
   try {
     return fn();
@@ -61,6 +73,42 @@ function withAuthEnvCleared(fn) {
       delete process.env.COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE;
     } else {
       process.env.COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE = previousGitKnownHostsFile;
+    }
+
+    if (previousGitUserName === undefined) {
+      delete process.env.COLLABMD_GIT_USER_NAME;
+    } else {
+      process.env.COLLABMD_GIT_USER_NAME = previousGitUserName;
+    }
+
+    if (previousGitUserEmail === undefined) {
+      delete process.env.COLLABMD_GIT_USER_EMAIL;
+    } else {
+      process.env.COLLABMD_GIT_USER_EMAIL = previousGitUserEmail;
+    }
+
+    if (previousAuthorName === undefined) {
+      delete process.env.GIT_AUTHOR_NAME;
+    } else {
+      process.env.GIT_AUTHOR_NAME = previousAuthorName;
+    }
+
+    if (previousAuthorEmail === undefined) {
+      delete process.env.GIT_AUTHOR_EMAIL;
+    } else {
+      process.env.GIT_AUTHOR_EMAIL = previousAuthorEmail;
+    }
+
+    if (previousCommitterName === undefined) {
+      delete process.env.GIT_COMMITTER_NAME;
+    } else {
+      process.env.GIT_COMMITTER_NAME = previousCommitterName;
+    }
+
+    if (previousCommitterEmail === undefined) {
+      delete process.env.GIT_COMMITTER_EMAIL;
+    } else {
+      process.env.GIT_COMMITTER_EMAIL = previousCommitterEmail;
     }
   }
 }
@@ -174,6 +222,8 @@ test('loadConfig captures git bootstrap env and prefers file over base64 when bo
   process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_FILE = './secrets/id_ed25519';
   process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_B64 = Buffer.from('dummy private key', 'utf8').toString('base64');
   process.env.COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE = './secrets/known_hosts';
+  process.env.COLLABMD_GIT_USER_NAME = 'CollabMD Bot';
+  process.env.COLLABMD_GIT_USER_EMAIL = 'bot@example.com';
 
   const config = loadConfig({
     vaultDir: process.cwd(),
@@ -181,7 +231,21 @@ test('loadConfig captures git bootstrap env and prefers file over base64 when bo
 
   assert.equal(config.git.remote.enabled, true);
   assert.equal(config.git.remote.repoUrl, 'git@github.com:example/private.git');
+  assert.equal(config.git.identity.name, 'CollabMD Bot');
+  assert.equal(config.git.identity.email, 'bot@example.com');
   assert.match(config.git.remote.sshPrivateKeyFile, /secrets\/id_ed25519$/);
   assert.equal(config.git.remote.sshPrivateKeyBase64.length > 0, true);
   assert.match(config.git.remote.sshKnownHostsFile, /secrets\/known_hosts$/);
+}));
+
+test('loadConfig falls back to standard git author env for identity', () => withAuthEnvCleared(() => {
+  process.env.GIT_AUTHOR_NAME = 'Standard Author';
+  process.env.GIT_AUTHOR_EMAIL = 'author@example.com';
+
+  const config = loadConfig({
+    vaultDir: process.cwd(),
+  });
+
+  assert.equal(config.git.identity.name, 'Standard Author');
+  assert.equal(config.git.identity.email, 'author@example.com');
 }));

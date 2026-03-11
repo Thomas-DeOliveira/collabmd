@@ -78,10 +78,23 @@ function resolveOptionalPath(filePath) {
 
 function loadGitConfig(overrides = {}) {
   const remoteOverrides = overrides.remote ?? {};
+  const identityOverrides = overrides.identity ?? {};
   const enabled = overrides.enabled ?? (process.env.COLLABMD_GIT_ENABLED !== 'false');
   const repoUrl = normalizeOptionalString(
     remoteOverrides.repoUrl
     ?? process.env.COLLABMD_GIT_REPO_URL,
+  );
+  const identityName = normalizeOptionalString(
+    identityOverrides.name
+    ?? process.env.COLLABMD_GIT_USER_NAME
+    ?? process.env.GIT_AUTHOR_NAME
+    ?? process.env.GIT_COMMITTER_NAME,
+  );
+  const identityEmail = normalizeOptionalString(
+    identityOverrides.email
+    ?? process.env.COLLABMD_GIT_USER_EMAIL
+    ?? process.env.GIT_AUTHOR_EMAIL
+    ?? process.env.GIT_COMMITTER_EMAIL,
   );
   const sshPrivateKeyFile = resolveOptionalPath(
     remoteOverrides.sshPrivateKeyFile
@@ -107,6 +120,10 @@ function loadGitConfig(overrides = {}) {
     cleanup: overrides.cleanup ?? null,
     commandEnv: overrides.commandEnv ?? null,
     enabled,
+    identity: {
+      email: identityEmail,
+      name: identityName,
+    },
     remote: {
       enabled: remoteEnabled,
       repoUrl,
