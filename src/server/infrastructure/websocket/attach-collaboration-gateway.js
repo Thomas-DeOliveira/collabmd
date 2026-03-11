@@ -35,8 +35,31 @@ function isSyncMessage(payload) {
   }
 }
 
+function stripBasePath(pathname, basePath) {
+  if (!basePath) {
+    return pathname;
+  }
+
+  if (pathname === basePath) {
+    return '/';
+  }
+
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || '/';
+  }
+
+  return pathname;
+}
+
+function createRequestUrlWithPathname(requestUrl, pathname) {
+  const nextUrl = new URL(requestUrl.toString());
+  nextUrl.pathname = pathname || '/';
+  return nextUrl;
+}
+
 export function attachCollaborationGateway({
   authService,
+  basePath = '',
   heartbeatIntervalMs,
   httpServer,
   maxPayload,
@@ -176,7 +199,11 @@ export function attachCollaborationGateway({
       return;
     }
 
-    const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const originalRequestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const requestUrl = createRequestUrlWithPathname(
+      originalRequestUrl,
+      stripBasePath(originalRequestUrl.pathname, basePath),
+    );
     const matchesRealtimeRoute =
       requestUrl.pathname === wsBasePath || requestUrl.pathname.startsWith(`${wsBasePath}/`);
 

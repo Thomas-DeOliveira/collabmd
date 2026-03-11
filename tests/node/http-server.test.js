@@ -114,6 +114,51 @@ test('HTTP server serves health, runtime config, and static assets', async (t) =
   assert.match(gunzipSync(compressedAssetResponse.bodyBuffer).toString('utf8'), /--color-bg/);
 });
 
+test('HTTP server serves prefixed routes when BASE_PATH is configured', async (t) => {
+  const app = await startTestServer({
+    auth: {
+      password: 'test-password-123',
+      strategy: 'password',
+    },
+    basePath: '/collabmd',
+  });
+  t.after(() => app.close());
+
+  const redirectResponse = await httpRequest(`${app.baseUrl}/collabmd`, { method: 'HEAD' });
+  assert.equal(redirectResponse.statusCode, 308);
+  assert.equal(redirectResponse.headers.location, '/collabmd/');
+
+  const runtimeConfigResponse = await httpRequest(`${app.appBaseUrl}/app-config.js`);
+  assert.equal(runtimeConfigResponse.statusCode, 200);
+  assert.match(runtimeConfigResponse.body, /"basePath":"\/collabmd"/);
+  assert.match(runtimeConfigResponse.body, /"sessionEndpoint":"\/collabmd\/api\/auth\/session"/);
+
+  const assetResponse = await httpRequest(`${app.appBaseUrl}/assets/css/style.css`);
+  assert.equal(assetResponse.statusCode, 200);
+
+  const unauthenticatedApiResponse = await httpRequest(`${app.appBaseUrl}/api/files`);
+  assert.equal(unauthenticatedApiResponse.statusCode, 401);
+
+  const loginResponse = await httpRequest(`${app.appBaseUrl}/api/auth/session`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ password: 'test-password-123' }),
+  });
+  assert.equal(loginResponse.statusCode, 200);
+  assert.match(String(loginResponse.headers['set-cookie']), /Path=\/collabmd/);
+
+  const cookieHeader = extractCookieHeader(loginResponse.headers['set-cookie']);
+  const authenticatedApiResponse = await httpRequest(`${app.appBaseUrl}/api/files`, {
+    headers: {
+      Cookie: cookieHeader,
+    },
+  });
+  assert.equal(authenticatedApiResponse.statusCode, 200);
+  assert.match(authenticatedApiResponse.body, /test\.md/);
+});
+
 test('HTTP server exposes git status and diff endpoints for git-backed vaults', async (t) => {
   const app = await startTestServer();
   t.after(() => app.close());

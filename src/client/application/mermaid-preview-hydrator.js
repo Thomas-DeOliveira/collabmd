@@ -1,4 +1,5 @@
 import { clamp } from '../domain/vault-utils.js';
+import { resolveApiUrl } from '../domain/runtime-paths.js';
 import {
   cancelIdleRender,
   createMermaidPlaceholderCard,
@@ -446,7 +447,7 @@ export class MermaidPreviewHydrator {
       return this.fileInflightRequests.get(target);
     }
 
-    const request = fetch(`/api/file?path=${encodeURIComponent(target)}`, {
+    const request = fetch(resolveApiUrl(`/file?path=${encodeURIComponent(target)}`), {
       headers: {
         Accept: 'application/json',
       },

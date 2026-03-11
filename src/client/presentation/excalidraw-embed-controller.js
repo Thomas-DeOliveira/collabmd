@@ -1,4 +1,5 @@
 import { reconcileEmbedEntries } from './excalidraw-embed-reconciler.js';
+import { resolveAppUrl } from '../domain/runtime-paths.js';
 
 const DEFAULT_HEIGHT = 420;
 const HYDRATE_TIMEOUT_MS = 500;
@@ -478,7 +479,7 @@ export class ExcalidrawEmbedController {
   }
 
   _buildIframeUrl(entry) {
-    const iframeUrl = new URL(EDITOR_IFRAME_PATH, window.location.origin);
+    const iframeUrl = new URL(resolveAppUrl(EDITOR_IFRAME_PATH));
     const theme = this.getTheme?.() || 'dark';
 
     iframeUrl.searchParams.set('file', entry.filePath);

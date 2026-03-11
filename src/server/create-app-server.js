@@ -81,6 +81,7 @@ export function createAppServer(config = loadConfig()) {
   httpServer.requestTimeout = config.httpRequestTimeoutMs;
   const collaborationGateway = attachCollaborationGateway({
     authService,
+    basePath: config.basePath,
     heartbeatIntervalMs: config.wsHeartbeatIntervalMs,
     maxPayload: config.wsMaxPayloadBytes,
     httpServer,
@@ -104,7 +105,7 @@ export function createAppServer(config = loadConfig()) {
           address,
           host: getDisplayHost(config.host),
           port: typeof address === 'object' && address ? address.port : config.port,
-          wsPath: `${config.wsBasePath}/:file`,
+          wsPath: `${config.basePath || ''}${config.wsBasePath}/:file`,
         });
       });
     });

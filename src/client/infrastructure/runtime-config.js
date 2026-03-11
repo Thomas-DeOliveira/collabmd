@@ -1,24 +1,16 @@
-function trimTrailingSlash(value) {
-  return value.endsWith('/') ? value.slice(0, -1) : value;
-}
+import {
+  getClientRuntimeConfig,
+  resolveApiUrl,
+  resolveAppPath,
+  resolveAppUrl,
+  resolveWsBaseUrl,
+} from '../domain/runtime-paths.js';
 
 export function getRuntimeConfig() {
-  return {
-    auth: {
-      enabled: false,
-      implemented: true,
-      requiresLogin: false,
-      sessionEndpoint: '/api/auth/session',
-      statusEndpoint: '/api/auth/status',
-      strategy: 'none',
-    },
-    environment: 'development',
-    gitEnabled: true,
-    publicWsBaseUrl: '',
-    wsBasePath: '/ws',
-    ...(window.__COLLABMD_CONFIG__ ?? {}),
-  };
+  return getClientRuntimeConfig();
 }
+
+export { resolveApiUrl, resolveAppPath, resolveAppUrl, resolveWsBaseUrl };
 
 function getHashParams() {
   const rawHash = window.location.hash.startsWith('#')
@@ -70,21 +62,4 @@ export function navigateToGitDiff({ filePath = null, scope = 'all' } = {}) {
   params.set('git-diff', filePath ?? '');
   params.set('scope', normalizeDiffScope(scope));
   window.location.hash = params.toString();
-}
-
-export function resolveWsBaseUrl() {
-  const params = new URLSearchParams(window.location.search);
-  const customServerUrl = params.get('server');
-
-  if (customServerUrl) {
-    return trimTrailingSlash(customServerUrl);
-  }
-
-  const config = getRuntimeConfig();
-  if (config.publicWsBaseUrl) {
-    return trimTrailingSlash(config.publicWsBaseUrl);
-  }
-
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}${config.wsBasePath}`;
 }

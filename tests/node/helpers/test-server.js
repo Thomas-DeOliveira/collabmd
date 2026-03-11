@@ -50,6 +50,7 @@ export async function startTestServer(overrides = {}) {
   const { port } = await server.listen();
 
   return {
+    appBaseUrl: `http://${config.host}:${port}${config.basePath || ''}`,
     baseUrl: `http://${config.host}:${port}`,
     close: async () => {
       await server.close();
@@ -59,7 +60,7 @@ export async function startTestServer(overrides = {}) {
     server,
     tempRoot,
     vaultDir,
-    wsUrl: (filePath) => `ws://${config.host}:${port}${config.wsBasePath}/${encodeURIComponent(filePath)}`,
+    wsUrl: (filePath) => `ws://${config.host}:${port}${config.basePath || ''}${config.wsBasePath}/${encodeURIComponent(filePath)}`,
   };
 }
 

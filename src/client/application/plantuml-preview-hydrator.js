@@ -1,4 +1,5 @@
 import { clamp } from '../domain/vault-utils.js';
+import { resolveApiUrl } from '../domain/runtime-paths.js';
 import {
   cancelIdleRender,
   createPlantUmlPlaceholderCard,
@@ -432,7 +433,7 @@ export class PlantUmlPreviewHydrator {
       return this.svgInflightRequests.get(cacheKey);
     }
 
-    const request = fetch('/api/plantuml/render', {
+    const request = fetch(resolveApiUrl('/plantuml/render'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -467,7 +468,7 @@ export class PlantUmlPreviewHydrator {
       return this.fileInflightRequests.get(target);
     }
 
-    const request = fetch(`/api/file?path=${encodeURIComponent(target)}`, {
+    const request = fetch(resolveApiUrl(`/file?path=${encodeURIComponent(target)}`), {
       headers: {
         Accept: 'application/json',
       },

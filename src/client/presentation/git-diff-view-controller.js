@@ -1,4 +1,5 @@
 import { escapeHtml } from '../domain/vault-utils.js';
+import { resolveApiUrl } from '../domain/runtime-paths.js';
 
 function getPathLeaf(pathValue) {
   return String(pathValue ?? '').split('/').pop() || '';
@@ -232,7 +233,7 @@ export class GitDiffViewController {
       }
       query.set('metaOnly', 'true');
 
-      const response = await fetch(`/api/git/diff?${query.toString()}`);
+      const response = await fetch(resolveApiUrl(`/git/diff?${query.toString()}`));
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || 'Failed to load git diff');
@@ -495,7 +496,7 @@ export class GitDiffViewController {
         query.set('allowLargePatch', 'true');
       }
 
-      const response = await fetch(`/api/git/diff?${query.toString()}`);
+      const response = await fetch(resolveApiUrl(`/git/diff?${query.toString()}`));
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || 'Failed to load file diff');

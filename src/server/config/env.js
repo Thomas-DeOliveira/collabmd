@@ -23,13 +23,35 @@ function normalizeOptionalString(value) {
   return normalized.length > 0 ? normalized : '';
 }
 
-function normalizeBasePath(basePath) {
-  if (!basePath || basePath === '/') {
-    return '/ws';
+function normalizeAppBasePath(basePath) {
+  const normalized = normalizeOptionalString(basePath);
+  if (!normalized || normalized === '/') {
+    return '';
   }
 
-  const trimmed = basePath.startsWith('/') ? basePath : `/${basePath}`;
+  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/u.test(normalized)) {
+    try {
+      return normalizeAppBasePath(new URL(normalized).pathname);
+    } catch {
+      return '';
+    }
+  }
+
+  const trimmed = normalized.startsWith('/') ? normalized : `/${normalized}`;
   return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
+}
+
+function normalizeRoutePath(routePath, fallbackPath) {
+  if (!routePath || routePath === '/') {
+    return fallbackPath;
+  }
+
+  const trimmed = routePath.startsWith('/') ? routePath : `/${routePath}`;
+  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
+}
+
+function normalizeWsBasePath(basePath) {
+  return normalizeRoutePath(basePath, '/ws');
 }
 
 function normalizeAuthStrategy(rawStrategy) {
@@ -122,6 +144,7 @@ export function loadConfig(overrides = {}) {
       sessionSecret: authOverrides.sessionSecret || process.env.AUTH_SESSION_SECRET || createRandomSessionSecret(),
       strategy: authStrategy,
     },
+    basePath: normalizeAppBasePath(process.env.BASE_PATH || ''),
     host: process.env.HOST || getDefaultHost(nodeEnv),
     httpHeadersTimeoutMs: parsePositiveInt(process.env.HTTP_HEADERS_TIMEOUT_MS, 60_000),
     httpKeepAliveTimeoutMs: parsePositiveInt(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS, 5_000),
@@ -136,7 +159,7 @@ export function loadConfig(overrides = {}) {
     publicWsBaseUrl: process.env.PUBLIC_WS_BASE_URL || '',
     wsHeartbeatIntervalMs: parsePositiveInt(process.env.WS_HEARTBEAT_INTERVAL_MS, 30_000),
     wsRoomIdleGraceMs: parsePositiveInt(process.env.WS_ROOM_IDLE_GRACE_MS, 15_000),
-    wsBasePath: normalizeBasePath(process.env.WS_BASE_PATH || '/ws'),
+    wsBasePath: normalizeWsBasePath(process.env.WS_BASE_PATH || '/ws'),
     wsMaxBufferedAmountBytes: parsePositiveInt(
       process.env.WS_MAX_BUFFERED_AMOUNT_BYTES,
       16_777_216,

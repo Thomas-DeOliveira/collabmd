@@ -49,12 +49,13 @@ function hasSecureRequestHeaders(req) {
 
 export function createSessionCookieManager({
   cookieName,
+  cookiePath = '/',
   secret,
 }) {
   function createCookieAttributes(req, { expires = null } = {}) {
     const attributes = [
       'HttpOnly',
-      'Path=/',
+      `Path=${cookiePath}`,
       'SameSite=Lax',
     ];
 

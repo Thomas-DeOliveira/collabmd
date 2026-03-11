@@ -6,6 +6,7 @@ import { Doc } from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 
 import { ensureClientAuthenticated } from './infrastructure/auth-client.js';
+import { resolveApiUrl, resolveWsBaseUrl } from './domain/runtime-paths.js';
 
 const params = new URLSearchParams(window.location.search);
 const filePath = params.get('file');
@@ -46,10 +47,6 @@ let pointerAwarenessFrame = 0;
 let pendingPointerPayload = null;
 let lastSelectedIdsSignature = '';
 let suppressOnChangeReleaseToken = 0;
-
-function trimTrailingSlash(value) {
-  return value.endsWith('/') ? value.slice(0, -1) : value;
-}
 
 function normalizeUserName(value) {
   const normalized = String(value || '').trim().replace(/\s+/g, ' ');
@@ -125,29 +122,6 @@ function applyLocalUserPatch(nextUser = {}) {
   }
 
   updateCollaboratorsFromAwareness();
-}
-
-function getRuntimeConfig() {
-  return {
-    publicWsBaseUrl: '',
-    wsBasePath: '/ws',
-    ...(window.__COLLABMD_CONFIG__ || {}),
-  };
-}
-
-function resolveWsBaseUrl() {
-  const customServerUrl = params.get('server');
-  if (customServerUrl) {
-    return trimTrailingSlash(customServerUrl);
-  }
-
-  const config = getRuntimeConfig();
-  if (config.publicWsBaseUrl) {
-    return trimTrailingSlash(config.publicWsBaseUrl);
-  }
-
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}${config.wsBasePath}`;
 }
 
 function createEmptyScene() {
@@ -362,7 +336,7 @@ async function loadSceneFromApi({ createIfMissing = true } = {}) {
     return createEmptyScene();
   }
 
-  const readResponse = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`);
+  const readResponse = await fetch(resolveApiUrl(`/file?path=${encodeURIComponent(filePath)}`));
   if (readResponse.ok) {
     const data = await readResponse.json();
     return parseSceneJson(data.content);
@@ -370,7 +344,7 @@ async function loadSceneFromApi({ createIfMissing = true } = {}) {
 
   if (readResponse.status === 404 && createIfMissing) {
     const emptyScene = createEmptyScene();
-    const createResponse = await fetch('/api/file', {
+    const createResponse = await fetch(resolveApiUrl('/file'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: filePath, content: JSON.stringify(emptyScene) }),

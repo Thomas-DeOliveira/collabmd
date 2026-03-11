@@ -1,4 +1,5 @@
 import { escapeHtml } from '../domain/vault-utils.js';
+import { resolveApiUrl } from '../domain/runtime-paths.js';
 
 /**
  * BacklinksPanel — a collapsible panel below the preview showing
@@ -62,7 +63,7 @@ export class BacklinksPanel {
 
     try {
       const response = await fetch(
-        `/api/backlinks?file=${encodeURIComponent(filePath)}`,
+        resolveApiUrl(`/backlinks?file=${encodeURIComponent(filePath)}`),
         { signal: this._fetchController.signal },
       );
       const data = await response.json();

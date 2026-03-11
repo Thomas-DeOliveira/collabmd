@@ -1,3 +1,5 @@
+import { resolveApiUrl } from '../../domain/runtime-paths.js';
+
 export const gitFeature = {
   handleGitDiffSelection(filePath, { closeSidebarOnMobile = false, scope = 'working-tree' } = {}) {
     if (closeSidebarOnMobile) {
@@ -83,7 +85,7 @@ export const gitFeature = {
       return;
     }
 
-    await this.postGitAction('/api/git/stage', { path: filePath });
+    await this.postGitAction(resolveApiUrl('/git/stage'), { path: filePath });
     this.toastController.show(`Staged ${this.getDisplayName(filePath)}`);
     await this.refreshGitAfterAction({
       filePath,
@@ -96,7 +98,7 @@ export const gitFeature = {
       return;
     }
 
-    await this.postGitAction('/api/git/unstage', { path: filePath });
+    await this.postGitAction(resolveApiUrl('/git/unstage'), { path: filePath });
     this.toastController.show(`Unstaged ${this.getDisplayName(filePath)}`);
     await this.refreshGitAfterAction({
       filePath,
@@ -106,7 +108,7 @@ export const gitFeature = {
 
   async pushGitBranch() {
     try {
-      await this.postGitAction('/api/git/push', {});
+      await this.postGitAction(resolveApiUrl('/git/push'), {});
       this.toastController.show('Pushed branch');
       await this.refreshGitAfterAction();
     } catch (error) {
@@ -116,7 +118,7 @@ export const gitFeature = {
 
   async pullGitBranch() {
     try {
-      await this.postGitAction('/api/git/pull', {});
+      await this.postGitAction(resolveApiUrl('/git/pull'), {});
       this.toastController.show('Pulled branch');
       await this.refreshGitAfterAction();
     } catch (error) {
@@ -176,7 +178,7 @@ export const gitFeature = {
 
     submit?.toggleAttribute('disabled', true);
     try {
-      const result = await this.postGitAction('/api/git/commit', {
+      const result = await this.postGitAction(resolveApiUrl('/git/commit'), {
         message,
       });
       dialog.close();

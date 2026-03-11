@@ -1,4 +1,5 @@
 import { escapeHtml } from '../domain/vault-utils.js';
+import { resolveApiUrl } from '../domain/runtime-paths.js';
 
 const REFRESH_INTERVAL_MS = 10_000;
 
@@ -244,7 +245,7 @@ export class GitPanelController {
     }
 
     try {
-      const response = await fetch(`/api/git/status${force ? '?force=true' : ''}`);
+      const response = await fetch(resolveApiUrl(`/git/status${force ? '?force=true' : ''}`));
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || 'Failed to load git status');

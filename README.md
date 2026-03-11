@@ -275,7 +275,8 @@ Recommended Coolify setup:
 5. Mount `known_hosts` and set `COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE` if you want strict host verification.
 6. Add a health check for `GET /health` with enough startup grace for the initial clone.
 7. Run a single replica only because room state is in-process and not shared across instances.
-8. Set `PUBLIC_WS_BASE_URL` only if your WebSocket endpoint differs from the app origin.
+8. Set `BASE_PATH` if the app is mounted under a subpath such as `/collabmd`.
+9. Set `PUBLIC_WS_BASE_URL` only if your WebSocket endpoint differs from the app origin.
 
 For a standard Coolify reverse-proxy setup, the default same-origin WebSocket routing works as-is and you should not need `PUBLIC_WS_BASE_URL`.
 
@@ -383,6 +384,7 @@ scripts/
 | `AUTH_PASSWORD` | Shared password for `AUTH_STRATEGY=password` | generated per run |
 | `AUTH_SESSION_COOKIE_NAME` | Session cookie name | `collabmd_auth` |
 | `AUTH_SESSION_SECRET` | Cookie signing secret | generated per run |
+| `BASE_PATH` | URL path prefix for subpath deployments | |
 | `PLANTUML_SERVER_URL` | Upstream PlantUML server base URL used for server-side SVG rendering | `https://www.plantuml.com/plantuml` |
 | `COLLABMD_VAULT_DIR` | Vault directory path | current directory |
 | `COLLABMD_GIT_ENABLED` | Enable or disable git integration in the UI and API | `true` |

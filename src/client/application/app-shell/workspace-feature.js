@@ -6,6 +6,7 @@ import {
   isPlantUmlFilePath,
   stripVaultFileExtension,
 } from '../../../domain/file-kind.js';
+import { resolveApiUrl } from '../../domain/runtime-paths.js';
 import { resolveWikiTarget } from '../../domain/vault-utils.js';
 
 export const workspaceFeature = {
@@ -340,7 +341,7 @@ export const workspaceFeature = {
 
   async createAndOpenFile(filePath, displayName) {
     try {
-      const response = await fetch('/api/file', {
+      const response = await fetch(resolveApiUrl('/file'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: filePath, content: `# ${displayName}\n\n` }),

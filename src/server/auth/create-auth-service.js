@@ -52,14 +52,25 @@ function createUnauthorizedBody(clientConfig, {
   };
 }
 
-function buildClientConfig(authConfig) {
+function prependBasePath(basePath, pathname) {
+  if (!basePath) {
+    return pathname;
+  }
+
+  return pathname === '/' ? basePath : `${basePath}${pathname}`;
+}
+
+function buildClientConfig(authConfig, { basePath = '' } = {}) {
+  const sessionEndpoint = prependBasePath(basePath, '/api/auth/session');
+  const statusEndpoint = prependBasePath(basePath, '/api/auth/status');
+
   if (authConfig.strategy === AUTH_STRATEGY_NONE) {
     return {
       enabled: false,
       implemented: true,
       requiresLogin: false,
-      sessionEndpoint: '/api/auth/session',
-      statusEndpoint: '/api/auth/status',
+      sessionEndpoint,
+      statusEndpoint,
       strategy: AUTH_STRATEGY_NONE,
     };
   }
@@ -70,8 +81,8 @@ function buildClientConfig(authConfig) {
       implemented: true,
       passwordLabel: 'Host password',
       requiresLogin: true,
-      sessionEndpoint: '/api/auth/session',
-      statusEndpoint: '/api/auth/status',
+      sessionEndpoint,
+      statusEndpoint,
       strategy: AUTH_STRATEGY_PASSWORD,
       submitLabel: 'Join session',
     };
@@ -81,8 +92,8 @@ function buildClientConfig(authConfig) {
     enabled: true,
     implemented: false,
     requiresLogin: true,
-    sessionEndpoint: '/api/auth/session',
-    statusEndpoint: '/api/auth/status',
+    sessionEndpoint,
+    statusEndpoint,
     strategy: AUTH_STRATEGY_OIDC,
   };
 }
@@ -183,9 +194,12 @@ function createOidcStrategy(clientConfig, sessionCookieManager) {
 
 export function createAuthService(config) {
   const authConfig = config.auth ?? { strategy: AUTH_STRATEGY_NONE };
-  const clientConfig = buildClientConfig(authConfig);
+  const clientConfig = buildClientConfig(authConfig, {
+    basePath: config.basePath ?? '',
+  });
   const sessionCookieManager = createSessionCookieManager({
     cookieName: authConfig.sessionCookieName,
+    cookiePath: config.basePath || '/',
     secret: authConfig.sessionSecret,
   });
 

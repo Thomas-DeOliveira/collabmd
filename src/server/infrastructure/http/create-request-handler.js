@@ -12,6 +12,28 @@ import {
   WRITE_METHODS,
 } from './http-response.js';
 
+function stripBasePath(pathname, basePath) {
+  if (!basePath) {
+    return pathname;
+  }
+
+  if (pathname === basePath) {
+    return '/';
+  }
+
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || '/';
+  }
+
+  return pathname;
+}
+
+function createRequestUrlWithPathname(requestUrl, pathname) {
+  const nextUrl = new URL(requestUrl.toString());
+  nextUrl.pathname = pathname || '/';
+  return nextUrl;
+}
+
 export function createRequestHandler(
   config,
   authService,
@@ -33,7 +55,22 @@ export function createRequestHandler(
   });
 
   return async function handleRequest(req, res) {
-    const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const originalRequestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    if (
+      config.basePath
+      && (req.method === 'GET' || req.method === 'HEAD')
+      && originalRequestUrl.pathname === config.basePath
+    ) {
+      const location = `${config.basePath}/${originalRequestUrl.search}`;
+      res.writeHead(308, { Location: location });
+      res.end();
+      return;
+    }
+
+    const requestUrl = createRequestUrlWithPathname(
+      originalRequestUrl,
+      stripBasePath(originalRequestUrl.pathname, config.basePath),
+    );
     const isSameOriginWrite = isSameOriginWriteRequest(req, requestUrl);
 
     setHeaders(res, SECURITY_HEADERS);

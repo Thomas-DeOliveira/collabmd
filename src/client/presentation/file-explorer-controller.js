@@ -5,6 +5,7 @@ import {
   isPlantUmlFilePath,
   stripVaultFileExtension,
 } from '../../domain/file-kind.js';
+import { resolveApiUrl } from '../domain/runtime-paths.js';
 import { escapeHtml } from '../domain/vault-utils.js';
 
 const MARKDOWN_EXTENSION_PATTERN = /\.(?:md|markdown|mdx)$/i;
@@ -103,7 +104,7 @@ export class FileExplorerController {
 
   async refresh() {
     try {
-      const response = await fetch('/api/files');
+      const response = await fetch(resolveApiUrl('/files'));
       const data = await response.json();
       this.tree = data.tree || [];
       this.flatFiles = this.flattenTree(this.tree);
@@ -638,7 +639,7 @@ export class FileExplorerController {
 
   async createVaultFile(filePath, content, { openAfterCreate = false, errorMessage = 'Failed to create file' } = {}) {
     try {
-      const response = await fetch('/api/file', {
+      const response = await fetch(resolveApiUrl('/file'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: filePath, content }),
@@ -672,7 +673,7 @@ export class FileExplorerController {
     }
 
     try {
-      const response = await fetch('/api/directory', {
+      const response = await fetch(resolveApiUrl('/directory'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: directoryPath }),
@@ -719,7 +720,7 @@ export class FileExplorerController {
     }
 
     try {
-      const response = await fetch('/api/file', {
+      const response = await fetch(resolveApiUrl('/file'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ oldPath: filePath, newPath }),
@@ -748,7 +749,7 @@ export class FileExplorerController {
 
   async deleteVaultFile(filePath) {
     try {
-      const response = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`, {
+      const response = await fetch(resolveApiUrl(`/file?path=${encodeURIComponent(filePath)}`), {
         method: 'DELETE',
       });
       const data = await response.json();
