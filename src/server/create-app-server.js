@@ -41,6 +41,7 @@ export function createAppServer(config = loadConfig()) {
     serverUrl: config.plantumlServerUrl,
   });
   const gitService = new GitService({
+    commandEnv: config.git?.commandEnv,
     enabled: config.gitEnabled,
     vaultDir: config.vaultDir,
   });
@@ -117,6 +118,7 @@ export function createAppServer(config = loadConfig()) {
     shutdownPromise = Promise.all([
       collaborationGateway.close(),
       closeHttpServer(httpServer),
+      config.git?.cleanup?.(),
     ]).then(() => undefined);
 
     return shutdownPromise;

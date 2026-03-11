@@ -191,6 +191,37 @@ docker run -p 1234:1234 -v /path/to/vault:/data collabmd
 
 The container listens on `0.0.0.0:1234` and stores vault files at `/data`.
 
+To bootstrap `/data` from a private git repository instead, pass the repo URL plus SSH credentials:
+
+```bash
+docker run \
+  -p 1234:1234 \
+  -v /path/to/persistent/vault:/data \
+  -e COLLABMD_GIT_REPO_URL=git@github.com:your-org/your-private-vault.git \
+  -e COLLABMD_GIT_SSH_PRIVATE_KEY_B64="$(base64 < ~/.ssh/id_ed25519 | tr -d '\n')" \
+  collabmd
+```
+
+For a full local and Docker test walkthrough, including key generation and deploy-key setup, see [docs/private-git-deployment.md](./docs/private-git-deployment.md).
+
+When `COLLABMD_GIT_REPO_URL` is set, CollabMD clones into `COLLABMD_VAULT_DIR` on first boot, then reuses that checkout on later starts. If the checkout already exists, startup validates that `origin` matches, requires a clean tree, and only performs a fast-forward pull on the remote default branch.
+
+After bootstrap, CollabMD adds `.collabmd/` to the checkout's local git exclude file at `.git/info/exclude` so runtime metadata stays out of git status without modifying the repo's tracked `.gitignore`.
+
+File-based secrets are also supported and take precedence over base64 input:
+
+```bash
+docker run \
+  -p 1234:1234 \
+  -v /path/to/persistent/vault:/data \
+  -v ~/.ssh/id_ed25519:/run/secrets/collabmd_git_key:ro \
+  -v ~/.ssh/known_hosts:/run/secrets/collabmd_known_hosts:ro \
+  -e COLLABMD_GIT_REPO_URL=git@github.com:your-org/your-private-vault.git \
+  -e COLLABMD_GIT_SSH_PRIVATE_KEY_FILE=/run/secrets/collabmd_git_key \
+  -e COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE=/run/secrets/collabmd_known_hosts \
+  collabmd
+```
+
 ### Local docker-compose with a private PlantUML server
 
 The included `docker-compose.yml` runs a prebuilt CollabMD image together with a local `plantuml/plantuml-server:jetty` container and points `PLANTUML_SERVER_URL` at the private service automatically.
@@ -221,6 +252,8 @@ To use an existing vault on your machine instead of `./data/vault`:
 HOST_VAULT_DIR=/absolute/path/to/vault docker compose up
 ```
 
+To bootstrap the compose-managed vault from a private repo, set the git env vars in `.env` and keep `HOST_VAULT_DIR` on a persistent host path. For file-based SSH auth, point `COLLABMD_GIT_SSH_PRIVATE_KEY_FILE` and `COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE` at mounted secret paths; for simpler setups, set `COLLABMD_GIT_SSH_PRIVATE_KEY_B64` instead.
+
 To change the host port:
 
 ```bash
@@ -237,10 +270,12 @@ Recommended Coolify setup:
 
 1. Use the included `Dockerfile`.
 2. Expose port `1234`.
-3. Mount a persistent volume to `/data` containing your markdown files.
-4. Add a health check for `GET /health`.
-5. Run a single replica only because room state is in-process and not shared across instances.
-6. Set `PUBLIC_WS_BASE_URL` only if your WebSocket endpoint differs from the app origin.
+3. Mount a persistent volume to `/data` for the vault checkout and runtime files. It can be pre-populated with markdown files or start empty when `COLLABMD_GIT_REPO_URL` is enabled.
+4. Add `COLLABMD_GIT_REPO_URL` plus either `COLLABMD_GIT_SSH_PRIVATE_KEY_FILE` or `COLLABMD_GIT_SSH_PRIVATE_KEY_B64` if the vault should be cloned from a private repo.
+5. Mount `known_hosts` and set `COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE` if you want strict host verification.
+6. Add a health check for `GET /health` with enough startup grace for the initial clone.
+7. Run a single replica only because room state is in-process and not shared across instances.
+8. Set `PUBLIC_WS_BASE_URL` only if your WebSocket endpoint differs from the app origin.
 
 For a standard Coolify reverse-proxy setup, the default same-origin WebSocket routing works as-is and you should not need `PUBLIC_WS_BASE_URL`.
 
@@ -312,18 +347,21 @@ bin/
   collabmd.js              CLI entry point
 src/
   client/
-    application/           app orchestration, preview rendering, wiki-links
-    domain/                room/user generators
-    infrastructure/        runtime config, auth bootstrap, collaborative editor session
+    application/           app orchestration, preview rendering, workspace coordination
+    bootstrap/             app-shell composition and startup wiring
+    domain/                markdown editing, wiki-link, room, and vault helpers
+    infrastructure/        runtime config, auth bootstrap, browser ports, collaborative editor session
     presentation/          file explorer, comments, backlinks, quick switcher, outline, scroll sync, theme, layout
+    styles/                app CSS
   domain/                  shared comment and wiki-link helpers
   server/
     auth/                  strategy selection and cookie-backed auth sessions
     config/                environment loading
-    domain/                collaboration room model, registry, backlink index, PlantUML renderer
-    infrastructure/        HTTP request handler, vault file store, WebSocket gateway
+    domain/                collaboration room model, registry, backlink index, server-side abstractions
+    infrastructure/        HTTP handlers, git service, vault file store, PlantUML, WebSocket gateway
+    startup/               preflight vault bootstrap, including remote git checkout setup
 public/
-  assets/css/              static styles
+  assets/                  built CSS, JS, and vendored browser assets
   index.html               app shell
 scripts/
   build-client.mjs         client bundling and vendored browser assets
@@ -347,14 +385,19 @@ scripts/
 | `AUTH_SESSION_SECRET` | Cookie signing secret | generated per run |
 | `PLANTUML_SERVER_URL` | Upstream PlantUML server base URL used for server-side SVG rendering | `https://www.plantuml.com/plantuml` |
 | `COLLABMD_VAULT_DIR` | Vault directory path | current directory |
+| `COLLABMD_GIT_ENABLED` | Enable or disable git integration in the UI and API | `true` |
+| `COLLABMD_GIT_REPO_URL` | Remote git repository used to bootstrap the vault checkout | |
+| `COLLABMD_GIT_SSH_PRIVATE_KEY_FILE` | SSH private key file path for remote git auth; preferred over base64 input | |
+| `COLLABMD_GIT_SSH_PRIVATE_KEY_B64` | Base64-encoded SSH private key used when no key file path is provided | |
+| `COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE` | Optional `known_hosts` file path for strict SSH host verification | |
 | `WS_BASE_PATH` | WebSocket base path | `/ws` |
 | `PUBLIC_WS_BASE_URL` | Public WebSocket URL override for reverse proxies | |
 | `HTTP_KEEP_ALIVE_TIMEOUT_MS` | Keep-alive timeout | `5000` |
 | `HTTP_HEADERS_TIMEOUT_MS` | Header read timeout | `60000` |
 | `HTTP_REQUEST_TIMEOUT_MS` | Request timeout | `30000` |
 | `WS_HEARTBEAT_INTERVAL_MS` | Heartbeat interval for evicting dead clients | `30000` |
-| `WS_MAX_BUFFERED_AMOUNT_BYTES` | Max outbound buffer per WebSocket | `1048576` |
-| `WS_MAX_PAYLOAD_BYTES` | Max inbound WebSocket frame | `4194304` |
+| `WS_MAX_BUFFERED_AMOUNT_BYTES` | Max outbound buffer per WebSocket | `16777216` |
+| `WS_MAX_PAYLOAD_BYTES` | Max inbound WebSocket frame | `16777216` |
 | `CLOUDFLARED_BIN` | `cloudflared` binary path | `cloudflared` |
 | `TUNNEL_TARGET_HOST` | Tunnel target host | `127.0.0.1` |
 | `TUNNEL_TARGET_PORT` | Tunnel target port | `1234` |
@@ -372,11 +415,13 @@ cp .env.example .env
 ## Notes
 
 - The filesystem is the source of truth; Yjs provides the collaboration layer.
+- When `COLLABMD_GIT_REPO_URL` is set, startup clones or fast-forwards the configured repo into `COLLABMD_VAULT_DIR` before the server begins accepting traffic.
+- If `COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE` is not set, SSH falls back to `StrictHostKeyChecking=accept-new`.
 - CollabMD assumes it is the only writer while a file is open; there is no live `fs.watch` reconciliation.
 - `.obsidian`, `.git`, `.trash`, and `node_modules` directories are ignored.
 - Only `.md`, `.markdown`, and `.mdx` files are indexed.
 - PlantUML preview rendering is server-side and uses `PLANTUML_SERVER_URL`; point it at a self-hosted renderer if you do not want to use the public PlantUML service.
-- `docker compose up --build` uses the included local PlantUML service and avoids the public renderer by default.
+- `docker compose up --build` uses the included local PlantUML service and avoids the public renderer by default. The initial git clone may also require a longer health-check grace period than a purely local vault.
 - `collabmd --local-plantuml` and `npm run start:local-plantuml` will start the local PlantUML compose service first, then run CollabMD against `http://127.0.0.1:${PLANTUML_HOST_PORT:-18080}`.
 
 ## License

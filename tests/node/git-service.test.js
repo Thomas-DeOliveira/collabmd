@@ -353,3 +353,31 @@ test('GitService pushes and pulls against an upstream branch', async (t) => {
   const localContent = await execFile('git', ['show', 'HEAD:test.md'], { cwd: localDir });
   assert.match(String(localContent.stdout), /peer change/);
 });
+
+test('GitService passes configured command env to subprocesses', async () => {
+  const repoDir = await createFixtureRepository();
+  const observedEnvs = [];
+  const gitService = new GitService({
+    commandEnv: {
+      COLLABMD_TEST_GIT_ENV: 'expected-value',
+    },
+    execFileImpl: async (...args) => {
+      const options = args[2] ?? {};
+      observedEnvs.push(options.env);
+      return execFile(...args);
+    },
+    vaultDir: repoDir,
+  });
+
+  try {
+    await gitService.getStatus({ force: true });
+  } finally {
+    await rm(repoDir, { force: true, recursive: true });
+  }
+
+  assert.equal(observedEnvs.length > 0, true);
+  assert.equal(
+    observedEnvs.every((env) => env?.COLLABMD_TEST_GIT_ENV === 'expected-value'),
+    true,
+  );
+});

@@ -67,21 +67,6 @@ const host = values.host || process.env.HOST || '127.0.0.1';
 const enableTunnel = !values['no-tunnel'];
 const useLocalPlantUml = values['local-plantuml'];
 
-try {
-  const stats = await stat(vaultPath);
-  if (!stats.isDirectory()) {
-    console.error(`Error: "${vaultPath}" is not a directory.`);
-    process.exit(1);
-  }
-} catch (error) {
-  if (error.code === 'ENOENT') {
-    console.error(`Error: Directory "${vaultPath}" does not exist.`);
-  } else {
-    console.error(`Error: Cannot access "${vaultPath}": ${error.message}`);
-  }
-  process.exit(1);
-}
-
 process.env.COLLABMD_VAULT_DIR = vaultPath;
 process.env.PORT = String(port);
 process.env.HOST = host;
@@ -117,12 +102,39 @@ if (useLocalPlantUml) {
 
 const { createAppServer } = await import('../src/server/create-app-server.js');
 const { loadConfig } = await import('../src/server/config/env.js');
+const { prepareConfigForStartup } = await import('../src/server/startup/git-remote-bootstrap.js');
 
 const config = loadConfig({ vaultDir: vaultPath });
+
+try {
+  const stats = await stat(vaultPath);
+  if (!stats.isDirectory()) {
+    console.error(`Error: "${vaultPath}" is not a directory.`);
+    process.exit(1);
+  }
+} catch (error) {
+  if (error.code !== 'ENOENT' || !config.git.remote.enabled) {
+    if (error.code === 'ENOENT') {
+      console.error(`Error: Directory "${vaultPath}" does not exist.`);
+    } else {
+      console.error(`Error: Cannot access "${vaultPath}": ${error.message}`);
+    }
+    process.exit(1);
+  }
+}
+
 if (config.auth.strategy === 'password') {
   process.env.AUTH_PASSWORD = config.auth.password;
   process.env.AUTH_STRATEGY = 'password';
 }
+
+try {
+  await prepareConfigForStartup(config);
+} catch (error) {
+  console.error(`Error: Failed to prepare git-backed vault: ${error.message}`);
+  process.exit(1);
+}
+
 const server = createAppServer(config);
 
 let shutdownPromise = null;
@@ -224,6 +236,7 @@ try {
   console.log('  Ready for collaboration. Press Ctrl+C to stop.');
   console.log('');
 } catch (error) {
+  await config.git?.cleanup?.();
   console.error(`  Failed to start: ${error.message}`);
   process.exit(1);
 }

@@ -12,9 +12,17 @@ import { loadConfig } from '../../src/server/config/env.js';
 function withAuthEnvCleared(fn) {
   const previousStrategy = process.env.AUTH_STRATEGY;
   const previousPassword = process.env.AUTH_PASSWORD;
+  const previousGitRepoUrl = process.env.COLLABMD_GIT_REPO_URL;
+  const previousGitPrivateKeyFile = process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_FILE;
+  const previousGitPrivateKeyBase64 = process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_B64;
+  const previousGitKnownHostsFile = process.env.COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE;
 
   delete process.env.AUTH_STRATEGY;
   delete process.env.AUTH_PASSWORD;
+  delete process.env.COLLABMD_GIT_REPO_URL;
+  delete process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_FILE;
+  delete process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_B64;
+  delete process.env.COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE;
 
   try {
     return fn();
@@ -29,6 +37,30 @@ function withAuthEnvCleared(fn) {
       delete process.env.AUTH_PASSWORD;
     } else {
       process.env.AUTH_PASSWORD = previousPassword;
+    }
+
+    if (previousGitRepoUrl === undefined) {
+      delete process.env.COLLABMD_GIT_REPO_URL;
+    } else {
+      process.env.COLLABMD_GIT_REPO_URL = previousGitRepoUrl;
+    }
+
+    if (previousGitPrivateKeyFile === undefined) {
+      delete process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_FILE;
+    } else {
+      process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_FILE = previousGitPrivateKeyFile;
+    }
+
+    if (previousGitPrivateKeyBase64 === undefined) {
+      delete process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_B64;
+    } else {
+      process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_B64 = previousGitPrivateKeyBase64;
+    }
+
+    if (previousGitKnownHostsFile === undefined) {
+      delete process.env.COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE;
+    } else {
+      process.env.COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE = previousGitKnownHostsFile;
     }
   }
 }
@@ -117,3 +149,39 @@ test('loadConfig rejects unsupported auth strategies', () => {
     });
   }, /Unsupported auth strategy/);
 });
+
+test('loadConfig keeps remote bootstrap disabled when git repo env is absent', () => withAuthEnvCleared(() => {
+  const config = loadConfig({
+    vaultDir: process.cwd(),
+  });
+
+  assert.equal(config.git.remote.enabled, false);
+  assert.equal(config.git.remote.repoUrl, '');
+}));
+
+test('loadConfig rejects remote bootstrap without a private key source', () => withAuthEnvCleared(() => {
+  process.env.COLLABMD_GIT_REPO_URL = 'git@github.com:example/private.git';
+
+  assert.throws(() => {
+    loadConfig({
+      vaultDir: process.cwd(),
+    });
+  }, /Remote git bootstrap requires/);
+}));
+
+test('loadConfig captures git bootstrap env and prefers file over base64 when both are set', () => withAuthEnvCleared(() => {
+  process.env.COLLABMD_GIT_REPO_URL = 'git@github.com:example/private.git';
+  process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_FILE = './secrets/id_ed25519';
+  process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_B64 = Buffer.from('dummy private key', 'utf8').toString('base64');
+  process.env.COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE = './secrets/known_hosts';
+
+  const config = loadConfig({
+    vaultDir: process.cwd(),
+  });
+
+  assert.equal(config.git.remote.enabled, true);
+  assert.equal(config.git.remote.repoUrl, 'git@github.com:example/private.git');
+  assert.match(config.git.remote.sshPrivateKeyFile, /secrets\/id_ed25519$/);
+  assert.equal(config.git.remote.sshPrivateKeyBase64.length > 0, true);
+  assert.match(config.git.remote.sshKnownHostsFile, /secrets\/known_hosts$/);
+}));

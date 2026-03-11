@@ -18,6 +18,11 @@ function parsePort(rawPort, fallbackPort) {
   return parsePositiveInt(rawPort, fallbackPort);
 }
 
+function normalizeOptionalString(value) {
+  const normalized = String(value ?? '').trim();
+  return normalized.length > 0 ? normalized : '';
+}
+
 function normalizeBasePath(basePath) {
   if (!basePath || basePath === '/') {
     return '/ws';
@@ -44,6 +49,52 @@ function getDefaultHost(nodeEnv) {
   return nodeEnv === 'production' ? '0.0.0.0' : '127.0.0.1';
 }
 
+function resolveOptionalPath(filePath) {
+  const normalized = normalizeOptionalString(filePath);
+  return normalized ? resolve(normalized) : '';
+}
+
+function loadGitConfig(overrides = {}) {
+  const remoteOverrides = overrides.remote ?? {};
+  const enabled = overrides.enabled ?? (process.env.COLLABMD_GIT_ENABLED !== 'false');
+  const repoUrl = normalizeOptionalString(
+    remoteOverrides.repoUrl
+    ?? process.env.COLLABMD_GIT_REPO_URL,
+  );
+  const sshPrivateKeyFile = resolveOptionalPath(
+    remoteOverrides.sshPrivateKeyFile
+    ?? process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_FILE,
+  );
+  const sshPrivateKeyBase64 = normalizeOptionalString(
+    remoteOverrides.sshPrivateKeyBase64
+    ?? process.env.COLLABMD_GIT_SSH_PRIVATE_KEY_B64,
+  );
+  const sshKnownHostsFile = resolveOptionalPath(
+    remoteOverrides.sshKnownHostsFile
+    ?? process.env.COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE,
+  );
+  const remoteEnabled = repoUrl.length > 0;
+
+  if (remoteEnabled && !sshPrivateKeyFile && !sshPrivateKeyBase64) {
+    throw new Error(
+      'Remote git bootstrap requires COLLABMD_GIT_SSH_PRIVATE_KEY_FILE or COLLABMD_GIT_SSH_PRIVATE_KEY_B64.',
+    );
+  }
+
+  return {
+    cleanup: overrides.cleanup ?? null,
+    commandEnv: overrides.commandEnv ?? null,
+    enabled,
+    remote: {
+      enabled: remoteEnabled,
+      repoUrl,
+      sshKnownHostsFile,
+      sshPrivateKeyBase64,
+      sshPrivateKeyFile,
+    },
+  };
+}
+
 export function loadConfig(overrides = {}) {
   const nodeEnv = process.env.NODE_ENV || 'development';
   const vaultDir = overrides.vaultDir
@@ -60,6 +111,7 @@ export function loadConfig(overrides = {}) {
   const password = authStrategy === AUTH_STRATEGY_PASSWORD
     ? (authOverrides.password || process.env.AUTH_PASSWORD || createRandomAuthPassword())
     : '';
+  const git = loadGitConfig(overrides.git);
 
   return {
     auth: {
@@ -74,7 +126,8 @@ export function loadConfig(overrides = {}) {
     httpHeadersTimeoutMs: parsePositiveInt(process.env.HTTP_HEADERS_TIMEOUT_MS, 60_000),
     httpKeepAliveTimeoutMs: parsePositiveInt(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS, 5_000),
     httpRequestTimeoutMs: parsePositiveInt(process.env.HTTP_REQUEST_TIMEOUT_MS, 30_000),
-    gitEnabled: process.env.COLLABMD_GIT_ENABLED !== 'false',
+    git,
+    gitEnabled: git.enabled,
     port: parsePort(process.env.PORT, 1234),
     nodeEnv,
     plantumlServerUrl: process.env.PLANTUML_SERVER_URL || 'https://www.plantuml.com/plantuml',

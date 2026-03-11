@@ -2,9 +2,19 @@
 
 import { loadConfig } from './config/env.js';
 import { createAppServer } from './create-app-server.js';
+import { prepareConfigForStartup } from './startup/git-remote-bootstrap.js';
 
 let shutdownPromise = null;
-const server = createAppServer(loadConfig());
+const config = loadConfig();
+
+try {
+  await prepareConfigForStartup(config);
+} catch (error) {
+  console.error('[server] Failed to prepare git-backed vault:', error.message);
+  process.exit(1);
+}
+
+const server = createAppServer(config);
 
 function shutdown(signal) {
   if (shutdownPromise) {
@@ -55,7 +65,8 @@ server.listen().then(({ host, port, wsPath }) => {
     console.log('  auth: none');
   }
   console.log('');
-}).catch((error) => {
+}).catch(async (error) => {
+  await config.git?.cleanup?.();
   console.error('[server] Failed to start:', error.message);
   process.exit(1);
 });

@@ -670,6 +670,7 @@ function buildSyntheticAddedFileDiff(pathValue, content) {
 
 export class GitService {
   constructor({
+    commandEnv = null,
     enabled = true,
     execFileImpl = execFile,
     maxInitialPatchBytes = 250_000,
@@ -677,6 +678,7 @@ export class GitService {
     statusCacheTtlMs = 2_000,
     vaultDir,
   }) {
+    this.commandEnv = commandEnv;
     this.enabled = enabled;
     this.execFileImpl = execFileImpl;
     this.maxInitialPatchBytes = maxInitialPatchBytes;
@@ -708,6 +710,10 @@ export class GitService {
     const result = await this.execFileImpl('git', ['-c', 'core.quotepath=false', ...args], {
       cwd: this.vaultDir,
       encoding: 'utf8',
+      env: {
+        ...process.env,
+        ...(this.commandEnv ?? {}),
+      },
       maxBuffer: 5 * 1024 * 1024,
       timeout: 10_000,
     });
