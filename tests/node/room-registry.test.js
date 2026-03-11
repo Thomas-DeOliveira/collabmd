@@ -56,3 +56,43 @@ test('RoomRegistry replaces deleted rooms without letting stale room cleanup rem
   callbacks.get(replacementRoom)?.('README.md');
   assert.equal(registry.get('README.md'), undefined);
 });
+
+test('RoomRegistry reconciles workspace changes by reloading changed rooms and destroying removed rooms', async () => {
+  const events = [];
+  const registry = new RoomRegistry({
+    createRoom: ({ name }) => ({
+      async destroy() {
+        events.push(['destroy', name]);
+      },
+      isDeleted() {
+        return false;
+      },
+      markDeleted() {
+        events.push(['mark-deleted', name]);
+      },
+      async reloadFromDisk() {
+        events.push(['reload', name]);
+      },
+    }),
+  });
+
+  registry.getOrCreate('changed.md');
+  registry.getOrCreate('deleted.md');
+  registry.getOrCreate('renamed-old.md');
+
+  await registry.reconcileWorkspaceChange({
+    changedPaths: ['changed.md'],
+    deletedPaths: ['deleted.md'],
+    renamedPaths: [{ oldPath: 'renamed-old.md', newPath: 'renamed-new.md' }],
+  });
+
+  assert.deepEqual(events, [
+    ['mark-deleted', 'deleted.md'],
+    ['destroy', 'deleted.md'],
+    ['mark-deleted', 'renamed-old.md'],
+    ['destroy', 'renamed-old.md'],
+    ['reload', 'changed.md'],
+  ]);
+  assert.equal(registry.get('deleted.md'), undefined);
+  assert.equal(registry.get('renamed-old.md'), undefined);
+});

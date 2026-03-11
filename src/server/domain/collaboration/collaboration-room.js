@@ -167,7 +167,7 @@ export class CollaborationRoom {
     this.doc.on('update', (update, origin) => {
       this.cachedInitialSyncMessage = null;
 
-      if (origin !== 'hydrate') {
+      if (origin !== 'hydrate' && origin !== 'workspace-reconcile') {
         this.schedulePersist();
       }
 
@@ -264,6 +264,39 @@ export class CollaborationRoom {
     });
     this.activePersistPromise = trackedPromise;
     await trackedPromise;
+  }
+
+  async reloadFromDisk() {
+    if (!this.documentStore?.hasPersistence() || this.deleted || this.destroyed) {
+      return false;
+    }
+
+    const [content, commentThreads] = await Promise.all([
+      this.documentStore.readContent(),
+      this.documentStore.readCommentThreads(),
+    ]);
+    if (content === null) {
+      this.markDeleted();
+      await this.destroy();
+      return false;
+    }
+
+    const ytext = this.doc.getText('codemirror');
+    const comments = this.doc.getArray('comments');
+    this.doc.transact(() => {
+      if (ytext.length > 0) {
+        ytext.delete(0, ytext.length);
+      }
+      if (content) {
+        ytext.insert(0, content);
+      }
+      if (comments.length > 0) {
+        comments.delete(0, comments.length);
+      }
+      populateCommentThreads(comments, commentThreads);
+    }, 'workspace-reconcile');
+
+    return true;
   }
 
   rename(nextName) {

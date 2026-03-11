@@ -2,9 +2,19 @@ import { jsonResponse } from './http-response.js';
 import { createGitApiCommandHandler } from './create-git-api-command-handler.js';
 import { createGitApiQueryHandler } from './create-git-api-query-handler.js';
 
-export function createGitApiHandler({ gitService = null }) {
+export function createGitApiHandler({
+  backlinkIndex = null,
+  gitService = null,
+  roomRegistry = null,
+  vaultFileStore = null,
+}) {
   const handleGitApiQuery = createGitApiQueryHandler({ gitService });
-  const handleGitApiCommand = createGitApiCommandHandler({ gitService });
+  const handleGitApiCommand = createGitApiCommandHandler({
+    backlinkIndex,
+    gitService,
+    roomRegistry,
+    vaultFileStore,
+  });
 
   return async function handleGitApi(req, res, requestUrl) {
     if (!requestUrl.pathname.startsWith('/api/git')) {

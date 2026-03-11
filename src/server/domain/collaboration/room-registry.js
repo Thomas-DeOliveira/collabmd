@@ -56,4 +56,39 @@ export class RoomRegistry {
     );
     this.rooms.clear();
   }
+
+  async reconcileWorkspaceChange(workspaceChange = {}) {
+    const deletedPaths = new Set(workspaceChange.deletedPaths ?? []);
+    const renamedPaths = Array.isArray(workspaceChange.renamedPaths) ? workspaceChange.renamedPaths : [];
+    const renamedOldPaths = new Set(renamedPaths.map((entry) => entry?.oldPath).filter(Boolean));
+
+    await Promise.allSettled(
+      [...deletedPaths, ...renamedOldPaths].map(async (pathValue) => {
+        const room = this.rooms.get(pathValue);
+        if (!room) {
+          return;
+        }
+
+        room.markDeleted?.();
+        await room.destroy?.();
+        if (this.rooms.get(pathValue) === room) {
+          this.rooms.delete(pathValue);
+        }
+      }),
+    );
+
+    const blockedPaths = new Set([...deletedPaths, ...renamedOldPaths]);
+    await Promise.allSettled(
+      Array.from(new Set(workspaceChange.changedPaths ?? []))
+        .filter((pathValue) => pathValue && !blockedPaths.has(pathValue))
+        .map(async (pathValue) => {
+          const room = this.rooms.get(pathValue);
+          if (!room || room.isDeleted?.()) {
+            return;
+          }
+
+          await room.reloadFromDisk?.();
+        }),
+    );
+  }
 }

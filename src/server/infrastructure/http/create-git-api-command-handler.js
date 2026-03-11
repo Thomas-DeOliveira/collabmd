@@ -1,6 +1,7 @@
 import { getRequestErrorStatusCode } from './http-errors.js';
 import { jsonResponse } from './http-response.js';
 import { parseJsonBody } from './request-body.js';
+import { createEmptyWorkspaceChange } from '../git/responses.js';
 
 async function parseRequiredBody(req, res, fieldName) {
   const body = await parseJsonBody(req);
@@ -24,7 +25,39 @@ function handleGitError(req, res, error, logMessage, fallbackMessage) {
   return true;
 }
 
-export function createGitApiCommandHandler({ gitService }) {
+function hasWorkspaceMutation(workspaceChange = {}) {
+  return Boolean(
+    (workspaceChange.changedPaths?.length ?? 0) > 0
+    || (workspaceChange.deletedPaths?.length ?? 0) > 0
+    || (workspaceChange.renamedPaths?.length ?? 0) > 0,
+  );
+}
+
+async function applyWorkspaceMutationEffects({
+  backlinkIndex,
+  responsePayload,
+  roomRegistry,
+  vaultFileStore,
+}) {
+  const workspaceChange = responsePayload?.workspaceChange ?? createEmptyWorkspaceChange();
+  responsePayload.workspaceChange = workspaceChange;
+
+  if (!hasWorkspaceMutation(workspaceChange)) {
+    return responsePayload;
+  }
+
+  await vaultFileStore?.reconcileSidecars?.(workspaceChange);
+  await backlinkIndex?.build?.();
+  await roomRegistry?.reconcileWorkspaceChange?.(workspaceChange);
+  return responsePayload;
+}
+
+export function createGitApiCommandHandler({
+  backlinkIndex = null,
+  gitService,
+  roomRegistry = null,
+  vaultFileStore = null,
+}) {
   return async function handleGitApiCommand(req, res, requestUrl) {
     if (requestUrl.pathname === '/api/git/stage' && req.method === 'POST') {
       try {
@@ -33,7 +66,12 @@ export function createGitApiCommandHandler({ gitService }) {
           return true;
         }
 
-        jsonResponse(req, res, 200, await gitService.stageFile(body.path));
+        jsonResponse(req, res, 200, await applyWorkspaceMutationEffects({
+          backlinkIndex,
+          responsePayload: await gitService.stageFile(body.path),
+          roomRegistry,
+          vaultFileStore,
+        }));
       } catch (error) {
         handleGitError(req, res, error, '[api] Failed to stage git file:', 'Failed to stage git file');
       }
@@ -47,7 +85,12 @@ export function createGitApiCommandHandler({ gitService }) {
           return true;
         }
 
-        jsonResponse(req, res, 200, await gitService.unstageFile(body.path));
+        jsonResponse(req, res, 200, await applyWorkspaceMutationEffects({
+          backlinkIndex,
+          responsePayload: await gitService.unstageFile(body.path),
+          roomRegistry,
+          vaultFileStore,
+        }));
       } catch (error) {
         handleGitError(req, res, error, '[api] Failed to unstage git file:', 'Failed to unstage git file');
       }
@@ -61,8 +104,13 @@ export function createGitApiCommandHandler({ gitService }) {
           return true;
         }
 
-        jsonResponse(req, res, 200, await gitService.commitStaged({
-          message: body.message,
+        jsonResponse(req, res, 200, await applyWorkspaceMutationEffects({
+          backlinkIndex,
+          responsePayload: await gitService.commitStaged({
+            message: body.message,
+          }),
+          roomRegistry,
+          vaultFileStore,
         }));
       } catch (error) {
         handleGitError(req, res, error, '[api] Failed to commit staged changes:', 'Failed to commit staged changes');
@@ -72,7 +120,12 @@ export function createGitApiCommandHandler({ gitService }) {
 
     if (requestUrl.pathname === '/api/git/push' && req.method === 'POST') {
       try {
-        jsonResponse(req, res, 200, await gitService.pushBranch());
+        jsonResponse(req, res, 200, await applyWorkspaceMutationEffects({
+          backlinkIndex,
+          responsePayload: await gitService.pushBranch(),
+          roomRegistry,
+          vaultFileStore,
+        }));
       } catch (error) {
         handleGitError(req, res, error, '[api] Failed to push git branch:', 'Failed to push git branch');
       }
@@ -81,9 +134,33 @@ export function createGitApiCommandHandler({ gitService }) {
 
     if (requestUrl.pathname === '/api/git/pull' && req.method === 'POST') {
       try {
-        jsonResponse(req, res, 200, await gitService.pullBranch());
+        jsonResponse(req, res, 200, await applyWorkspaceMutationEffects({
+          backlinkIndex,
+          responsePayload: await gitService.pullBranch(),
+          roomRegistry,
+          vaultFileStore,
+        }));
       } catch (error) {
         handleGitError(req, res, error, '[api] Failed to pull git branch:', 'Failed to pull git branch');
+      }
+      return true;
+    }
+
+    if (requestUrl.pathname === '/api/git/reset-file' && req.method === 'POST') {
+      try {
+        const body = await parseRequiredBody(req, res, 'path');
+        if (!body) {
+          return true;
+        }
+
+        jsonResponse(req, res, 200, await applyWorkspaceMutationEffects({
+          backlinkIndex,
+          responsePayload: await gitService.resetFileToHead(body.path),
+          roomRegistry,
+          vaultFileStore,
+        }));
+      } catch (error) {
+        handleGitError(req, res, error, '[api] Failed to reset git file:', 'Failed to reset git file');
       }
       return true;
     }

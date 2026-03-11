@@ -177,6 +177,39 @@ test('CollaborationRoom primes a collaboration snapshot after content hydration 
   assert.equal(snapshotWrites[0].snapshot instanceof Uint8Array, true);
 });
 
+test('CollaborationRoom reloads live room content from disk without scheduling a persist', async () => {
+  let readCount = 0;
+  const writes = [];
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'reload.md',
+    onEmpty: () => {},
+    vaultFileStore: {
+      async readCollaborationSnapshot() {
+        return null;
+      },
+      async readCommentThreads() {
+        return [];
+      },
+      async readMarkdownFile() {
+        readCount += 1;
+        return readCount === 1 ? '# Before\n' : '# After\n';
+      },
+      async writeMarkdownFile(path, content) {
+        writes.push({ content, path });
+      },
+    },
+  });
+
+  await room.hydrate();
+  assert.equal(room.doc.getText('codemirror').toString(), '# Before\n');
+
+  await room.reloadFromDisk();
+
+  assert.equal(room.doc.getText('codemirror').toString(), '# After\n');
+  assert.deepEqual(writes, []);
+});
+
 test('CollaborationRoom reuses cached initial sync payload until the document changes', async () => {
   const room = new CollaborationRoom({
     maxBufferedAmountBytes: 1024,

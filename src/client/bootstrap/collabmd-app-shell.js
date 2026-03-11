@@ -50,6 +50,7 @@ export class CollabMdAppShell {
     this._previewHydrationPaused = false;
     this._previewLayoutResizeObserver = null;
     this._previewLayoutSyncTimer = null;
+    this.pendingGitResetPath = null;
     this.chatTimeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
     this.chatNotificationsEnabled = this.preferences.getChatNotificationsEnabled();
     this.chatNotificationPermission = this.notifications.getPermission();
@@ -62,6 +63,9 @@ export class CollabMdAppShell {
       preferredUserName: this.getStoredUserName(),
       onChange: (users) => this.updateGlobalUsers(users),
       onChatChange: (messages, meta) => this.updateChatMessages(messages, meta),
+      onWorkspaceEvent: (event) => {
+        void this.handleIncomingWorkspaceEvent(event);
+      },
     });
 
     this.toastController = new ToastController(this.elements.toastContainer);
@@ -76,6 +80,7 @@ export class CollabMdAppShell {
       onPullBranch: () => this.pullGitBranch(),
       onPushBranch: () => this.pushGitBranch(),
       onRepoChange: (isGitRepo, status) => this.handleGitRepoChange(isGitRepo, status),
+      onResetFile: (filePath, { scope }) => this.openGitResetDialog(filePath, { scope }),
       onSelectDiff: (filePath, { scope }) => this.handleGitDiffSelection(filePath, { closeSidebarOnMobile: true, scope }),
       onStageFile: (filePath, { scope }) => this.stageGitFile(filePath, { scope }),
       onUnstageFile: (filePath, { scope }) => this.unstageGitFile(filePath, { scope }),

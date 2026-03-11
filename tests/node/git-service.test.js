@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -352,6 +352,97 @@ test('GitService pushes and pulls against an upstream branch', async (t) => {
 
   const localContent = await execFile('git', ['show', 'HEAD:test.md'], { cwd: localDir });
   assert.match(String(localContent.stdout), /peer change/);
+});
+
+test('GitService pull reports workspace changes from the fetched ref update', async (t) => {
+  const remoteDir = await mkdtemp(join(tmpdir(), 'collabmd-git-remote-change-'));
+  const seedDir = await mkdtemp(join(tmpdir(), 'collabmd-git-seed-change-'));
+  const localDir = await mkdtemp(join(tmpdir(), 'collabmd-git-local-change-'));
+  const peerDir = await mkdtemp(join(tmpdir(), 'collabmd-git-peer-change-'));
+  t.after(async () => {
+    await rm(remoteDir, { force: true, recursive: true });
+    await rm(seedDir, { force: true, recursive: true });
+    await rm(localDir, { force: true, recursive: true });
+    await rm(peerDir, { force: true, recursive: true });
+  });
+
+  await runGit(remoteDir, ['init', '--bare']);
+
+  await runGit(seedDir, ['init']);
+  await runGit(seedDir, ['config', 'user.email', 'tests@example.com']);
+  await runGit(seedDir, ['config', 'user.name', 'CollabMD Tests']);
+  await writeFile(join(seedDir, 'tracked.md'), '# Seed\n', 'utf8');
+  await runGit(seedDir, ['add', 'tracked.md']);
+  await runGit(seedDir, ['commit', '-m', 'Initial commit']);
+  await runGit(seedDir, ['remote', 'add', 'origin', remoteDir]);
+  await runGit(seedDir, ['push', '-u', 'origin', 'HEAD']);
+
+  await runGit(tmpdir(), ['clone', remoteDir, localDir]);
+  await runGit(localDir, ['config', 'user.email', 'tests@example.com']);
+  await runGit(localDir, ['config', 'user.name', 'CollabMD Tests']);
+
+  await runGit(tmpdir(), ['clone', remoteDir, peerDir]);
+  await runGit(peerDir, ['config', 'user.email', 'tests@example.com']);
+  await runGit(peerDir, ['config', 'user.name', 'CollabMD Tests']);
+  await writeFile(join(peerDir, 'tracked.md'), '# Seed\nupdated remotely\n', 'utf8');
+  await writeFile(join(peerDir, 'new.md'), '# New\n', 'utf8');
+  await runGit(peerDir, ['add', 'tracked.md', 'new.md']);
+  await runGit(peerDir, ['commit', '-m', 'Remote update']);
+  await runGit(peerDir, ['push']);
+
+  const gitService = new GitService({ vaultDir: localDir });
+  const pullResult = await gitService.pullBranch();
+
+  assert.deepEqual(pullResult.workspaceChange.changedPaths.sort(), ['new.md', 'tracked.md']);
+  assert.deepEqual(pullResult.workspaceChange.deletedPaths, []);
+  assert.deepEqual(pullResult.workspaceChange.renamedPaths, []);
+});
+
+test('GitService resets a file to the current branch content', async (t) => {
+  const repoDir = await mkdtemp(join(tmpdir(), 'collabmd-git-local-reset-'));
+  t.after(async () => {
+    await rm(repoDir, { force: true, recursive: true });
+  });
+
+  await runGit(repoDir, ['init']);
+  await runGit(repoDir, ['config', 'user.email', 'tests@example.com']);
+  await runGit(repoDir, ['config', 'user.name', 'CollabMD Tests']);
+  await writeFile(join(repoDir, 'tracked.md'), '# Base\n', 'utf8');
+  await runGit(repoDir, ['add', 'tracked.md']);
+  await runGit(repoDir, ['commit', '-m', 'Initial commit']);
+  await writeFile(join(repoDir, 'tracked.md'), '# Local change\n', 'utf8');
+  await runGit(repoDir, ['add', 'tracked.md']);
+
+  const gitService = new GitService({ vaultDir: repoDir });
+  const resetResult = await gitService.resetFileToHead('tracked.md');
+
+  const restored = await execFile('git', ['show', 'HEAD:tracked.md'], { cwd: repoDir });
+  assert.equal((await execFile('git', ['status', '--porcelain=v1'], { cwd: repoDir })).stdout.trim(), '');
+  assert.equal(String(restored.stdout), '# Base\n');
+  assert.equal(resetResult.sourceRef, 'HEAD');
+  assert.deepEqual(resetResult.workspaceChange.changedPaths, ['tracked.md']);
+});
+
+test('GitService reset deletes files that do not exist on the current branch HEAD', async (t) => {
+  const repoDir = await mkdtemp(join(tmpdir(), 'collabmd-git-local-reset-delete-'));
+  t.after(async () => {
+    await rm(repoDir, { force: true, recursive: true });
+  });
+
+  await runGit(repoDir, ['init']);
+  await runGit(repoDir, ['config', 'user.email', 'tests@example.com']);
+  await runGit(repoDir, ['config', 'user.name', 'CollabMD Tests']);
+  await writeFile(join(repoDir, 'tracked.md'), '# Base\n', 'utf8');
+  await runGit(repoDir, ['add', 'tracked.md']);
+  await runGit(repoDir, ['commit', '-m', 'Initial commit']);
+  await writeFile(join(repoDir, 'local-only.md'), '# Remove me\n', 'utf8');
+  await runGit(repoDir, ['add', 'local-only.md']);
+
+  const gitService = new GitService({ vaultDir: repoDir });
+  const resetResult = await gitService.resetFileToHead('local-only.md');
+
+  await assert.rejects(stat(join(repoDir, 'local-only.md')));
+  assert.deepEqual(resetResult.workspaceChange.deletedPaths, ['local-only.md']);
 });
 
 test('GitService passes configured command env to subprocesses', async () => {

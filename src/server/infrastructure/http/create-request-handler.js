@@ -46,7 +46,12 @@ export function createRequestHandler(
   const handleEsmProxy = createEsmProxyHandler();
   const handleStaticRequest = createStaticHandler(config, authService);
   const handleAuthApi = createAuthApiHandler({ authService });
-  const handleGitApi = createGitApiHandler({ gitService });
+  const handleGitApi = createGitApiHandler({
+    backlinkIndex,
+    gitService,
+    roomRegistry,
+    vaultFileStore,
+  });
   const handleVaultApi = createVaultApiHandler({
     backlinkIndex,
     plantUmlRenderer,

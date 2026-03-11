@@ -252,6 +252,23 @@ export class VaultFileStore {
     return this.countFilesInDir(this.vaultDir);
   }
 
+  async reconcileSidecars({
+    deletedPaths = [],
+    renamedPaths = [],
+  } = {}) {
+    await Promise.allSettled([
+      ...Array.from(new Set((deletedPaths ?? []).filter(Boolean)), (filePath) => this.sidecarStore.deleteAllForFile(filePath)),
+      ...Array.from(
+        new Map(
+          (renamedPaths ?? [])
+            .filter((entry) => entry?.oldPath && entry?.newPath && entry.oldPath !== entry.newPath)
+            .map((entry) => [`${entry.oldPath}:${entry.newPath}`, entry]),
+        ).values(),
+        (entry) => this.sidecarStore.renameAllForFile(entry.oldPath, entry.newPath),
+      ),
+    ]);
+  }
+
   async countFilesInDir(dirPath) {
     let count = 0;
 

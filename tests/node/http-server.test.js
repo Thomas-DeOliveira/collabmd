@@ -279,6 +279,44 @@ test('HTTP server exposes git push and pull endpoints for repos with an upstream
   assert.match(fileResponse.body, /Peer pull change/);
 });
 
+test('HTTP server exposes git reset-file for restoring a file from the current branch HEAD', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_EMAIL: 'tests@example.com',
+    GIT_AUTHOR_NAME: 'CollabMD Tests',
+    GIT_COMMITTER_EMAIL: 'tests@example.com',
+    GIT_COMMITTER_NAME: 'CollabMD Tests',
+  };
+
+  await execFile('git', ['init'], { cwd: app.vaultDir, env: gitEnv });
+  await execFile('git', ['config', 'user.email', 'tests@example.com'], { cwd: app.vaultDir, env: gitEnv });
+  await execFile('git', ['config', 'user.name', 'CollabMD Tests'], { cwd: app.vaultDir, env: gitEnv });
+  await execFile('git', ['add', 'test.md'], { cwd: app.vaultDir, env: gitEnv });
+  await execFile('git', ['commit', '-m', 'Initial commit'], { cwd: app.vaultDir, env: gitEnv });
+
+  await writeFile(join(app.vaultDir, 'test.md'), '# Local\n', 'utf8');
+  await execFile('git', ['add', 'test.md'], { cwd: app.vaultDir, env: gitEnv });
+
+  const resetResponse = await httpRequest(`${app.baseUrl}/api/git/reset-file`, {
+    body: JSON.stringify({ path: 'test.md' }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+
+  assert.equal(resetResponse.statusCode, 200);
+  assert.match(resetResponse.body, /"sourceRef":"HEAD"/);
+  assert.match(resetResponse.body, /"changedPaths":\["test\.md"\]/);
+
+  const fileResponse = await httpRequest(`${app.baseUrl}/api/file?path=test.md`);
+  assert.equal(fileResponse.statusCode, 200);
+  assert.match(fileResponse.body, /# Test/);
+});
+
 test('HTTP server supports password auth without blocking static assets', async (t) => {
   const app = await startTestServer({
     auth: {

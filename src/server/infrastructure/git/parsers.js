@@ -198,6 +198,44 @@ export function parseNumstatEntries(output) {
     });
 }
 
+export function parseNameStatusOutput(output) {
+  return String(output ?? '')
+    .split(/\r?\n/u)
+    .filter(Boolean)
+    .reduce((summary, line) => {
+      const [rawStatus = '', ...parts] = line.split('\t');
+      const status = rawStatus.trim().toUpperCase();
+      if (!status) {
+        return summary;
+      }
+
+      if (status.startsWith('R') || status.startsWith('C')) {
+        const [oldPath = '', newPath = ''] = parts.map((value) => decodeQuotedPath(value));
+        if (oldPath && newPath && oldPath !== newPath) {
+          summary.renamedPaths.push({ newPath, oldPath });
+        }
+        return summary;
+      }
+
+      const [path = ''] = parts.map((value) => decodeQuotedPath(value));
+      if (!path) {
+        return summary;
+      }
+
+      if (status.startsWith('D')) {
+        summary.deletedPaths.push(path);
+        return summary;
+      }
+
+      summary.changedPaths.push(path);
+      return summary;
+    }, {
+      changedPaths: [],
+      deletedPaths: [],
+      renamedPaths: [],
+    });
+}
+
 export function countPatchLines(file = null) {
   return (file?.hunks ?? []).reduce((total, hunk) => total + (hunk.lines?.length ?? 0), 0);
 }

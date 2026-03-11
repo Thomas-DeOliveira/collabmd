@@ -67,9 +67,30 @@ export const uiFeature = {
       this.elements.gitCommitDialog?.close();
     });
 
+    this.elements.gitResetCancel?.addEventListener('click', () => {
+      this.elements.gitResetDialog?.close();
+    });
+
+    this.elements.gitResetSubmit?.addEventListener('click', () => {
+      void this.handleGitResetSubmit();
+    });
+
     this.elements.gitCommitDialog?.addEventListener('close', () => {
       if (this.elements.gitCommitInput) {
         this.elements.gitCommitInput.value = '';
+      }
+      if (this.elements.gitCommitSubmit) {
+        this.elements.gitCommitSubmit.textContent = 'Commit staged changes';
+      }
+    });
+
+    this.elements.gitResetDialog?.addEventListener('close', () => {
+      this.pendingGitResetPath = null;
+      if (this.elements.gitResetFileName) {
+        this.elements.gitResetFileName.value = '';
+      }
+      if (this.elements.gitResetSubmit) {
+        this.elements.gitResetSubmit.textContent = 'Reset File';
       }
     });
 

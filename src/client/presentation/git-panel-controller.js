@@ -35,6 +35,8 @@ function actionIconSvg(action) {
       return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></svg>';
     case 'unstage':
       return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12H8"/><path d="m12 16-4-4 4-4"/></svg>';
+    case 'reset':
+      return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>';
     default:
       return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>';
   }
@@ -88,6 +90,7 @@ export class GitPanelController {
     onPullBranch = () => {},
     onPushBranch = () => {},
     onRepoChange = () => {},
+    onResetFile = () => {},
     onSelectDiff = () => {},
     onStageFile = () => {},
     onUnstageFile = () => {},
@@ -100,6 +103,7 @@ export class GitPanelController {
     this.onPullBranch = onPullBranch;
     this.onPushBranch = onPushBranch;
     this.onRepoChange = onRepoChange;
+    this.onResetFile = onResetFile;
     this.onSelectDiff = onSelectDiff;
     this.onStageFile = onStageFile;
     this.onUnstageFile = onUnstageFile;
@@ -294,6 +298,8 @@ export class GitPanelController {
         await this.onStageFile(filePath, { scope });
       } else if (action === 'unstage') {
         await this.onUnstageFile(filePath, { scope });
+      } else if (action === 'reset') {
+        await this.onResetFile(filePath, { scope });
       }
     } finally {
       this.pendingActionKey = null;
@@ -371,6 +377,8 @@ export class GitPanelController {
       : { label: 'Stage', value: 'stage' };
     const actionKey = `${stageAction.value}:${file.scope}:${file.path}`;
     const isPending = this.pendingActionKey === actionKey;
+    const resetActionKey = `reset:${file.scope}:${file.path}`;
+    const isResetPending = this.pendingActionKey === resetActionKey;
 
     return `
       <div class="git-file-row${isActive ? ' active' : ''}">
@@ -388,6 +396,18 @@ export class GitPanelController {
           <span class="git-status-badge ${statusClass}">${escapeHtml(file.code)}</span>
         </button>
         <div class="git-file-actions">
+          <button
+            class="git-file-action-btn"
+            type="button"
+            data-git-file-action="reset"
+            data-git-path="${escapeHtml(file.path)}"
+            data-git-scope="${escapeHtml(file.scope)}"
+            aria-label="Reset ${escapeHtml(displayName)}"
+            title="Reset to current branch"
+            ${isResetPending ? 'disabled' : ''}
+          >
+            ${isResetPending ? '...' : actionIconSvg('reset')}
+          </button>
           <button
             class="git-file-action-btn"
             type="button"

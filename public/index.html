@@ -96,6 +96,7 @@
             <span class="toolbar-room-name" id="activeFileName">CollabMD</span>
             <span class="toolbar-badge" id="userCount"></span>
             <span class="toolbar-badge hidden" id="toolbarDiffBadge">Diff</span>
+            <span class="toolbar-badge hidden" id="gitOperationStatus" aria-live="polite" aria-atomic="true"></span>
           </div>
         </div>
 
@@ -481,6 +482,26 @@
       <div class="app-dialog-actions">
         <button type="button" class="btn btn-secondary" id="gitCommitCancel">Cancel</button>
         <button type="submit" class="btn btn-primary" id="gitCommitSubmit">Commit staged changes</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="app-dialog" id="gitResetDialog">
+    <form class="app-dialog-form" method="dialog">
+      <div class="app-dialog-header">
+        <h2 class="app-dialog-title" id="gitResetTitle">Reset file</h2>
+        <p class="app-dialog-copy" id="gitResetCopy">Restore this file from the current checked-out branch. If that branch does not contain the file, it will be deleted locally.</p>
+      </div>
+      <div class="app-dialog-field">
+        <label class="app-dialog-label" for="gitResetFileName">File</label>
+        <input class="input app-dialog-input" id="gitResetFileName" type="text" readonly>
+      </div>
+      <div class="app-dialog-note is-danger">
+        Local file content and staged changes for this path will be discarded.
+      </div>
+      <div class="app-dialog-actions">
+        <button class="btn btn-secondary" id="gitResetCancel" type="button">Cancel</button>
+        <button class="btn btn-danger" id="gitResetSubmit" type="button">Reset File</button>
       </div>
     </form>
   </dialog>

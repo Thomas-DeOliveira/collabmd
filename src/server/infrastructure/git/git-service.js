@@ -2,6 +2,8 @@ import { createGitRequestError } from './errors.js';
 import { normalizeRelativeGitPath } from './path-utils.js';
 import { GitCommandRunner } from './command-runner.js';
 import { GitDiffService } from './diff-service.js';
+import { parseNameStatusOutput } from './parsers.js';
+import { createEmptyWorkspaceChange, createWorkspaceChange } from './responses.js';
 import { GitStatusService } from './status-service.js';
 import { GitUntrackedFileService } from './untracked-files.js';
 
@@ -60,6 +62,7 @@ export class GitService {
     return {
       ok: true,
       path: normalizedPath,
+      workspaceChange: createEmptyWorkspaceChange(),
     };
   }
 
@@ -70,6 +73,7 @@ export class GitService {
     return {
       ok: true,
       path: normalizedPath,
+      workspaceChange: createEmptyWorkspaceChange(),
     };
   }
 
@@ -95,6 +99,7 @@ export class GitService {
         shortHash,
       },
       ok: true,
+      workspaceChange: createEmptyWorkspaceChange(),
     };
   }
 
@@ -112,6 +117,7 @@ export class GitService {
     return {
       ok: true,
       output: output.trim(),
+      workspaceChange: createEmptyWorkspaceChange(),
     };
   }
 
@@ -124,11 +130,47 @@ export class GitService {
       throw createGitRequestError(409, 'No upstream branch is configured for pull');
     }
 
+    const beforeRef = await this.getHeadRef();
     const output = await this.commandRunner.execGit(['pull', '--ff-only']);
+    const afterRef = await this.getHeadRef();
+    this.invalidateStatusCache();
+    return {
+      afterRef,
+      beforeRef,
+      ok: true,
+      output: output.trim(),
+      workspaceChange: await this.createWorkspaceChangeFromRefs(beforeRef, afterRef),
+    };
+  }
+
+  async resetFileToHead(path) {
+    const normalizedPath = normalizeRelativeGitPath(path);
+    const sourceRef = 'HEAD';
+    const existsOnSource = await this.pathExistsAtRef(sourceRef, normalizedPath);
+
+    if (existsOnSource) {
+      await this.commandRunner.execGit(['restore', '--source', sourceRef, '--staged', '--worktree', '--', normalizedPath]);
+      this.invalidateStatusCache();
+      return {
+        ok: true,
+        path: normalizedPath,
+        sourceRef,
+        workspaceChange: createWorkspaceChange({
+          changedPaths: [normalizedPath],
+        }),
+      };
+    }
+
+    await this.commandRunner.execGit(['rm', '-f', '--ignore-unmatch', '--', normalizedPath]);
+    await this.commandRunner.execGit(['clean', '-f', '--', normalizedPath]);
     this.invalidateStatusCache();
     return {
       ok: true,
-      output: output.trim(),
+      path: normalizedPath,
+      sourceRef,
+      workspaceChange: createWorkspaceChange({
+        deletedPaths: [normalizedPath],
+      }),
     };
   }
 
@@ -140,5 +182,35 @@ export class GitService {
       path: normalizedPath,
       scope,
     });
+  }
+
+  async getHeadRef() {
+    try {
+      const output = await this.commandRunner.execGit(['rev-parse', 'HEAD']);
+      return output.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async pathExistsAtRef(ref, path) {
+    try {
+      await this.commandRunner.execGit(['cat-file', '-e', `${ref}:${path}`]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async createWorkspaceChangeFromRefs(beforeRef, afterRef) {
+    if (!afterRef || beforeRef === afterRef) {
+      return createEmptyWorkspaceChange();
+    }
+
+    const args = beforeRef
+      ? ['diff', '--name-status', '--find-renames', beforeRef, afterRef]
+      : ['diff-tree', '--root', '--no-commit-id', '--name-status', '--find-renames', '-r', afterRef];
+    const parsed = parseNameStatusOutput(await this.commandRunner.execGit(args));
+    return createWorkspaceChange(parsed);
   }
 }
