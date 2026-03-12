@@ -1,4 +1,5 @@
 import {
+  createComment,
   createLongMarkdownDocument,
   expect,
   openChat,
@@ -6,6 +7,7 @@ import {
   replaceEditorContent,
   seedStoredUserName,
   sendChatMessage,
+  stubPlantUmlRender,
   test,
   waitForExcalidrawFrameHarness,
   waitForExcalidrawTestHarness,
@@ -308,13 +310,80 @@ test('renaming in the app updates the mounted Excalidraw iframe user name', asyn
   )).toBe('After Name');
 });
 
-test('does not render comment UI controls', async ({ page }) => {
+test('renders comment controls for text files', async ({ page }) => {
   await openFile(page, 'README.md');
 
-  await expect(page.locator('#commentSelectionBtn')).toHaveCount(0);
-  await expect(page.locator('#commentsToggle')).toHaveCount(0);
-  await expect(page.locator('#commentsPanel')).toHaveCount(0);
-  await expect(page.locator('#previewContent .comment-anchor-btn')).toHaveCount(0);
+  await expect(page.locator('#commentSelectionBtn')).toBeVisible();
+  await expect(page.locator('#commentsToggle')).toBeVisible();
+});
+
+test('creates and syncs a line comment across collaborators', async ({ browser }) => {
+  const pageA = await browser.newPage();
+  const pageB = await browser.newPage();
+
+  await openFile(pageA, 'README.md');
+  await openFile(pageB, 'README.md');
+
+  await createComment(pageA, {
+    body: 'Please tighten this intro.',
+    collapseSelection: true,
+    targetText: 'Welcome to the test vault. This is the top-level readme.',
+  });
+
+  await expect(pageA.locator('#commentsToggle')).toContainText('1');
+  await expect(pageB.locator('#commentsToggle')).toContainText('1');
+  await expect(pageB.locator('#previewContent .comment-preview-badge')).toHaveCount(1);
+
+  await pageB.locator('#commentsToggle').click();
+  await expect(pageB.locator('#commentsDrawer')).toBeVisible();
+  await pageB.locator('#previewContent .comment-preview-badge').click();
+  await expect(pageB.locator('.comment-card')).toContainText('Please tighten this intro.');
+
+  await pageA.close();
+  await pageB.close();
+});
+
+test('creates a selected-text comment and surfaces it in the preview bubble card', async ({ page }) => {
+  await openFile(page, 'README.md');
+
+  await createComment(page, {
+    body: 'This phrase should stay visible in preview.',
+    targetText: 'Welcome to the test vault',
+  });
+
+  await expect(page.locator('#previewContent .comment-preview-highlight')).toHaveCount(1);
+  await page.locator('#previewContent .comment-preview-badge').click();
+  await expect(page.locator('.comment-card')).toContainText('Welcome to the test vault');
+  await expect(page.locator('.comment-card')).toContainText('This phrase should stay visible in preview.');
+});
+
+test('supports comments for Mermaid and PlantUML files', async ({ page }) => {
+  await stubPlantUmlRender(page, 'commentable-plantuml');
+
+  await openFile(page, 'sample-mermaid.mmd');
+  await expect(page.locator('#commentSelectionBtn')).toBeVisible();
+  await createComment(page, {
+    body: 'Mermaid source comment',
+    collapseSelection: true,
+    targetText: 'flowchart TD',
+  });
+  await expect(page.locator('#previewContent .comment-preview-badge')).toHaveCount(1);
+
+  await openFile(page, 'sample-plantuml.puml');
+  await expect(page.locator('#commentSelectionBtn')).toBeVisible();
+  await createComment(page, {
+    body: 'PlantUML source comment',
+    collapseSelection: true,
+    targetText: '@startuml',
+  });
+  await expect(page.locator('#previewContent .comment-preview-badge')).toHaveCount(1);
+});
+
+test('does not render comment UI controls for Excalidraw', async ({ page }) => {
+  await page.goto('/?test=1#file=sample-excalidraw.excalidraw');
+
+  await expect(page.locator('#commentSelectionBtn')).toBeHidden();
+  await expect(page.locator('#commentsToggle')).toBeHidden();
 });
 
 test('syncs collaborative edits across two users on the same file', async ({ browser }) => {

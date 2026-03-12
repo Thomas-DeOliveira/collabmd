@@ -6,6 +6,7 @@ import { WorkspaceCoordinator } from '../application/workspace-coordinator.js';
 import { WorkspaceStateStore } from '../application/workspace-state-store.js';
 import { bindAppShellElements } from '../application/app-shell-elements.js';
 import { chatFeature } from '../application/app-shell/chat-feature.js';
+import { commentsFeature } from '../application/app-shell/comments-feature.js';
 import { gitFeature } from '../application/app-shell/git-feature.js';
 import { presenceFeature } from '../application/app-shell/presence-feature.js';
 import { uiFeature } from '../application/app-shell/ui-feature.js';
@@ -18,6 +19,7 @@ import { getRuntimeConfig } from '../infrastructure/runtime-config.js';
 import { TabActivityLock } from '../infrastructure/tab-activity-lock.js';
 import { vaultApiClient } from '../infrastructure/vault-api-client.js';
 import { BacklinksPanel } from '../presentation/backlinks-panel.js';
+import { CommentUiController } from '../presentation/comment-ui-controller.js';
 import { ExcalidrawEmbedController } from '../presentation/excalidraw-embed-controller.js';
 import { FileExplorerController } from '../presentation/file-explorer-controller.js';
 import { GitDiffViewController } from '../presentation/git-diff-view-controller.js';
@@ -102,11 +104,13 @@ export class CollabMdAppShell {
         this.excalidrawEmbed.syncLayout();
         this.scrollSyncController.setLargeDocumentMode(stats.isLargeDocument);
         this.schedulePreviewLayoutSync({ delayMs: 0 });
+        this.refreshCommentUiLayout();
       },
       onBeforeRenderCommit: () => this.excalidrawEmbed.detachForCommit(),
       onRenderComplete: () => {
         this.excalidrawEmbed.syncLayout();
         this.schedulePreviewLayoutSync({ delayMs: 0 });
+        this.refreshCommentUiLayout();
       },
       outlineController: this.outlineController,
       previewContainer: this.elements.previewContainer,
@@ -131,6 +135,23 @@ export class CollabMdAppShell {
       previewContainer: this.elements.previewContainer,
       previewElement: this.elements.previewContent,
       toastController: this.toastController,
+    });
+    this.commentUi = new CommentUiController({
+      commentSelectionButton: this.elements.commentSelectionButton,
+      commentsDrawer: this.elements.commentsDrawer,
+      commentsDrawerEmpty: this.elements.commentsDrawerEmpty,
+      commentsDrawerList: this.elements.commentsDrawerList,
+      commentsToggleButton: this.elements.commentsToggleButton,
+      editorContainer: this.elements.editorContainer,
+      previewContainer: this.elements.previewContainer,
+      previewElement: this.elements.previewContent,
+      onCreateThread: ({ anchor, body }) => this.session?.createCommentThread({ anchor, body }),
+      onNavigateToLine: (lineNumber) => {
+        this.scrollSyncController.suspendSync(250);
+        this.session?.scrollToLine(lineNumber, 0.2);
+      },
+      onReplyToThread: (threadId, body) => this.session?.replyToCommentThread(threadId, body),
+      onResolveThread: (threadId) => this.session?.deleteCommentThread(threadId),
     });
     this.workspacePreviewController = new WorkspacePreviewController({
       backlinksPanel: this.backlinksPanel,
@@ -187,6 +208,7 @@ export class CollabMdAppShell {
         onCommentsChange: options.onCommentsChange,
         onConnectionChange: options.onConnectionChange,
         onContentChange: options.onContentChange,
+        onSelectionChange: options.onSelectionChange,
         preferredUserName: options.preferredUserName,
       }),
       getDisplayName: (filePath) => this.getDisplayName(filePath),
@@ -202,6 +224,8 @@ export class CollabMdAppShell {
       loadEditorSessionClass: () => this.loadEditorSessionClass(),
       loadBacklinks: (filePath) => this.backlinksPanel.load(filePath),
       onBeforeFileOpen: () => {
+        this.session = null;
+        this.commentUi.attachSession(null);
         this.layoutController.reset();
         this.resetPreviewMode();
         this.elements.emptyState?.classList.add('hidden');
@@ -216,6 +240,7 @@ export class CollabMdAppShell {
           this.scheduleBacklinkRefresh();
         }
       },
+      onCommentsChange: (threads) => this.handleCommentThreadsChange(threads),
       onFileAwarenessChange: (users) => this.updateFileAwareness(users),
       onFileOpenError: () => {
         this.showEditorLoadError();
@@ -225,8 +250,10 @@ export class CollabMdAppShell {
       onFileOpenReady: () => {
         this.hideEditorLoading();
       },
+      onSelectionChange: (anchor) => this.handleCommentSelectionChange(anchor),
       onSessionAssigned: (session) => {
         this.session = session;
+        this.commentUi.attachSession(session);
       },
       onRenderExcalidrawPreview: (filePath) => this.renderExcalidrawFilePreview(filePath),
       onSyncWrapToggle: () => this.syncWrapToggle(),
@@ -237,6 +264,7 @@ export class CollabMdAppShell {
       onUpdateLobbyCurrentFile: (filePath) => this.lobby.setCurrentFile(filePath),
       onUpdateVisibleChrome: (filePath, { displayName }) => {
         this.syncFileChrome(filePath);
+        this.syncCommentChrome(filePath);
         if (this.elements.activeFileName) {
           this.elements.activeFileName.textContent = displayName;
         }
@@ -268,9 +296,15 @@ export class CollabMdAppShell {
       scrollSyncController: this.scrollSyncController,
       setCurrentFilePath: (value) => {
         this.currentFilePath = value;
+        if (!value) {
+          this.commentUi.setCurrentFile(null, { supported: false });
+          this.handleCommentThreadsChange([]);
+          this.handleCommentSelectionChange(null);
+        }
       },
       setSession: (value) => {
         this.session = value;
+        this.commentUi.attachSession(value);
       },
       setSessionLoadToken: (value) => {
         this.sessionLoadToken = value;
@@ -380,6 +414,7 @@ Object.assign(
   workspaceFeature,
   gitFeature,
   chatFeature,
+  commentsFeature,
   presenceFeature,
   uiFeature,
 );

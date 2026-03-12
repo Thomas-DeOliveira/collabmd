@@ -91,7 +91,8 @@ export function isVaultFilePath(filePath) {
 }
 
 export function supportsCommentsForFilePath(filePath) {
-  return isMarkdownFilePath(filePath);
+  const kind = getVaultFileKind(filePath);
+  return kind === 'markdown' || kind === 'mermaid' || kind === 'plantuml';
 }
 
 export function supportsBacklinksForFilePath(filePath) {

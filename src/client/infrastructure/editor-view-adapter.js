@@ -26,6 +26,7 @@ import {
 } from '@codemirror/view';
 import { yCollab } from 'y-codemirror.next';
 
+import { normalizeCommentQuote } from '../../domain/comment-threads.js';
 import { createMarkdownToolbarEdit } from '../domain/markdown-formatting.js';
 import { wikiLinkCompletions } from '../domain/wiki-link-completions.js';
 import { plantUmlLanguage, plantUmlLanguageDescription } from '../domain/plantuml-language.js';
@@ -109,6 +110,13 @@ function createLanguageExtension(filePath) {
   }
 
   return markdown({ base: markdownLanguage, codeLanguages: markdownCodeLanguages });
+}
+
+function getSelectionBounds(selection) {
+  return {
+    from: Math.min(...selection.ranges.map((range) => Math.min(range.from, range.to))),
+    to: Math.max(...selection.ranges.map((range) => Math.max(range.from, range.to))),
+  };
 }
 
 export class EditorViewAdapter {
@@ -315,8 +323,7 @@ export class EditorViewAdapter {
     }
 
     const { doc, selection } = state;
-    const from = Math.min(...selection.ranges.map((range) => Math.min(range.from, range.to)));
-    const to = Math.max(...selection.ranges.map((range) => Math.max(range.from, range.to)));
+    const { from, to } = getSelectionBounds(selection);
     const startLine = doc.lineAt(from).number;
     let safeTo = Math.min(Math.max(to, from), doc.length);
     if (safeTo > from && doc.lineAt(safeTo).from === safeTo) {
@@ -326,6 +333,43 @@ export class EditorViewAdapter {
     return {
       endLine: doc.lineAt(safeTo).number,
       startLine,
+    };
+  }
+
+  getCurrentSelectionCommentAnchor() {
+    const state = this.editorView?.state;
+    if (!state) {
+      return null;
+    }
+
+    const { doc, selection } = state;
+    const { from, to } = getSelectionBounds(selection);
+    const isCollapsed = from === to;
+
+    if (isCollapsed) {
+      const line = doc.lineAt(from);
+      return {
+        anchorKind: 'line',
+        anchorQuote: normalizeCommentQuote(line.text),
+        endIndex: line.to,
+        endLine: line.number,
+        startIndex: line.from,
+        startLine: line.number,
+      };
+    }
+
+    let safeTo = Math.min(Math.max(to, from), doc.length);
+    if (safeTo > from && doc.lineAt(safeTo).from === safeTo) {
+      safeTo -= 1;
+    }
+
+    return {
+      anchorKind: 'text',
+      anchorQuote: normalizeCommentQuote(doc.sliceString(from, to)),
+      endIndex: to,
+      endLine: doc.lineAt(safeTo).number,
+      startIndex: from,
+      startLine: doc.lineAt(from).number,
     };
   }
 
@@ -356,6 +400,83 @@ export class EditorViewAdapter {
     return {
       line,
       lineNumber: line.number,
+    };
+  }
+
+  getAnchorClientRect(anchor) {
+    const state = this.editorView?.state;
+    const editorView = this.editorView;
+    if (!state || !editorView || !anchor) {
+      return null;
+    }
+
+    const kind = anchor.anchorKind || anchor.kind || 'line';
+    const startIndex = Math.min(Math.max(Math.round(anchor.startIndex ?? 0), 0), state.doc.length);
+    const endIndex = Math.min(Math.max(Math.round(anchor.endIndex ?? startIndex), startIndex), state.doc.length);
+
+    if (kind === 'text' && endIndex > startIndex) {
+      const startCoords = editorView.coordsAtPos(startIndex);
+      const endCoords = editorView.coordsAtPos(Math.max(endIndex - 1, startIndex));
+      if (startCoords && endCoords) {
+        return {
+          bottom: Math.max(startCoords.bottom, endCoords.bottom),
+          height: Math.max(startCoords.bottom, endCoords.bottom) - Math.min(startCoords.top, endCoords.top),
+          left: Math.min(startCoords.left, endCoords.left),
+          right: Math.max(startCoords.right, endCoords.right),
+          top: Math.min(startCoords.top, endCoords.top),
+          width: Math.max(startCoords.right, endCoords.right) - Math.min(startCoords.left, endCoords.left),
+        };
+      }
+    }
+
+    const targetLine = state.doc.line(
+      Math.min(Math.max(Math.round(anchor.startLine ?? 1), 1), state.doc.lines),
+    );
+    const lineBlock = editorView.lineBlockAt(targetLine.from);
+    const scrollerRect = editorView.scrollDOM.getBoundingClientRect();
+    const contentRect = editorView.contentDOM.getBoundingClientRect();
+    const left = contentRect.left;
+    const right = Math.max(contentRect.right, scrollerRect.right - 8);
+
+    return {
+      bottom: scrollerRect.top + lineBlock.top + lineBlock.height,
+      height: lineBlock.height,
+      left,
+      right,
+      top: scrollerRect.top + lineBlock.top,
+      width: Math.max(right - left, 0),
+    };
+  }
+
+  getSelectionChipClientRect(anchor) {
+    const state = this.editorView?.state;
+    const editorView = this.editorView;
+    if (!state || !editorView || !anchor) {
+      return null;
+    }
+
+    const startIndex = Math.min(Math.max(Math.round(anchor.startIndex ?? 0), 0), state.doc.length);
+    const startLine = state.doc.lineAt(startIndex);
+    const lineEndIndex = Math.max(startLine.to, startIndex);
+    const anchorEndIndex = Math.min(
+      Math.max(Math.round(anchor.endIndex ?? startIndex), startIndex),
+      state.doc.length,
+    );
+    const controlIndex = anchor.endLine > anchor.startLine
+      ? lineEndIndex
+      : Math.max(anchorEndIndex - 1, startIndex);
+    const coords = editorView.coordsAtPos(Math.min(controlIndex, state.doc.length));
+    const scrollerRect = editorView.scrollDOM.getBoundingClientRect();
+    const contentRect = editorView.contentDOM.getBoundingClientRect();
+    const lineBlock = editorView.lineBlockAt(startIndex);
+
+    return {
+      bottom: coords?.bottom ?? (scrollerRect.top + lineBlock.top + lineBlock.height),
+      height: coords ? (coords.bottom - coords.top) : lineBlock.height,
+      left: coords?.left ?? contentRect.left,
+      right: coords?.right ?? Math.max(contentRect.right, scrollerRect.right - 8),
+      top: coords?.top ?? (scrollerRect.top + lineBlock.top),
+      width: coords ? (coords.right - coords.left) : 0,
     };
   }
 

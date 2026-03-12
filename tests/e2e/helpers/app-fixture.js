@@ -164,6 +164,82 @@ export async function sendChatMessage(page, message) {
   await page.locator('#chatForm').getByRole('button', { name: 'Send' }).click();
 }
 
+export async function setEditorSelection(page, targetText, { collapse = false } = {}) {
+  await page.evaluate(({ collapseAtStart, target }) => {
+    const findView = (root) => {
+      const seen = new Set();
+      const queue = [root];
+
+      while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current || typeof current !== 'object' || seen.has(current)) {
+          continue;
+        }
+        seen.add(current);
+
+        if (current.state?.doc && typeof current.dispatch === 'function') {
+          return current;
+        }
+
+        for (const key of Object.getOwnPropertyNames(current)) {
+          try {
+            const value = current[key];
+            if (!value || typeof value !== 'object' || seen.has(value)) {
+              continue;
+            }
+            queue.push(value);
+          } catch {
+            // Ignore inaccessible DOM properties while probing for the editor view.
+          }
+        }
+      }
+
+      return null;
+    };
+
+    const editor = document.querySelector('.cm-editor');
+    const view = findView(editor) || findView(document.querySelector('.cm-content'));
+    if (!view) {
+      throw new Error('Missing CodeMirror editor view');
+    }
+
+    const source = view.state.doc.toString();
+    const from = source.indexOf(target);
+    if (from < 0) {
+      throw new Error(`Missing target text: ${target}`);
+    }
+
+    const anchor = collapseAtStart ? from : from + target.length;
+    view.dispatch({
+      scrollIntoView: true,
+      selection: {
+        anchor,
+        head: from,
+      },
+    });
+    view.focus();
+  }, {
+    collapseAtStart: collapse,
+    target: targetText,
+  });
+}
+
+export async function createComment(page, {
+  body,
+  collapseSelection = false,
+  targetText,
+} = {}) {
+  if (targetText) {
+    await setEditorSelection(page, targetText, { collapse: collapseSelection });
+  }
+
+  await page.locator('#commentSelectionBtn').click();
+  await expect(page.locator('.comment-card')).toBeVisible();
+  await page.locator('.comment-card-input').fill(body);
+  await page.locator('.comment-card').getByRole('button', { name: 'Post comment' }).click();
+  await expect(page.locator('.comment-card')).toBeHidden();
+}
+
 export async function waitForHeavyPreviewContent(page) {
   await page.waitForFunction(() => {
     const preview = document.getElementById('previewContent');

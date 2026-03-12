@@ -188,6 +188,12 @@
                 <span class="pane-label-meta" id="lineInfo">Ln 1, Col 1</span>
               </div>
               <div class="pane-header-actions">
+                <button class="btn btn-ghost pane-header-btn hidden" id="commentSelectionBtn" aria-label="Comment current line or selection" title="Comment current line or selection">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                  <span class="pane-header-btn-label">Comment</span>
+                </button>
                 <button class="btn btn-ghost pane-header-btn" id="toggleWrapBtn" aria-label="Disable line wrap" title="Disable line wrap">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M3 6h14a4 4 0 1 1 0 8H9"/>
@@ -321,6 +327,12 @@
             <div class="pane-header">
               <span class="pane-label">Preview</span>
               <div class="pane-header-actions">
+                <button class="btn btn-ghost pane-header-btn hidden" id="commentsToggle" aria-label="Toggle comments" title="Toggle comments">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                  <span class="pane-header-btn-label">Comments</span>
+                </button>
                 <button class="btn btn-ghost pane-header-btn" id="outlineToggle" aria-label="Toggle outline" title="Toggle outline">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
                 </button>
@@ -342,6 +354,15 @@
                   </div>
                 </div>
               </div>
+              <aside id="commentsDrawer" class="comments-drawer hidden" aria-label="Comments">
+                <div class="comments-drawer-header">
+                  <span class="comments-drawer-title">Comments</span>
+                </div>
+                <div id="commentsDrawerEmpty" class="comments-drawer-empty">
+                  Add a comment from the editor or the preview bubbles.
+                </div>
+                <div id="commentsDrawerList" class="comments-drawer-list"></div>
+              </aside>
               <aside id="outlinePanel" class="outline-panel hidden" aria-label="Document outline">
                 <div class="outline-header">
                   <span class="outline-title">Outline</span>

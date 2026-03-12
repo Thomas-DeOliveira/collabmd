@@ -22,9 +22,11 @@ export class WorkspaceCoordinator {
     onBeforeFileOpen,
     onConnectionChange,
     onContentChange,
+    onCommentsChange,
     onFileAwarenessChange,
     onFileOpenError,
     onFileOpenReady,
+    onSelectionChange,
     onSessionAssigned = null,
     onRenderExcalidrawPreview,
     onSyncWrapToggle,
@@ -57,9 +59,11 @@ export class WorkspaceCoordinator {
     this.onBeforeFileOpen = onBeforeFileOpen;
     this.onConnectionChange = onConnectionChange;
     this.onContentChange = onContentChange;
+    this.onCommentsChange = onCommentsChange;
     this.onFileAwarenessChange = onFileAwarenessChange;
     this.onFileOpenError = onFileOpenError;
     this.onFileOpenReady = onFileOpenReady;
+    this.onSelectionChange = onSelectionChange;
     this.onSessionAssigned = onSessionAssigned;
     this.onRenderExcalidrawPreview = onRenderExcalidrawPreview;
     this.onSyncWrapToggle = onSyncWrapToggle;
@@ -165,6 +169,7 @@ export class WorkspaceCoordinator {
       localUser: this.getLocalUser(),
       onAwarenessChange: (users) => this.onFileAwarenessChange(users),
       onConnectionChange: (state) => this.onConnectionChange(state),
+      onCommentsChange: (threads) => this.onCommentsChange?.(threads),
       onContentChange: () => {
         if (isExcalidraw) {
           return;
@@ -176,6 +181,7 @@ export class WorkspaceCoordinator {
         });
       },
       preferredUserName: this.getStoredUserName(),
+      onSelectionChange: (anchor) => this.onSelectionChange?.(anchor),
       theme: this.getTheme(),
     });
 

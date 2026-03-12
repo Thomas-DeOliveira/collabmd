@@ -248,7 +248,8 @@ test('CollaborationRoom hydrates and persists markdown comment threads', async (
   const persistedThreads = [{
     anchorEnd: { assoc: 0, type: null },
     anchorEndLine: 3,
-    anchorExcerpt: 'Hello from room.',
+    anchorKind: 'line',
+    anchorQuote: 'Hello from room.',
     anchorStart: { assoc: 0, type: null },
     anchorStartLine: 3,
     createdAt: 1,
@@ -312,7 +313,8 @@ test('CollaborationRoom hydrates and persists markdown comment threads', async (
     comments.push([createCommentThreadSharedType({
       anchorEnd: { assoc: 0, type: null },
       anchorEndLine: 2,
-      anchorExcerpt: 'Notes',
+      anchorKind: 'line',
+      anchorQuote: 'Notes',
       anchorStart: { assoc: 0, type: null },
       anchorStartLine: 1,
       createdAt: 3,

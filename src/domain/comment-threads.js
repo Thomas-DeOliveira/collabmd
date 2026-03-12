@@ -2,12 +2,19 @@ import * as Y from 'yjs';
 
 export const COMMENT_BODY_MAX_LENGTH = 2000;
 export const COMMENT_EXCERPT_MAX_LENGTH = 160;
+export const COMMENT_ANCHOR_QUOTE_MAX_LENGTH = 280;
+
+const COMMENT_ANCHOR_KINDS = new Set(['line', 'text']);
 
 function asFiniteNumber(value) {
   return Number.isFinite(value) ? value : null;
 }
 
 function asObject(value) {
+  if (value instanceof Y.Map) {
+    return value.toJSON();
+  }
+
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
 
@@ -25,6 +32,48 @@ function readThreadValue(thread, key) {
 
 function isResolvedThread(thread) {
   return asFiniteNumber(readThreadValue(thread, 'resolvedAt')) !== null;
+}
+
+function normalizeAnchorKind(value) {
+  return COMMENT_ANCHOR_KINDS.has(value) ? value : null;
+}
+
+export function normalizeCommentBody(value) {
+  const normalized = String(value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .trim()
+    .slice(0, COMMENT_BODY_MAX_LENGTH);
+
+  return normalized || null;
+}
+
+export function normalizeCommentQuote(value) {
+  const normalized = String(value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .trim()
+    .slice(0, COMMENT_ANCHOR_QUOTE_MAX_LENGTH);
+
+  return normalized || '';
+}
+
+export function normalizeCommentQuoteForComparison(value) {
+  return String(value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function summarizeCommentExcerpt(value, maxLength = COMMENT_EXCERPT_MAX_LENGTH) {
+  const normalized = normalizeCommentQuoteForComparison(value);
+  if (!normalized) {
+    return '';
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(maxLength - 1, 1)).trimEnd()}…`;
 }
 
 function createMessageRecord(message) {
@@ -63,29 +112,26 @@ export function createCommentId(prefix = 'comment') {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function normalizeCommentBody(value) {
-  const normalized = String(value ?? '')
-    .replace(/\r\n?/g, '\n')
-    .trim()
-    .slice(0, COMMENT_BODY_MAX_LENGTH);
+export function normalizeCommentAnchor(record = {}) {
+  const anchorKind = normalizeAnchorKind(record.anchorKind);
+  const anchorStart = asObject(record.anchorStart);
+  const anchorEnd = asObject(record.anchorEnd);
+  const anchorStartLine = asFiniteNumber(record.anchorStartLine);
+  const anchorEndLine = asFiniteNumber(record.anchorEndLine);
+  const anchorQuote = normalizeCommentQuote(record.anchorQuote);
 
-  return normalized || null;
-}
-
-export function summarizeCommentExcerpt(value, maxLength = COMMENT_EXCERPT_MAX_LENGTH) {
-  const normalized = String(value ?? '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (!normalized) {
-    return '';
+  if (!anchorKind || !anchorStart || !anchorEnd || anchorStartLine === null || anchorEndLine === null) {
+    return null;
   }
 
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, Math.max(maxLength - 1, 1)).trimEnd()}…`;
+  return {
+    anchorEnd,
+    anchorEndLine: Math.max(anchorEndLine, anchorStartLine),
+    anchorKind,
+    anchorQuote,
+    anchorStart,
+    anchorStartLine: Math.max(anchorStartLine, 1),
+  };
 }
 
 export function createCommentThreadSharedType(record = {}) {
@@ -93,8 +139,9 @@ export function createCommentThreadSharedType(record = {}) {
     return null;
   }
 
+  const anchor = normalizeCommentAnchor(record);
   const initialMessage = createMessageRecord(record.messages?.[0]);
-  if (!initialMessage) {
+  if (!anchor || !initialMessage) {
     return null;
   }
 
@@ -106,11 +153,12 @@ export function createCommentThreadSharedType(record = {}) {
   messages.push(normalizedMessages.length > 0 ? normalizedMessages : [initialMessage]);
 
   const thread = new Y.Map();
-  thread.set('anchorEnd', asObject(record.anchorEnd));
-  thread.set('anchorEndLine', asFiniteNumber(record.anchorEndLine) ?? asFiniteNumber(record.anchorStartLine) ?? 1);
-  thread.set('anchorExcerpt', summarizeCommentExcerpt(record.anchorExcerpt));
-  thread.set('anchorStart', asObject(record.anchorStart));
-  thread.set('anchorStartLine', asFiniteNumber(record.anchorStartLine) ?? 1);
+  thread.set('anchorEnd', anchor.anchorEnd);
+  thread.set('anchorEndLine', anchor.anchorEndLine);
+  thread.set('anchorKind', anchor.anchorKind);
+  thread.set('anchorQuote', anchor.anchorQuote);
+  thread.set('anchorStart', anchor.anchorStart);
+  thread.set('anchorStartLine', anchor.anchorStartLine);
   thread.set('createdAt', asFiniteNumber(record.createdAt) ?? Date.now());
   thread.set('createdByColor', asString(record.createdByColor));
   thread.set('createdByName', asString(record.createdByName) || initialMessage.userName);
@@ -129,22 +177,22 @@ export function serializeCommentThread(thread) {
     return null;
   }
 
-  const anchorStart = asObject(readThreadValue(thread, 'anchorStart'));
-  const anchorEnd = asObject(readThreadValue(thread, 'anchorEnd'));
+  const anchor = normalizeCommentAnchor({
+    anchorEnd: readThreadValue(thread, 'anchorEnd'),
+    anchorEndLine: readThreadValue(thread, 'anchorEndLine'),
+    anchorKind: readThreadValue(thread, 'anchorKind'),
+    anchorQuote: readThreadValue(thread, 'anchorQuote'),
+    anchorStart: readThreadValue(thread, 'anchorStart'),
+    anchorStartLine: readThreadValue(thread, 'anchorStartLine'),
+  });
   const messages = serializeMessages(readThreadValue(thread, 'messages'));
 
-  if (!anchorStart || !anchorEnd || messages.length === 0) {
+  if (!anchor || messages.length === 0) {
     return null;
   }
 
   return {
-    anchorEnd,
-    anchorEndLine: asFiniteNumber(readThreadValue(thread, 'anchorEndLine'))
-      ?? asFiniteNumber(readThreadValue(thread, 'anchorStartLine'))
-      ?? 1,
-    anchorExcerpt: summarizeCommentExcerpt(readThreadValue(thread, 'anchorExcerpt')),
-    anchorStart,
-    anchorStartLine: asFiniteNumber(readThreadValue(thread, 'anchorStartLine')) ?? 1,
+    ...anchor,
     createdAt: asFiniteNumber(readThreadValue(thread, 'createdAt')) ?? messages[0].createdAt,
     createdByColor: asString(readThreadValue(thread, 'createdByColor')) || messages[0].userColor,
     createdByName: asString(readThreadValue(thread, 'createdByName')) || messages[0].userName,

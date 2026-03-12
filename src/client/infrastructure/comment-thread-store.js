@@ -3,7 +3,9 @@ import * as Y from 'yjs';
 import {
   createCommentId,
   createCommentThreadSharedType,
+  normalizeCommentAnchor,
   normalizeCommentBody,
+  normalizeCommentQuote,
   serializeCommentThreads,
   summarizeCommentExcerpt,
 } from '../../domain/comment-threads.js';
@@ -16,6 +18,41 @@ function createCommentMessage({ body, user }) {
     peerId: user?.peerId ?? '',
     userColor: user?.color ?? '',
     userName: user?.name ?? 'Anonymous',
+  };
+}
+
+function normalizeSelectionAnchorPayload(payload, state) {
+  const doc = state?.doc;
+  if (!doc) {
+    return null;
+  }
+
+  const anchor = payload?.anchor ?? payload;
+  const anchorKind = anchor?.anchorKind === 'text' ? 'text' : 'line';
+  const lineCount = doc.lines;
+  const startLine = Math.min(Math.max(Math.round(anchor?.startLine ?? 1), 1), lineCount);
+  const endLine = Math.min(
+    Math.max(Math.round(anchor?.endLine ?? startLine), startLine),
+    lineCount,
+  );
+  const defaultStartIndex = doc.line(startLine).from;
+  const defaultEndIndex = doc.line(endLine).to;
+  const startIndex = Math.min(
+    Math.max(Math.round(anchor?.startIndex ?? defaultStartIndex), 0),
+    doc.length,
+  );
+  const endIndex = Math.min(
+    Math.max(Math.round(anchor?.endIndex ?? defaultEndIndex), startIndex),
+    doc.length,
+  );
+
+  return {
+    anchorEndLine: endLine,
+    anchorKind,
+    anchorQuote: normalizeCommentQuote(anchor?.anchorQuote || doc.sliceString(startIndex, endIndex)),
+    anchorStartLine: startLine,
+    endIndex,
+    startIndex,
   };
 }
 
@@ -34,6 +71,7 @@ export class CommentThreadStore {
     this.ydoc = null;
     this.ytext = null;
     this.handleCommentThreadsChange = null;
+    this.handleTextChange = null;
   }
 
   bind({ commentThreads, ydoc, ytext }) {
@@ -42,21 +80,33 @@ export class CommentThreadStore {
     this.ydoc = ydoc;
     this.ytext = ytext;
     this.handleCommentThreadsChange = () => {
-      this.onCommentsChange?.(this.getCommentThreads());
+      this.emitCommentsChange();
+    };
+    this.handleTextChange = () => {
+      this.emitCommentsChange();
     };
     this.commentThreads.observeDeep(this.handleCommentThreadsChange);
-    this.onCommentsChange?.(this.getCommentThreads());
+    this.ytext?.observe?.(this.handleTextChange);
+    this.emitCommentsChange();
   }
 
   unbind() {
     if (this.commentThreads && this.handleCommentThreadsChange) {
       this.commentThreads.unobserveDeep(this.handleCommentThreadsChange);
     }
+    if (this.ytext && this.handleTextChange) {
+      this.ytext.unobserve(this.handleTextChange);
+    }
 
     this.commentThreads = null;
     this.ydoc = null;
     this.ytext = null;
     this.handleCommentThreadsChange = null;
+    this.handleTextChange = null;
+  }
+
+  emitCommentsChange() {
+    this.onCommentsChange?.(this.getCommentThreads());
   }
 
   getCommentThreads() {
@@ -69,27 +119,29 @@ export class CommentThreadStore {
       .filter(Boolean);
   }
 
-  createCommentThread({ body, endLine, startLine }) {
+  createCommentThread({ anchor, body }) {
     const state = this.getEditorState();
     if (!state || !this.commentThreads || !this.ytext || !this.ydoc) {
       return null;
     }
 
     const normalizedBody = normalizeCommentBody(body);
-    if (!normalizedBody) {
+    const normalizedAnchor = normalizeSelectionAnchorPayload(anchor, state);
+    if (!normalizedBody || !normalizedAnchor) {
       return null;
     }
 
-    const range = this.normalizeLineRange({ endLine, startLine });
-    const start = state.doc.line(range.startLine);
-    const end = state.doc.line(range.endLine);
-    const excerpt = summarizeCommentExcerpt(state.doc.sliceString(start.from, end.to));
     const thread = createCommentThreadSharedType({
-      anchorEnd: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(this.ytext, end.to)),
-      anchorEndLine: range.endLine,
-      anchorExcerpt: excerpt,
-      anchorStart: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(this.ytext, start.from)),
-      anchorStartLine: range.startLine,
+      anchorEnd: Y.relativePositionToJSON(
+        Y.createRelativePositionFromTypeIndex(this.ytext, normalizedAnchor.endIndex),
+      ),
+      anchorEndLine: normalizedAnchor.anchorEndLine,
+      anchorKind: normalizedAnchor.anchorKind,
+      anchorQuote: normalizedAnchor.anchorQuote,
+      anchorStart: Y.relativePositionToJSON(
+        Y.createRelativePositionFromTypeIndex(this.ytext, normalizedAnchor.startIndex),
+      ),
+      anchorStartLine: normalizedAnchor.anchorStartLine,
       createdAt: Date.now(),
       createdByColor: this.getLocalUser()?.color ?? '',
       createdByName: this.getLocalUser()?.name ?? 'Anonymous',
@@ -114,7 +166,7 @@ export class CommentThreadStore {
 
   replyToCommentThread(threadId, body) {
     const normalizedBody = normalizeCommentBody(body);
-    if (!normalizedBody) {
+    if (!normalizedBody || !this.ydoc) {
       return null;
     }
 
@@ -137,7 +189,7 @@ export class CommentThreadStore {
   }
 
   deleteCommentThread(threadId) {
-    if (!this.commentThreads) {
+    if (!this.commentThreads || !this.ydoc) {
       return false;
     }
 
@@ -173,51 +225,51 @@ export class CommentThreadStore {
     ));
   }
 
-  normalizeLineRange({ endLine, startLine }) {
-    const state = this.getEditorState();
-    if (!state) {
-      return { endLine: 1, startLine: 1 };
-    }
-
-    const lineCount = state.doc.lines;
-    const normalizedStart = Math.min(Math.max(Math.round(startLine ?? 1), 1), lineCount);
-    const normalizedEnd = Math.min(Math.max(Math.round(endLine ?? normalizedStart), normalizedStart), lineCount);
-
-    return {
-      endLine: normalizedEnd,
-      startLine: normalizedStart,
-    };
-  }
-
   resolveCommentThread(thread) {
     const state = this.getEditorState();
     if (!thread || !state || !this.ydoc) {
       return null;
     }
 
-    const anchorStart = this.resolveCommentPosition(thread.anchorStart);
-    const anchorEnd = this.resolveCommentPosition(thread.anchorEnd);
-    const startIndex = anchorStart?.index ?? state.doc.line(
-      Math.min(Math.max(thread.anchorStartLine ?? 1, 1), state.doc.lines),
-    ).from;
-    const endIndex = anchorEnd?.index ?? state.doc.line(
-      Math.min(Math.max(thread.anchorEndLine ?? thread.anchorStartLine ?? 1, 1), state.doc.lines),
-    ).to;
+    const normalizedAnchor = normalizeCommentAnchor(thread);
+    if (!normalizedAnchor) {
+      return null;
+    }
+
+    const anchorStart = this.resolveCommentPosition(normalizedAnchor.anchorStart);
+    const anchorEnd = this.resolveCommentPosition(normalizedAnchor.anchorEnd);
+    const startIndex = anchorStart?.index ?? state.doc.line(normalizedAnchor.anchorStartLine).from;
+    const fallbackEndLine = Math.min(
+      Math.max(normalizedAnchor.anchorEndLine ?? normalizedAnchor.anchorStartLine, normalizedAnchor.anchorStartLine),
+      state.doc.lines,
+    );
+    const endIndex = anchorEnd?.index ?? state.doc.line(fallbackEndLine).to;
     const startLine = state.doc.lineAt(startIndex).number;
-    const endLine = state.doc.lineAt(Math.min(Math.max(endIndex, startIndex), state.doc.length)).number;
-    const excerpt = summarizeCommentExcerpt(
-      state.doc.sliceString(startIndex, Math.max(endIndex, startIndex)),
-    ) || thread.anchorExcerpt;
+    const safeEndIndex = Math.min(Math.max(endIndex, startIndex), state.doc.length);
+    const endLine = state.doc.lineAt(safeEndIndex).number;
+    const rawExcerpt = state.doc.sliceString(
+      startIndex,
+      normalizedAnchor.anchorKind === 'text' ? Math.max(endIndex, startIndex) : state.doc.line(endLine).to,
+    );
+    const excerpt = summarizeCommentExcerpt(rawExcerpt) || normalizedAnchor.anchorQuote;
 
     return {
       ...thread,
       anchor: {
         endIndex,
         endLine,
-        excerpt: excerpt || thread.anchorExcerpt || '',
+        excerpt,
+        quote: normalizedAnchor.anchorQuote,
         startIndex,
         startLine,
+        kind: normalizedAnchor.anchorKind,
       },
+      anchorEnd: normalizedAnchor.anchorEnd,
+      anchorEndLine: normalizedAnchor.anchorEndLine,
+      anchorKind: normalizedAnchor.anchorKind,
+      anchorQuote: normalizedAnchor.anchorQuote,
+      anchorStart: normalizedAnchor.anchorStart,
+      anchorStartLine: normalizedAnchor.anchorStartLine,
     };
   }
 

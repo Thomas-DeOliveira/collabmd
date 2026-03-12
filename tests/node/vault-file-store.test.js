@@ -78,7 +78,8 @@ test('VaultFileStore persists hidden comment sidecars alongside vault files', as
   const threads = [{
     anchorEnd: { assoc: 0, type: null },
     anchorEndLine: 3,
-    anchorExcerpt: 'Hello from test vault.',
+    anchorKind: 'line',
+    anchorQuote: 'Hello from test vault.',
     anchorStart: { assoc: 0, type: null },
     anchorStartLine: 3,
     createdAt: 1,

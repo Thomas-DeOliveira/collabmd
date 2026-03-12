@@ -14,6 +14,7 @@ export class EditorSession {
     onConnectionChange,
     onCommentsChange,
     onContentChange,
+    onSelectionChange,
     preferredUserName,
     localUser,
     getFileList,
@@ -21,6 +22,7 @@ export class EditorSession {
     this.onAwarenessChange = onAwarenessChange;
     this.onCommentsChange = onCommentsChange;
     this.onContentChange = onContentChange;
+    this.onSelectionChange = onSelectionChange;
     this.hasDeliveredContent = false;
     this.lastDeliveredContent = null;
 
@@ -43,6 +45,9 @@ export class EditorSession {
       },
       onViewportChanged: (viewport) => {
         this.collaborationClient.setLocalViewport(viewport);
+      },
+      onSelectionChanged: () => {
+        this.onSelectionChange?.(this.getCurrentSelectionCommentAnchor());
       },
     });
     this.commentThreadStore = new CommentThreadStore({
@@ -126,6 +131,18 @@ export class EditorSession {
 
   getCurrentSelectionLineRange() {
     return this.viewAdapter.getCurrentSelectionLineRange();
+  }
+
+  getCurrentSelectionCommentAnchor() {
+    return this.viewAdapter.getCurrentSelectionCommentAnchor();
+  }
+
+  getCommentAnchorClientRect(anchor) {
+    return this.viewAdapter.getAnchorClientRect(anchor);
+  }
+
+  getSelectionChipClientRect(anchor) {
+    return this.viewAdapter.getSelectionChipClientRect(anchor);
   }
 
   getCommentThreads() {
