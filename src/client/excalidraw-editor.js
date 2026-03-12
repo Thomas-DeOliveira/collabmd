@@ -43,6 +43,8 @@ let suppressViewportBroadcast = false;
 let pendingViewportSuppressionReleases = 0;
 let lastAppliedFollowViewportSignature = '';
 let apiCleanupCallbacks = [];
+let collaboratorRenderFrame = 0;
+let queuedCollaborators = null;
 const roomClient = new ExcalidrawRoomClient({
   filePath,
   onCollaboratorsChange: (collaborators) => {
@@ -51,7 +53,7 @@ const roomClient = new ExcalidrawRoomClient({
       return;
     }
 
-    applyCollaborators(collaborators);
+    queueCollaboratorsRender(collaborators);
   },
   onRemoteSceneJson: (sceneJson) => {
     applySceneFromJson(sceneJson);
@@ -198,6 +200,20 @@ function applyCollaborators(collaborators) {
   }
 
   applyFollowedViewport(activeCollaborators);
+}
+
+function queueCollaboratorsRender(collaborators) {
+  queuedCollaborators = collaborators;
+  if (collaboratorRenderFrame) {
+    return;
+  }
+
+  collaboratorRenderFrame = requestAnimationFrame(() => {
+    collaboratorRenderFrame = 0;
+    const nextCollaborators = queuedCollaborators;
+    queuedCollaborators = null;
+    applyCollaborators(nextCollaborators);
+  });
 }
 
 function applySceneFromJson(rawJson) {
@@ -374,6 +390,11 @@ function disconnectRealtimeRoom() {
   suppressViewportBroadcast = false;
   pendingViewportSuppressionReleases = 0;
   lastAppliedFollowViewportSignature = '';
+  if (collaboratorRenderFrame) {
+    cancelAnimationFrame(collaboratorRenderFrame);
+  }
+  collaboratorRenderFrame = 0;
+  queuedCollaborators = null;
   apiCleanupCallbacks.forEach((cleanup) => cleanup());
   apiCleanupCallbacks = [];
   roomClient.disconnect();
@@ -487,7 +508,6 @@ async function init() {
         }
         apiCleanupCallbacks.push(excalidrawAPI.onScrollChange(() => {
           syncLocalViewportToRoom();
-          applyFollowedViewport();
         }));
         apiCleanupCallbacks.push(excalidrawAPI.onUserFollow((payload) => {
           if (payload.action === 'FOLLOW') {
