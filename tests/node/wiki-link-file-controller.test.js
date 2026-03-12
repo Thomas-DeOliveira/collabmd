@@ -48,7 +48,6 @@ test('WikiLinkFileController normalizes and creates new markdown wiki-link targe
     ['create', 'plans/q4.md', '# q4\n\n'],
     ['refresh'],
     ['navigate', 'plans/q4.md'],
-    ['toast', 'Created plans/q4'],
   ]);
 });
 

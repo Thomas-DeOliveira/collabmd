@@ -300,25 +300,21 @@ export const chatFeature = {
       if (nextPermission !== 'granted') {
         this.chatNotificationsEnabled = false;
         this.preferences.setChatNotificationsEnabled(false);
-        this.toastController.show(
-          nextPermission === 'denied'
-            ? 'Browser notifications were blocked'
-            : 'Notification permission was dismissed',
-        );
+        if (nextPermission === 'denied') {
+          this.toastController.show('Browser notifications were blocked');
+        }
         this.syncChatNotificationButton();
         return;
       }
 
       this.chatNotificationsEnabled = true;
       this.preferences.setChatNotificationsEnabled(true);
-      this.toastController.show('Chat alerts enabled');
       this.syncChatNotificationButton();
       return;
     }
 
     this.chatNotificationsEnabled = !this.chatNotificationsEnabled;
     this.preferences.setChatNotificationsEnabled(this.chatNotificationsEnabled);
-    this.toastController.show(this.chatNotificationsEnabled ? 'Chat alerts enabled' : 'Chat alerts disabled');
     this.syncChatNotificationButton();
   },
 

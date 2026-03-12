@@ -51,7 +51,6 @@ export class WikiLinkFileController {
       });
       await this.refreshExplorer();
       this.navigation.navigateToFile(filePath);
-      this.toastController.show(`Created ${displayName}`);
     } catch (error) {
       this.toastController.show(`Failed to create file: ${error.message}`);
     }

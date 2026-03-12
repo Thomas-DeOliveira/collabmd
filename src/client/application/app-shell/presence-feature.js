@@ -123,7 +123,6 @@ export const presenceFeature = {
 
     if (user.currentFile && user.currentFile !== this.currentFilePath) {
       this.navigation.navigateToFile(user.currentFile);
-      this.toastController.show(`Following ${user.name} — switching to ${this.getDisplayName(user.currentFile)}`);
       return;
     }
 
@@ -133,32 +132,28 @@ export const presenceFeature = {
       }
     });
 
-    this.toastController.show(`Following ${user.name}`);
   },
 
-  stopFollowingUser(showToast = true) {
+  stopFollowingUser() {
     if (!this.followedUserClientId) return;
-    const name = this.globalUsers.find((u) => u.clientId === this.followedUserClientId)?.name ?? 'collaborator';
     if (this.currentFilePath && this.isExcalidrawFile?.(this.currentFilePath)) {
       void this.excalidrawEmbed?.setFollowedUser(this.currentFilePath, null);
     }
     this.followedUserClientId = null;
     this.followedCursorSignature = '';
     this.renderAvatars();
-    if (showToast) this.toastController.show(`Stopped following ${name}`);
   },
 
   syncFollowedUser() {
     if (!this.followedUserClientId) return;
     const user = this.globalUsers.find((u) => u.clientId === this.followedUserClientId);
     if (!user || user.isLocal) {
-      this.stopFollowingUser(false);
+      this.stopFollowingUser();
       return;
     }
 
     if (user.currentFile && user.currentFile !== this.currentFilePath) {
       this.navigation.navigateToFile(user.currentFile);
-      this.toastController.show(`${user.name} switched to ${this.getDisplayName(user.currentFile)}`);
       return;
     }
 

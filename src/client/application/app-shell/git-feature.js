@@ -190,7 +190,6 @@ export const gitFeature = {
 
     await this.runGitActionWithStatus('Staging changes...', async () => {
       const result = await this.postGitAction(resolveApiUrl('/git/stage'), { path: filePath });
-      this.toastController.show(`Staged ${this.getDisplayName(filePath)}`);
       await this.finalizeGitAction({
         action: 'stage',
         filePath,
@@ -207,7 +206,6 @@ export const gitFeature = {
 
     await this.runGitActionWithStatus('Unstaging changes...', async () => {
       const result = await this.postGitAction(resolveApiUrl('/git/unstage'), { path: filePath });
-      this.toastController.show(`Unstaged ${this.getDisplayName(filePath)}`);
       await this.finalizeGitAction({
         action: 'unstage',
         filePath,
@@ -221,7 +219,6 @@ export const gitFeature = {
     await this.runGitActionWithStatus('Pushing branch...', async () => {
       try {
         const result = await this.postGitAction(resolveApiUrl('/git/push'), {});
-        this.toastController.show('Pushed branch');
         await this.finalizeGitAction({
           action: 'push',
           result,
@@ -236,7 +233,6 @@ export const gitFeature = {
     await this.runGitActionWithStatus('Pulling branch...', async () => {
       try {
         const result = await this.postGitAction(resolveApiUrl('/git/pull'), {});
-        this.toastController.show('Pulled branch');
         await this.finalizeGitAction({
           action: 'pull',
           result,
@@ -296,7 +292,6 @@ export const gitFeature = {
     try {
       await this.runGitActionWithStatus('Resetting file...', async () => {
         const result = await this.postGitAction(resolveApiUrl('/git/reset-file'), { path: filePath });
-        this.toastController.show(`Reset ${this.getDisplayName(filePath)}`);
         await this.finalizeGitAction({
           action: 'reset',
           filePath,
@@ -377,8 +372,6 @@ export const gitFeature = {
         const result = await this.postGitAction(resolveApiUrl('/git/commit'), {
           message,
         });
-        const shortHash = result.commit?.shortHash ? ` (${result.commit.shortHash})` : '';
-        this.toastController.show(`Committed staged changes${shortHash}`);
         await this.finalizeGitAction({
           action: 'commit',
           result,

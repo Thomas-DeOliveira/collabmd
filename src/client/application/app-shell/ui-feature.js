@@ -271,10 +271,6 @@ export const uiFeature = {
     this.connectionState = state;
     this.renderPresence();
 
-    if (state.firstConnection) {
-      this.toastController.show('Connected');
-    }
-
     if (state.unreachable && !this.connectionHelpShown) {
       this.connectionHelpShown = true;
       this.toastController.show(`Cannot reach server at ${state.wsBaseUrl}`, 6000);
@@ -353,7 +349,6 @@ export const uiFeature = {
     this.syncCurrentUserName();
     this.renderChat();
     dialog.close();
-    this.toastController.show(`Display name: ${normalizedName}`);
   },
 
   async copyCurrentLink() {
