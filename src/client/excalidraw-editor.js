@@ -4,7 +4,8 @@ import {
   CaptureUpdateAction,
   Excalidraw,
   reconcileElements,
-  restore,
+  restoreAppState,
+  restoreElements,
 } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 
@@ -295,10 +296,11 @@ function updateApiScene(scene, {
 } = {}) {
   const currentAppState = excalidrawAPI.getAppState();
   const currentElements = excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements();
-  const restoredScene = restore(scene, currentAppState, currentElements, {
+  const restoredElements = restoreElements(scene?.elements || [], currentElements, {
     repairBindings: true,
   });
-  const reconciledElements = reconcileElements(currentElements, restoredScene.elements, currentAppState);
+  const restoredAppState = restoreAppState(scene?.appState || {}, currentAppState);
+  const reconciledElements = reconcileElements(currentElements, restoredElements, currentAppState);
 
   suppressOnChange = true;
   if (trackedSharedSnapshot) {
@@ -309,10 +311,10 @@ function updateApiScene(scene, {
       elements: reconciledElements,
       appState: {
         theme: currentTheme,
-        viewBackgroundColor: restoredScene.appState.viewBackgroundColor ?? '#ffffff',
-        gridSize: restoredScene.appState.gridSize ?? null,
+        viewBackgroundColor: restoredAppState.viewBackgroundColor ?? '#ffffff',
+        gridSize: restoredAppState.gridSize ?? null,
       },
-      files: restoredScene.files || {},
+      files: scene?.files || {},
       captureUpdate,
     });
   } finally {
