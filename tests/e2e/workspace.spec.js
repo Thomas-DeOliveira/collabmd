@@ -13,7 +13,7 @@ import {
 test('shows empty state when no file is selected', async ({ page }) => {
   await openHome(page);
   await expect(page.locator('#emptyState')).toBeVisible();
-  await expect(page.locator('.empty-state-title')).toContainText('Select a file');
+  await expect(page.locator('.empty-state-title')).toContainText('Welcome to CollabMD');
 });
 
 test('prompts first-time visitors for a display name', async ({ browser }) => {
