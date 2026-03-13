@@ -2,8 +2,9 @@ export class LayoutController {
   constructor({ mobileBreakpointQuery = window.matchMedia('(max-width: 768px)'), onMeasureEditor }) {
     this.mobileBreakpointQuery = mobileBreakpointQuery;
     this.onMeasureEditor = onMeasureEditor;
-    this.currentView = 'split';
-    this.mobileShowsEditor = true;
+    this.preferredView = 'split';
+    this.mobileShowsEditor = !this.isMobileViewport();
+    this.currentView = this.mobileShowsEditor ? this.preferredView : 'preview';
     this.editorLayout = document.getElementById('editorLayout');
     this.editorPane = document.getElementById('editorPane');
     this.previewPane = document.getElementById('previewPane');
@@ -23,13 +24,11 @@ export class LayoutController {
 
     this.mobileToggleButton?.addEventListener('click', () => this.toggleMobileView());
     this.initializeResizer();
-    this.syncViewButtons();
+    this.restorePreferredView();
   }
 
   reset() {
-    this.mobileShowsEditor = !this.isMobileViewport();
-    this.updateMobileToggleButton(this.mobileShowsEditor ? 'Preview' : 'Editor');
-    this.setView(this.mobileShowsEditor ? 'split' : 'preview');
+    this.restorePreferredView();
 
     if (this.editorPane) {
       this.editorPane.style.flex = '';
@@ -42,10 +41,31 @@ export class LayoutController {
     this.updateResizerValue();
   }
 
-  setView(view) {
+  restorePreferredView() {
+    const nextView = this.isMobileViewport()
+      ? (this.mobileShowsEditor ? 'split' : 'preview')
+      : this.preferredView;
+
+    this.applyView(nextView);
+    this.updateMobileToggleButton(this.mobileShowsEditor ? 'Preview' : 'Editor');
+  }
+
+  applyView(view) {
     this.currentView = view;
     this.editorLayout?.setAttribute('data-view', view);
     this.syncViewButtons();
+  }
+
+  setView(view, { persist = true } = {}) {
+    if (!view) {
+      return;
+    }
+
+    if (persist) {
+      this.preferredView = view;
+    }
+
+    this.applyView(view);
 
     if (view === 'split' || view === 'editor') {
       this.scheduleEditorMeasure();
@@ -54,7 +74,7 @@ export class LayoutController {
 
   toggleMobileView() {
     this.mobileShowsEditor = !this.mobileShowsEditor;
-    this.editorLayout?.setAttribute('data-view', this.mobileShowsEditor ? 'split' : 'preview');
+    this.applyView(this.mobileShowsEditor ? 'split' : 'preview');
     this.updateMobileToggleButton(this.mobileShowsEditor ? 'Preview' : 'Editor');
 
     if (this.mobileShowsEditor) {

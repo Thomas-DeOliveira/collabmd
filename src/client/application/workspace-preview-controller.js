@@ -73,7 +73,7 @@ export class WorkspacePreviewController {
     this.elements.previewContent?.classList.toggle('is-plantuml-file-preview', isPlantUml);
 
     if (isExcalidraw) {
-      this.layoutController.setView('preview');
+      this.layoutController.setView('preview', { persist: false });
       this.outlineController.close();
       this.backlinksPanel.clear();
       return;

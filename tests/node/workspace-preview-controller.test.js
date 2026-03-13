@@ -22,7 +22,12 @@ function createController(overrides = {}) {
     isPlantUmlFile: (filePath) => filePath?.endsWith('.puml'),
     layoutController: { setView() {}, ...(overrides.layoutController || {}) },
     outlineController: { close() {}, scheduleActiveHeadingUpdate() {}, ...(overrides.outlineController || {}) },
-    previewRenderer: { setHydrationPaused() {}, ...(overrides.previewRenderer || {}) },
+    previewRenderer: {
+      scheduleActiveMermaidRefit() {},
+      scheduleActivePlantUmlRefit() {},
+      setHydrationPaused() {},
+      ...(overrides.previewRenderer || {}),
+    },
     schedulePreviewLayoutSync: () => {},
     scrollSyncController: { invalidatePreviewBlocks() {}, warmPreviewBlocks() {}, ...(overrides.scrollSyncController || {}) },
   });
@@ -87,6 +92,35 @@ test('WorkspacePreviewController pauses preview hydration during editor scroll a
   assert.deepEqual(events, [
     ['preview', true],
     ['embed', true],
+  ]);
+});
+
+test('WorkspacePreviewController forces Excalidraw files into preview without overwriting layout preference', () => {
+  const events = [];
+  const controller = createController({
+    layoutController: {
+      setView(view, options) {
+        events.push(['set-view', view, options]);
+      },
+    },
+    outlineController: {
+      close() {
+        events.push(['outline-close']);
+      },
+    },
+    backlinksPanel: {
+      clear() {
+        events.push(['backlinks-clear']);
+      },
+    },
+  });
+
+  controller.syncFileChrome('diagram.excalidraw');
+
+  assert.deepEqual(events, [
+    ['set-view', 'preview', { persist: false }],
+    ['outline-close'],
+    ['backlinks-clear'],
   ]);
 });
 
