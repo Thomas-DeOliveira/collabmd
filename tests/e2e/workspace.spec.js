@@ -61,6 +61,22 @@ test('escapes raw html in markdown preview', async ({ page }) => {
   await expect(page.locator('#previewContent')).toContainText('<script>window.__collabmdXss = true</script>');
 });
 
+test('video toolbar helper converts a selected video url into markdown embed syntax', async ({ page }) => {
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+
+  await page.locator('.cm-content').first().click();
+  await page.keyboard.press('Meta+A');
+  await page.locator('[data-markdown-action="video"]').click();
+
+  await expect(page.locator('.cm-content').first()).toContainText('![Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)');
+  await expect(page.locator('#previewContent .video-embed-iframe')).toBeVisible();
+  await expect(page.locator('#previewContent .video-embed-iframe')).toHaveAttribute(
+    'src',
+    'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
+  );
+});
+
 test('opens a file by clicking the sidebar', async ({ page }) => {
   await openHome(page);
   await expect(page.locator('#fileTree')).toBeVisible();

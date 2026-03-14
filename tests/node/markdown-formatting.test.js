@@ -36,6 +36,18 @@ test('creates an image markdown node from selected alt text and selects the URL 
   assert.deepEqual(result.selection, { anchor: 11, head: 19 });
 });
 
+test('creates a video markdown node with a template URL placeholder', () => {
+  const result = applyEdit('', { from: 0, to: 0 }, 'video');
+  assert.equal(result.nextText, '![Video](https://)');
+  assert.deepEqual(result.selection, { anchor: 2, head: 7 });
+});
+
+test('creates a video markdown node from a selected URL and selects the label placeholder', () => {
+  const result = applyEdit('https://www.youtube.com/watch?v=dQw4w9WgXcQ', { from: 0, to: 43 }, 'video');
+  assert.equal(result.nextText, '![Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)');
+  assert.deepEqual(result.selection, { anchor: 2, head: 7 });
+});
+
 test('toggles bullet list prefixes for a multiline selection', () => {
   const added = applyEdit('first\nsecond', { from: 0, to: 12 }, 'bullet-list');
   assert.equal(added.nextText, '- first\n- second');

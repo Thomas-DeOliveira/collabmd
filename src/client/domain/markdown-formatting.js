@@ -9,6 +9,8 @@ const LINK_LABEL_PLACEHOLDER = 'link text';
 const LINK_URL_PLACEHOLDER = 'https://';
 const IMAGE_ALT_PLACEHOLDER = 'alt text';
 const IMAGE_URL_PLACEHOLDER = 'https://';
+const VIDEO_LABEL_PLACEHOLDER = 'Video';
+const VIDEO_URL_PLACEHOLDER = 'https://';
 const CODE_BLOCK_PLACEHOLDER = 'code';
 const TABLE_HEADERS = Object.freeze(['Column 1', 'Column 2']);
 const TABLE_CELL_PLACEHOLDER = 'Value';
@@ -135,6 +137,39 @@ function formatImage(text, range) {
     from: range.from,
     head: range.from + 2 + IMAGE_ALT_PLACEHOLDER.length,
     insert: `![${IMAGE_ALT_PLACEHOLDER}](${IMAGE_URL_PLACEHOLDER})`,
+    to: range.to,
+  };
+}
+
+function formatVideo(text, range) {
+  const selected = text.slice(range.from, range.to);
+
+  if (selected.length > 0 && looksLikeUrl(selected)) {
+    return {
+      anchor: range.from + 2,
+      from: range.from,
+      head: range.from + 2 + VIDEO_LABEL_PLACEHOLDER.length,
+      insert: `![${VIDEO_LABEL_PLACEHOLDER}](${selected})`,
+      to: range.to,
+    };
+  }
+
+  if (selected.length > 0) {
+    const prefix = `![${selected}](`;
+    return {
+      anchor: range.from + prefix.length,
+      from: range.from,
+      head: range.from + prefix.length + VIDEO_URL_PLACEHOLDER.length,
+      insert: `${prefix}${VIDEO_URL_PLACEHOLDER})`,
+      to: range.to,
+    };
+  }
+
+  return {
+    anchor: range.from + 2,
+    from: range.from,
+    head: range.from + 2 + VIDEO_LABEL_PLACEHOLDER.length,
+    insert: `![${VIDEO_LABEL_PLACEHOLDER}](${VIDEO_URL_PLACEHOLDER})`,
     to: range.to,
   };
 }
@@ -311,6 +346,8 @@ export function createMarkdownToolbarEdit(documentText, selectionRange, action) 
       return formatLink(text, range);
     case 'image':
       return formatImage(text, range);
+    case 'video':
+      return formatVideo(text, range);
     case 'heading':
       return formatHeading(text, range);
     case 'quote':

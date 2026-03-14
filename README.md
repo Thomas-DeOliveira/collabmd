@@ -11,7 +11,7 @@ Browser collaboration for existing markdown folders, diagram files, and git-back
 </p>
 
 <p align="center">
-  No migration. Plain files stay on disk. Collaborators get live editing, source-anchored comments, chat, Mermaid, PlantUML, Excalidraw, and vault-style navigation in the browser.
+  No migration. Plain files stay on disk. Collaborators get live editing, source-anchored comments, chat, Markdown video embeds, Mermaid, PlantUML, Excalidraw, and vault-style navigation in the browser.
 </p>
 
 ## See it in action
@@ -28,7 +28,7 @@ Prefer video? [Open the WebM demo](./docs/assets/collabmd-demo.webm).
 - **Markdown with context** — live preview, wiki-links, backlinks, outline, quick switcher, and scroll sync
 - **Source-anchored comments** — comment on lines or selected text with inline markers, preview bubbles, and thread cards
 - **Collaboration built in** — collaborator presence, follow mode, and team chat
-- **Diagram-friendly** — Mermaid fences and standalone `.mmd` / `.mermaid`, PlantUML `.puml` / `.plantuml`, and `.excalidraw` support
+- **Diagram-friendly** — Mermaid fences and standalone `.mmd` / `.mermaid`, PlantUML `.puml` / `.plantuml`, `.excalidraw`, and public video embeds in Markdown
 - **Easy browser access** — optional Cloudflare Tunnel support makes a running session easy to share
 
 ## Best fit for
@@ -107,7 +107,7 @@ collabmd ~/my-vault --no-tunnel
 CollabMD starts a local server, scans the vault, and opens a browser-based editor with:
 
 - **File explorer sidebar** — browse, create, rename, and delete `.md`, `.mmd`, `.mermaid`, `.puml`, `.plantuml`, and `.excalidraw` files plus folders
-- **Live preview** — rendered as you type, with syntax-highlighted code blocks plus Mermaid and PlantUML diagrams
+- **Live preview** — rendered as you type, with syntax-highlighted code blocks, public video embeds, plus Mermaid and PlantUML diagrams
 - **Anchored comments** — add comments from the editor, open threads from inline markers or preview bubbles, and review them from the comments drawer
 - **`[[wiki-links]]` + backlinks** — jump between notes and inspect linked mentions
 - **Room chat** — discuss changes without leaving the workspace
@@ -116,6 +116,8 @@ CollabMD starts a local server, scans the vault, and opens a browser-based edito
 - **Standalone diagram files** — open `.mmd` / `.mermaid` or `.puml` / `.plantuml` files in side-by-side editor + preview, or `.excalidraw` files in direct preview mode
 
 Comment threads are source-anchored and currently supported for markdown, Mermaid, and PlantUML text files. You can comment on a whole line or a text selection, then reopen the thread from either the editor marker or the preview bubble. Excalidraw files are currently excluded from comments.
+
+Markdown video embeds are opt-in and use standard image syntax such as `![Video](https://www.youtube.com/watch?v=...)` or `![Video](https://cdn.example.com/demo.webm)`. The preview currently supports public YouTube URLs plus direct public `https` video files ending in `.mp4`, `.webm`, or `.ogg`. The editor toolbar also includes a `Video` action that inserts the same Markdown syntax for you.
 
 Your filesystem is the source of truth. CollabMD reads files from disk, uses Yjs for realtime collaboration, and writes plain text back to disk when the last editor disconnects.
 
