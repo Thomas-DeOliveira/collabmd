@@ -549,6 +549,54 @@ test('CollaborationRoom keeps the latest excalidraw state available while final 
   await Promise.resolve();
 });
 
+test('CollaborationRoom serializes overlapping persists for the same room', async () => {
+  let concurrentPersists = 0;
+  let maxConcurrentPersists = 0;
+  let persistCalls = 0;
+  let releaseFirstPersist = null;
+  const firstPersistStarted = new Promise((resolve) => {
+    releaseFirstPersist = resolve;
+  });
+
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'notes.md',
+    onEmpty: () => {},
+    vaultFileStore: {
+      async persistCollaborationState(path) {
+        assert.equal(path, 'notes.md');
+        persistCalls += 1;
+        concurrentPersists += 1;
+        maxConcurrentPersists = Math.max(maxConcurrentPersists, concurrentPersists);
+
+        if (persistCalls === 1) {
+          await firstPersistStarted;
+        }
+
+        concurrentPersists -= 1;
+        return { ok: true };
+      },
+      async readMarkdownFile() {
+        return '# persisted\n';
+      },
+    },
+  });
+
+  await room.hydrate();
+  room.doc.getText('codemirror').insert(0, 'next\n');
+
+  const firstPersistPromise = room.persist();
+  await Promise.resolve();
+  const secondPersistPromise = room.persist();
+  await Promise.resolve();
+
+  releaseFirstPersist();
+  await Promise.all([firstPersistPromise, secondPersistPromise]);
+
+  assert.equal(persistCalls, 2);
+  assert.equal(maxConcurrentPersists, 1);
+});
+
 test('CollaborationRoom does not persist malformed legacy excalidraw room text over a valid file', async () => {
   const writes = [];
   const room = new CollaborationRoom({

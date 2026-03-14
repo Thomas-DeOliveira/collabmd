@@ -116,11 +116,14 @@ export function createAppServer(config = loadConfig()) {
       return shutdownPromise;
     }
 
-    shutdownPromise = Promise.all([
-      collaborationGateway.close(),
-      closeHttpServer(httpServer),
-      config.git?.cleanup?.(),
-    ]).then(() => undefined);
+    shutdownPromise = (async () => {
+      await collaborationGateway.close();
+      await roomRegistry.reset();
+      await Promise.all([
+        closeHttpServer(httpServer),
+        config.git?.cleanup?.(),
+      ]);
+    })().then(() => undefined);
 
     return shutdownPromise;
   }

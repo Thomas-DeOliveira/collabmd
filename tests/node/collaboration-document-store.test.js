@@ -105,3 +105,40 @@ test('CollaborationDocumentStore rejects persistence when snapshot writes fail',
   assert.equal(calls.snapshots.length, 1);
   assert.equal(calls.backlinks.length, 0);
 });
+
+test('CollaborationDocumentStore prefers an atomic collaboration persist when the store provides one', async () => {
+  const calls = {
+    atomic: [],
+    backlinks: [],
+  };
+
+  const store = new CollaborationDocumentStore({
+    backlinkIndex: {
+      updateFile(path, content) {
+        calls.backlinks.push({ content, path });
+      },
+    },
+    name: 'notes.md',
+    vaultFileStore: {
+      async persistCollaborationState(path, state) {
+        calls.atomic.push({ path, state });
+        return { ok: true };
+      },
+    },
+  });
+
+  const snapshot = Uint8Array.from([4, 5, 6]);
+  const commentThreads = [{ id: 'thread-1' }];
+  await store.persistState({
+    commentThreads,
+    content: '# Atomic\n',
+    snapshot,
+  });
+
+  assert.equal(calls.atomic.length, 1);
+  assert.equal(calls.atomic[0].path, 'notes.md');
+  assert.equal(calls.atomic[0].state.content, '# Atomic\n');
+  assert.equal(calls.atomic[0].state.commentThreads, commentThreads);
+  assert.equal(calls.atomic[0].state.snapshot, snapshot);
+  assert.deepEqual(calls.backlinks, [{ content: '# Atomic\n', path: 'notes.md' }]);
+});

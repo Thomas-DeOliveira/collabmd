@@ -81,9 +81,18 @@ export class CollaborationDocumentStore {
       return;
     }
 
-    await this.writeContent(content);
-    await this.writeCommentThreads(commentThreads);
-    await this.writeSnapshot(snapshot);
+    if (typeof this.vaultFileStore.persistCollaborationState === 'function') {
+      const result = await this.vaultFileStore.persistCollaborationState(this.name, {
+        commentThreads,
+        content,
+        snapshot,
+      });
+      assertWriteSucceeded(result, 'persist collaboration state', this.name);
+    } else {
+      await this.writeContent(content);
+      await this.writeCommentThreads(commentThreads);
+      await this.writeSnapshot(snapshot);
+    }
 
     if (this.backlinkIndex && supportsBacklinksForFilePath(this.name)) {
       this.backlinkIndex.updateFile(this.name, content);

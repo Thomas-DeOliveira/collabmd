@@ -288,7 +288,13 @@ export class CollaborationRoom {
       return;
     }
 
+    const previousPersistPromise = this.activePersistPromise;
     const persistPromise = (async () => {
+      await previousPersistPromise?.catch(() => {});
+      if (!this.documentStore?.hasPersistence() || this.deleted) {
+        return;
+      }
+
       const content = this.getPersistedContent();
       if (content === null) {
         console.warn(`[room:${this.name}] Skipping persist because the Excalidraw scene is invalid`);

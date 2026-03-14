@@ -14,6 +14,34 @@ import {
 } from './path-utils.js';
 import { SidecarStore } from './sidecar-store.js';
 
+function createTransactionalPath(targetPath, label) {
+  return `${targetPath}.collabmd-${label}-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function createCommentThreadsPayload(threads = []) {
+  return `${JSON.stringify({
+    threads,
+    version: 1,
+  }, null, 2)}\n`;
+}
+
+async function pathExists(pathValue) {
+  try {
+    await stat(pathValue);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+async function cleanupPaths(paths = []) {
+  await Promise.allSettled(paths.filter(Boolean).map((pathValue) => rm(pathValue, { force: true })));
+}
+
 export class VaultFileStore {
   constructor({ vaultDir }) {
     this.vaultDir = resolve(vaultDir);
@@ -160,6 +188,106 @@ export class VaultFileStore {
 
   async writePlantUmlFile(filePath, content, options = {}) {
     return this.writeContentFile(filePath, content, 'plantuml', options);
+  }
+
+  async persistCollaborationState(filePath, {
+    commentThreads = [],
+    content = '',
+    snapshot = null,
+  } = {}) {
+    const resolved = this.resolveAdapter(filePath);
+    if (!resolved) {
+      return {
+        ok: false,
+        error: getVaultContentAdapter(filePath)?.invalidPathError ?? INVALID_VAULT_FILE_PATH_ERROR,
+      };
+    }
+
+    const operations = [
+      {
+        kind: Array.isArray(commentThreads) && commentThreads.length > 0 ? 'write' : 'delete',
+        targetPath: this.sidecarStore.getCommentThreadPath(filePath),
+        value: createCommentThreadsPayload(commentThreads),
+        writeOptions: 'utf-8',
+      },
+      {
+        kind: snapshot ? 'write' : 'delete',
+        targetPath: this.sidecarStore.getSnapshotPath(filePath),
+        value: snapshot ? Buffer.from(snapshot) : null,
+      },
+      {
+        kind: 'write',
+        targetPath: resolved.absolute,
+        value: content,
+        writeOptions: 'utf-8',
+      },
+    ].filter((operation) => operation.targetPath);
+
+    const stagedWrites = [];
+    const committedOperations = [];
+
+    try {
+      for (const operation of operations) {
+        if (operation.kind !== 'write') {
+          continue;
+        }
+
+        const tempPath = createTransactionalPath(operation.targetPath, 'tmp');
+        await mkdir(dirname(operation.targetPath), { recursive: true });
+        await writeFile(tempPath, operation.value, operation.writeOptions);
+        operation.tempPath = tempPath;
+        stagedWrites.push(tempPath);
+      }
+
+      for (const operation of operations) {
+        const hadExistingTarget = await pathExists(operation.targetPath);
+        const backupPath = hadExistingTarget
+          ? createTransactionalPath(operation.targetPath, 'bak')
+          : null;
+
+        if (backupPath) {
+          await rename(operation.targetPath, backupPath);
+        }
+
+        try {
+          if (operation.kind === 'write') {
+            await rename(operation.tempPath, operation.targetPath);
+            const stagedIndex = stagedWrites.indexOf(operation.tempPath);
+            if (stagedIndex >= 0) {
+              stagedWrites.splice(stagedIndex, 1);
+            }
+          }
+        } catch (error) {
+          if (backupPath) {
+            await rename(backupPath, operation.targetPath);
+          }
+          throw error;
+        }
+
+        committedOperations.push({
+          backupPath,
+          kind: operation.kind,
+          targetPath: operation.targetPath,
+        });
+      }
+
+      await cleanupPaths(committedOperations.map((operation) => operation.backupPath));
+      return { ok: true };
+    } catch (error) {
+      for (const operation of committedOperations.reverse()) {
+        if (operation.kind === 'write') {
+          await rm(operation.targetPath, { force: true });
+        }
+
+        if (operation.backupPath) {
+          await rename(operation.backupPath, operation.targetPath);
+        }
+      }
+
+      await cleanupPaths(stagedWrites);
+      await cleanupPaths(committedOperations.map((operation) => operation.backupPath));
+      return { ok: false, error: error.message };
+    }
   }
 
   async readCommentThreads(filePath) {

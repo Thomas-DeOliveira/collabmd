@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises';
+import { access, mkdtemp, mkdir, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -19,6 +19,15 @@ async function createVaultStore() {
     store: new VaultFileStore({ vaultDir }),
     vaultDir,
   };
+}
+
+async function pathExists(pathValue) {
+  try {
+    await access(pathValue);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 test('VaultFileStore reads file tree with directories and markdown files', async (t) => {
@@ -69,6 +78,94 @@ test('VaultFileStore can preserve the current collaboration snapshot during room
   const invalidatingWrite = await store.writeMarkdownFile('README.md', '# Updated via API\n');
   assert.equal(invalidatingWrite.ok, true);
   assert.equal(await store.readCollaborationSnapshot('README.md'), null);
+});
+
+test('VaultFileStore persists content, comments, and snapshot as one staged collaboration update', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  const threads = [{
+    anchorEnd: { assoc: 0, type: null },
+    anchorEndLine: 1,
+    anchorKind: 'line',
+    anchorQuote: '# Updated atomically',
+    anchorStart: { assoc: 0, type: null },
+    anchorStartLine: 1,
+    createdAt: 1,
+    createdByColor: '#0f172a',
+    createdByName: 'Reviewer',
+    createdByPeerId: 'peer-1',
+    id: 'thread-atomic',
+    messages: [{
+      body: 'Atomic persist keeps metadata aligned.',
+      createdAt: 1,
+      id: 'message-atomic',
+      peerId: 'peer-1',
+      userColor: '#0f172a',
+      userName: 'Reviewer',
+    }],
+    resolvedAt: null,
+    resolvedByColor: '',
+    resolvedByName: '',
+    resolvedByPeerId: '',
+  }];
+  const snapshot = Uint8Array.from([9, 8, 7, 6]);
+
+  const result = await store.persistCollaborationState('README.md', {
+    commentThreads: threads,
+    content: '# Updated atomically\n',
+    snapshot,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(await store.readMarkdownFile('README.md'), '# Updated atomically\n');
+  assert.deepEqual(await store.readCommentThreads('README.md'), threads);
+  assert.deepEqual(Array.from(await store.readCollaborationSnapshot('README.md') ?? []), Array.from(snapshot));
+});
+
+test('VaultFileStore leaves live content untouched when staged collaboration snapshot preparation fails', async (t) => {
+  const { store, cleanup, vaultDir } = await createVaultStore();
+  t.after(cleanup);
+
+  await mkdir(join(vaultDir, '.collabmd'), { recursive: true });
+  await writeFile(join(vaultDir, '.collabmd', 'yjs'), 'blocked', 'utf-8');
+
+  const result = await store.persistCollaborationState('README.md', {
+    commentThreads: [{
+      anchorEnd: { assoc: 0, type: null },
+      anchorEndLine: 1,
+      anchorKind: 'line',
+      anchorQuote: '# Broken update',
+      anchorStart: { assoc: 0, type: null },
+      anchorStartLine: 1,
+      createdAt: 1,
+      createdByColor: '#ef4444',
+      createdByName: 'Reviewer',
+      createdByPeerId: 'peer-2',
+      id: 'thread-failed',
+      messages: [{
+        body: 'This should not commit partially.',
+        createdAt: 1,
+        id: 'message-failed',
+        peerId: 'peer-2',
+        userColor: '#ef4444',
+        userName: 'Reviewer',
+      }],
+      resolvedAt: null,
+      resolvedByColor: '',
+      resolvedByName: '',
+      resolvedByPeerId: '',
+    }],
+    content: '# Broken update\n',
+    snapshot: Uint8Array.from([1, 2, 3]),
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /not a directory|EEXIST|ENOTDIR/i);
+  assert.equal(await store.readMarkdownFile('README.md'), '# Readme\n');
+  assert.deepEqual(await store.readCommentThreads('README.md'), []);
+  assert.equal(await pathExists(join(vaultDir, '.collabmd/comments/README.md.json')), false);
+  assert.equal(await pathExists(join(vaultDir, '.collabmd/yjs/README.md.bin')), false);
 });
 
 test('VaultFileStore persists hidden comment sidecars alongside vault files', async (t) => {
