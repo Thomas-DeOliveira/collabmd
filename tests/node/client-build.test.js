@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 test('client build emits the preview worker and main bundle references the emitted path', async () => {
-  const workerOutputPath = resolve(rootDir, 'public/assets/js/application/preview-render-worker.js');
+  const workerOutputPath = resolve(rootDir, 'public/assets/js/preview-render-worker.js');
   const mainBundlePath = resolve(rootDir, 'public/assets/js/main.js');
 
   await access(workerOutputPath, fsConstants.R_OK);
@@ -16,7 +16,7 @@ test('client build emits the preview worker and main bundle references the emitt
   const mainBundle = await readFile(mainBundlePath, 'utf8');
   assert.match(
     mainBundle,
-    /new URL\("\.\/(?:application\/)?preview-render-worker\.js",import\.meta\.url\)/,
+    /new URL\("\.\/preview-render-worker\.js",import\.meta\.url\)/,
   );
 });
 

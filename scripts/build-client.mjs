@@ -21,7 +21,7 @@ const clientAppEntrySource = resolve(clientSourceDir, 'main.js');
 const excalidrawEditorEntrySource = resolve(clientSourceDir, 'excalidraw-editor.js');
 const excalidrawMermaidStubSource = resolve(clientSourceDir, 'excalidraw-mermaid-stub.js');
 const previewWorkerSource = resolve(clientSourceDir, 'application/preview-render-worker.js');
-const previewWorkerOutput = resolve(clientOutputDir, 'application/preview-render-worker.js');
+const previewWorkerOutput = resolve(clientOutputDir, 'preview-render-worker.js');
 const excalidrawLoaderOutput = resolve(clientOutputDir, 'excalidraw-editor.js');
 const excalidrawCssLoaderOutput = resolve(clientOutputDir, 'excalidraw-editor.css');
 const styleAssetFiles = ['base.css', 'style.css'];
@@ -69,7 +69,7 @@ async function copyHighlightThemeFiles() {
 }
 
 async function bundlePreviewWorker() {
-  await mkdir(resolve(clientOutputDir, 'application'), { recursive: true });
+  await mkdir(clientOutputDir, { recursive: true });
   await build({
     absWorkingDir: buildWorkingDir,
     alias: {
