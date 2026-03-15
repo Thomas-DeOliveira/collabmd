@@ -3,6 +3,14 @@
   "version": "0.1.17",
   "type": "module",
   "description": "Collaborative markdown vault — like Obsidian, but online. Serve any directory of markdown files for realtime collaborative editing.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andes90/collabmd.git"
+  },
+  "homepage": "https://github.com/andes90/collabmd#readme",
+  "bugs": {
+    "url": "https://github.com/andes90/collabmd/issues"
+  },
   "files": [
     "README.md",
     "bin/",
@@ -17,6 +25,7 @@
     "collabmd": "./bin/collabmd.js"
   },
   "scripts": {
+    "prepack": "npm run build",
     "build": "node scripts/build-client.mjs",
     "capture:readme-assets": "node scripts/capture-readme-assets.mjs",
     "check": "npm run build && npm run lint && npm run test:guardrails && npm run test:unit",

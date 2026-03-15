@@ -1,0 +1,19 @@
+# Development and test files
+.git/
+.github/
+.vscode/
+.idea/
+tests/
+test-vault/
+test-results/
+playwright-report/
+scripts/
+
+# Source code that is already built into public/assets/
+data/
+vault/
+.tmp/
+.codex/
+.env
+.env.*
+coverage/
