@@ -3,7 +3,7 @@
 Browser collaboration for existing markdown folders, diagram files, and git-backed docs.
 
 <p align="center">
-  <img src="./docs/assets/collabmd-hero.png" alt="CollabMD showing a file tree, markdown editor, live preview, and collaborator presence." width="100%">
+  <img src="https://raw.githubusercontent.com/andes90/collabmd/master/docs/assets/collabmd-hero.png" alt="CollabMD showing a file tree, markdown editor, live preview, and collaborator presence." width="100%">
 </p>
 
 <p align="center">
@@ -16,9 +16,9 @@ Browser collaboration for existing markdown folders, diagram files, and git-back
 
 ## See it in action
 
-![CollabMD live demo](./docs/assets/collabmd-demo.gif)
+![CollabMD live demo](https://raw.githubusercontent.com/andes90/collabmd/master/docs/assets/collabmd-demo.gif)
 
-Prefer video? [Open the WebM demo](./docs/assets/collabmd-demo.webm).
+Prefer video? [Open the WebM demo](https://raw.githubusercontent.com/andes90/collabmd/master/docs/assets/collabmd-demo.webm).
 
 ## Why teams use CollabMD
 
@@ -42,9 +42,11 @@ Prefer video? [Open the WebM demo](./docs/assets/collabmd-demo.webm).
 
 ## Quick start
 
+*(Note: Throughout this guide, we use the term **vault** to simply mean any standard folder on your computer that contains markdown files.)*
+
 ### Requirements
 
-- macOS or Linux
+- macOS, Linux, or Windows (via WSL2)
 - Node.js 24 if installing from source
 
 ### Install with Homebrew
@@ -60,6 +62,16 @@ Or in a single command:
 ```bash
 brew install andes90/tap/collabmd
 collabmd ~/my-vault --no-tunnel
+```
+
+Open `http://localhost:1234`.
+
+### Run via npx (Node.js)
+
+If you have Node.js installed, you can run CollabMD directly without installing it globally:
+
+```bash
+npx collabmd@latest ~/my-vault --no-tunnel
 ```
 
 Open `http://localhost:1234`.
@@ -97,6 +109,13 @@ If `cloudflared` is installed, CollabMD starts a quick tunnel by default unless 
 - `--auth password` protects `/api/*` and `/ws/*` with a host password and signed session cookie
 - If `cloudflared` is installed, CollabMD may expose the app through a Cloudflare Quick Tunnel unless you pass `--no-tunnel`
 - `oidc` is reserved for a future implementation and is not usable yet
+
+## Current limitations
+
+- Single-instance deployment only: collaboration room state is kept in-process and is not shared across replicas
+- `oidc` auth is reserved for a future implementation and is not usable yet
+- Source-anchored comments currently support markdown, Mermaid, and PlantUML text files, but not `.excalidraw`
+- Windows use is supported via WSL2 rather than native Windows execution
 
 ## How it works
 
@@ -196,6 +215,8 @@ TUNNEL_TARGET_URL=http://127.0.0.1:4000 collabmd
 CLOUDFLARED_EXTRA_ARGS="--loglevel info" collabmd
 ```
 
+For the full runtime env var reference, see the `Environment variables` details block in the Development section below.
+
 ## Docker / Coolify deployment
 
 ```bash
@@ -218,7 +239,7 @@ docker run \
   collabmd
 ```
 
-For a full local and Docker test walkthrough, including key generation and deploy-key setup, see [docs/private-git-deployment.md](./docs/private-git-deployment.md).
+For a full local and Docker test walkthrough, including key generation and deploy-key setup, see [docs/private-git-deployment.md](https://github.com/andes90/collabmd/blob/master/docs/private-git-deployment.md).
 
 When `COLLABMD_GIT_REPO_URL` is set, CollabMD clones into `COLLABMD_VAULT_DIR` on first boot, then reuses that checkout on later starts. If the checkout already exists, startup validates that `origin` matches. Clean checkouts are fast-forwarded to the remote default branch; dirty checkouts are reused as-is and startup skips the sync.
 
@@ -301,6 +322,16 @@ Recommended Coolify setup:
 For a standard Coolify reverse-proxy setup, the default same-origin WebSocket routing works as-is and you should not need `PUBLIC_WS_BASE_URL`.
 
 Health check: `GET /health`
+
+## Troubleshooting
+
+- `npx collabmd@latest` fails immediately: confirm you are running Node.js 24, which is the supported runtime for source and npm usage
+- The app is reachable only from localhost: pass `--host 0.0.0.0` or set `HOST=0.0.0.0` when you intend to expose it on your network
+- Port `1234` is already in use: pass `--port 3000` or set `PORT` to another free port
+- Tunnel did not start: install `cloudflared`, or pass `--no-tunnel` to stay local-only
+- `--local-plantuml` fails: make sure Docker is installed and running, or point `PLANTUML_SERVER_URL` at another PlantUML server
+- Private git bootstrap fails on startup: verify `COLLABMD_GIT_REPO_URL` plus either `COLLABMD_GIT_SSH_PRIVATE_KEY_FILE` or `COLLABMD_GIT_SSH_PRIVATE_KEY_B64`
+- WSL2 path issues: run CollabMD against a directory inside your Linux filesystem when possible rather than a mounted Windows path
 
 ## Development
 
