@@ -1069,8 +1069,8 @@ export class CommentUiController {
     root.appendChild(card);
     this.updateReactionPickerPosition(card);
     this.positionCard(card);
-    this.flushPendingCardFocus();
     root.style.visibility = '';
+    this.flushPendingCardFocus();
     this.scheduleLayoutRefresh();
   }
 
