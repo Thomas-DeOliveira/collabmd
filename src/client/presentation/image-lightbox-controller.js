@@ -64,8 +64,6 @@ export class ImageLightboxController {
     this.dragOriginX = 0;
     this.dragOriginY = 0;
     this.didDrag = false;
-    this.zoomInButton = null;
-    this.zoomOutButton = null;
     this.resetButton = null;
 
     this.handlePreviewClick = (event) => {
@@ -142,8 +140,6 @@ export class ImageLightboxController {
     this.imageElement = null;
     this.zoomLabel = null;
     this.titleElement = null;
-    this.zoomInButton = null;
-    this.zoomOutButton = null;
     this.resetButton = null;
   }
 
@@ -227,12 +223,6 @@ export class ImageLightboxController {
     if (this.zoomLabel) {
       this.zoomLabel.textContent = `${Math.round(this.scale * 100)}%`;
     }
-    if (this.zoomOutButton) {
-      this.zoomOutButton.disabled = this.scale <= MIN_SCALE;
-    }
-    if (this.zoomInButton) {
-      this.zoomInButton.disabled = this.scale >= MAX_SCALE;
-    }
     if (this.resetButton) {
       this.resetButton.disabled = this.scale <= MIN_SCALE && this.offsetX === 0 && this.offsetY === 0;
     }
@@ -268,7 +258,7 @@ export class ImageLightboxController {
     shell.addEventListener('pointerdown', (event) => event.stopPropagation());
 
     const toolbar = this.document.createElement('div');
-    toolbar.className = 'image-lightbox-toolbar diagram-preview-toolbar';
+    toolbar.className = 'image-lightbox-toolbar';
 
     const title = this.document.createElement('div');
     title.className = 'image-lightbox-title';
@@ -277,19 +267,13 @@ export class ImageLightboxController {
     const controls = this.document.createElement('div');
     controls.className = 'image-lightbox-controls';
 
-    const zoomOutButton = this.createControlButton('-', 'Zoom out', () => this.zoomBy(-ZOOM_STEP), {
-      className: 'is-icon-only',
-    });
     const zoomLabel = this.document.createElement('span');
-    zoomLabel.className = 'image-lightbox-zoom-label diagram-preview-zoom-label';
+    zoomLabel.className = 'image-lightbox-zoom-label';
     zoomLabel.textContent = '100%';
-    const zoomInButton = this.createControlButton('+', 'Zoom in', () => this.zoomBy(ZOOM_STEP), {
-      className: 'is-icon-only',
-    });
     const resetButton = this.createControlButton('Reset', 'Reset zoom and position', () => this.resetView());
     const closeButton = this.createControlButton('Close', 'Close image preview', () => this.close());
 
-    controls.append(zoomOutButton, zoomLabel, zoomInButton, resetButton, closeButton);
+    controls.append(zoomLabel, resetButton, closeButton);
     toolbar.append(title, controls);
 
     const viewport = this.document.createElement('div');
@@ -387,8 +371,6 @@ export class ImageLightboxController {
     this.imageElement = image;
     this.zoomLabel = zoomLabel;
     this.titleElement = title;
-    this.zoomOutButton = zoomOutButton;
-    this.zoomInButton = zoomInButton;
     this.resetButton = resetButton;
     this.syncTransform();
     return overlayRoot;
@@ -398,7 +380,7 @@ export class ImageLightboxController {
     className = '',
   } = {}) {
     const button = this.document.createElement('button');
-    button.className = `image-lightbox-btn diagram-preview-action-btn ${className}`.trim();
+    button.className = `image-lightbox-btn ${className}`.trim();
     button.type = 'button';
     button.setAttribute('aria-label', ariaLabel);
     button.textContent = label;

@@ -106,7 +106,7 @@ test('image toolbar uploads a vault attachment and inserts inline markdown', asy
   );
 });
 
-test('image lightbox supports click zoom, reset, close, and shared preview controls', async ({ page }) => {
+test('image lightbox uses a fullscreen stage with click zoom, reset, and close', async ({ page }) => {
   await openFile(page, 'README.md');
 
   const fileChooserPromise = page.waitForEvent('filechooser');
@@ -123,9 +123,7 @@ test('image lightbox supports click zoom, reset, close, and shared preview contr
 
   await previewImage.click();
   await expect(page.locator('.image-lightbox-root')).toBeVisible();
-  await expect(page.locator('.image-lightbox-toolbar')).toHaveClass(/diagram-preview-toolbar/);
-  await expect(page.locator('.image-lightbox-btn').first()).toHaveClass(/diagram-preview-action-btn/);
-  await expect(page.locator('.image-lightbox-btn[aria-label="Zoom in"]')).toHaveClass(/is-icon-only/);
+  await expect(page.locator('.image-lightbox-toolbar')).toBeVisible();
 
   const lightboxImage = page.locator('.image-lightbox-image');
   const zoomLabel = page.locator('.image-lightbox-zoom-label');
@@ -136,9 +134,6 @@ test('image lightbox supports click zoom, reset, close, and shared preview contr
 
   await page.locator('.image-lightbox-controls').getByText('Reset', { exact: true }).click();
   await expect(zoomLabel).toHaveText('100%');
-
-  await page.locator('.image-lightbox-btn[aria-label="Zoom in"]').click();
-  await expect(zoomLabel).toHaveText('125%');
 
   await page.locator('.image-lightbox-controls').getByText('Close', { exact: true }).click();
   await expect(page.locator('.image-lightbox-root')).toBeHidden();
