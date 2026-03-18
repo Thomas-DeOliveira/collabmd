@@ -48,20 +48,31 @@ export function createAppServer(config = loadConfig()) {
     enabled: config.gitEnabled,
     vaultDir: config.vaultDir,
   });
+  let workspaceMutationCoordinator = null;
   const roomRegistry = new RoomRegistry({
-    createRoom: ({ name, onEmpty }) => new CollaborationRoom({
-      documentStore: new CollaborationDocumentStore({
-        backlinkIndex: name === '__lobby__' || name === WORKSPACE_ROOM_NAME ? null : backlinkIndex,
+    createRoom: ({ name, onEmpty }) => {
+      const room = new CollaborationRoom({
+        documentStore: new CollaborationDocumentStore({
+          backlinkIndex: name === '__lobby__' || name === WORKSPACE_ROOM_NAME ? null : backlinkIndex,
+          name,
+          vaultFileStore: name === '__lobby__' || name === WORKSPACE_ROOM_NAME ? null : vaultFileStore,
+        }),
+        idleGraceMs: config.wsRoomIdleGraceMs,
+        maxBufferedAmountBytes: config.wsMaxBufferedAmountBytes,
         name,
-        vaultFileStore: name === '__lobby__' || name === WORKSPACE_ROOM_NAME ? null : vaultFileStore,
-      }),
-      idleGraceMs: config.wsRoomIdleGraceMs,
-      maxBufferedAmountBytes: config.wsMaxBufferedAmountBytes,
-      name,
-      onEmpty,
-    }),
+        onEmpty,
+      });
+
+      if (name === WORKSPACE_ROOM_NAME && workspaceMutationCoordinator?.workspaceState) {
+        room.replaceWorkspaceEntries(workspaceMutationCoordinator.workspaceState.entries, {
+          generatedAt: workspaceMutationCoordinator.workspaceState.scannedAt,
+        });
+      }
+
+      return room;
+    },
   });
-  const workspaceMutationCoordinator = new WorkspaceMutationCoordinator({
+  workspaceMutationCoordinator = new WorkspaceMutationCoordinator({
     backlinkIndex,
     roomRegistry,
     vaultFileStore,
@@ -80,6 +91,7 @@ export function createAppServer(config = loadConfig()) {
     plantUmlRenderer,
     gitService,
     workspaceMutationCoordinator,
+    fileSystemSyncService,
   );
   const httpServer = createServer((req, res) => {
     requestHandler(req, res).catch((error) => {

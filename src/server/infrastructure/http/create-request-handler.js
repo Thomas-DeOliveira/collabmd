@@ -43,6 +43,7 @@ export function createRequestHandler(
   plantUmlRenderer = null,
   gitService = null,
   workspaceMutationCoordinator = null,
+  fileSystemSyncService = null,
 ) {
   const handleEsmProxy = createEsmProxyHandler();
   const handleStaticRequest = createStaticHandler(config, authService);
@@ -106,8 +107,11 @@ export function createRequestHandler(
     }
 
     if (config.nodeEnv === 'test' && requestUrl.pathname === '/api/test/reset-state' && req.method === 'POST') {
+      await fileSystemSyncService?.resetForExternalStateChange?.();
       await roomRegistry?.reset?.();
       await backlinkIndex?.build?.();
+      await workspaceMutationCoordinator?.initialize?.();
+      await fileSystemSyncService?.resetForExternalStateChange?.();
       jsonResponse(req, res, 200, { ok: true });
       return;
     }
