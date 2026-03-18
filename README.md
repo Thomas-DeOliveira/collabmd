@@ -3,7 +3,7 @@
 Realtime collaboration for Markdown folders, diagrams, and git-backed docs, without migrating your files.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/andes90/collabmd/master/docs/assets/collabmd-hero.png" alt="CollabMD showing a file tree, markdown editor, live preview, and collaborator presence." width="100%">
+  <img src="https://raw.githubusercontent.com/andes90/collabmd/master/docs/assets/collabmd-hero.webp" alt="CollabMD showing a file tree, markdown editor, live preview, and collaborator presence." width="100%">
 </p>
 
 <p align="center">

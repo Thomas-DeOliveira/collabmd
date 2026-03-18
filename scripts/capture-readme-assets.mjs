@@ -15,7 +15,7 @@ const tempVideoDir = resolve(tempCaptureDir, 'video');
 const HOST = '127.0.0.1';
 const PORT = 4173;
 const BASE_URL = `http://${HOST}:${PORT}`;
-const HERO_PATH = resolve(docsAssetsDir, 'collabmd-hero.png');
+const HERO_PATH = resolve(docsAssetsDir, 'collabmd-hero.webp');
 const DEMO_WEBM_PATH = resolve(docsAssetsDir, 'collabmd-demo.webm');
 const DEMO_GIF_PATH = resolve(docsAssetsDir, 'collabmd-demo.gif');
 
