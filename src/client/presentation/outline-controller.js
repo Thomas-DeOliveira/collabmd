@@ -2,6 +2,7 @@ export class OutlineController {
   constructor({
     mobileBreakpointQuery = window.matchMedia('(max-width: 768px)'),
     onNavigateToHeading,
+    onWillOpen,
   } = {}) {
     this.outlineOpen = false;
     this.activeHeadingFrame = null;
@@ -9,16 +10,36 @@ export class OutlineController {
     this.headings = [];
     this.pinnedHeadingId = null;
     this.onNavigateToHeading = onNavigateToHeading;
+    this.onWillOpen = onWillOpen;
     this.panel = document.getElementById('outlinePanel');
     this.navigation = document.getElementById('outlineNav');
     this.previewContainer = document.getElementById('previewContainer');
     this.toggleButton = document.getElementById('outlineToggle');
     this.mobileBreakpointQuery = mobileBreakpointQuery;
     this.handlePreviewScroll = () => this.scheduleActiveHeadingUpdate();
+    this.handleDocumentPointerDown = (event) => {
+      if (!this.outlineOpen) {
+        return;
+      }
+
+      const target = event.target;
+      if (
+        target instanceof Node
+        && (
+          this.panel?.contains(target)
+          || this.toggleButton?.contains(target)
+        )
+      ) {
+        return;
+      }
+
+      this.close();
+    };
   }
 
   initialize() {
     this.toggleButton?.addEventListener('click', () => this.toggle());
+    document.addEventListener('pointerdown', this.handleDocumentPointerDown);
   }
 
   toggle() {
@@ -30,6 +51,10 @@ export class OutlineController {
   }
 
   setOpenState(nextState) {
+    if (nextState && !this.outlineOpen) {
+      this.onWillOpen?.();
+    }
+
     this.outlineOpen = nextState;
     this.panel?.classList.toggle('hidden', !this.outlineOpen);
     this.toggleButton?.classList.toggle('active', this.outlineOpen);

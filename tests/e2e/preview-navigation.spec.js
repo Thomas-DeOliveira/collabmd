@@ -125,6 +125,40 @@ test('keeps the outline open on desktop after selecting a section', async ({ pag
   await expect(page.locator('#outlinePanel')).toBeVisible();
 });
 
+test('keeps the preview container width stable when the outline opens in preview mode', async ({ page }) => {
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, OUTLINE_TEST_DOCUMENT);
+  await expect(page.locator('#previewContent')).toContainText('My Vault');
+
+  await page.locator('.view-btn[data-view="preview"]').click();
+  await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
+
+  const widthBefore = await page.locator('#previewContainer').evaluate((element) => element.clientWidth);
+
+  await page.locator('#outlineToggle').click();
+  await expect(page.locator('#outlinePanel')).toBeVisible();
+
+  const widthAfter = await page.locator('#previewContainer').evaluate((element) => element.clientWidth);
+
+  expect(Math.abs(widthAfter - widthBefore)).toBeLessThanOrEqual(1);
+});
+
+test('keeps the preview container width stable when the outline opens in split mode', async ({ page }) => {
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, OUTLINE_TEST_DOCUMENT);
+  await expect(page.locator('#previewContent')).toContainText('My Vault');
+  await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'split');
+
+  const widthBefore = await page.locator('#previewContainer').evaluate((element) => element.clientWidth);
+
+  await page.locator('#outlineToggle').click();
+  await expect(page.locator('#outlinePanel')).toBeVisible();
+
+  const widthAfter = await page.locator('#previewContainer').evaluate((element) => element.clientWidth);
+
+  expect(Math.abs(widthAfter - widthBefore)).toBeLessThanOrEqual(1);
+});
+
 test('keeps the editor interactive before heavy preview reaches ready', async ({ page }) => {
   test.slow();
 

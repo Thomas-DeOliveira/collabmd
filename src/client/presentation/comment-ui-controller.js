@@ -279,6 +279,7 @@ export class CommentUiController {
     commentsDrawerList,
     commentsToggleButton,
     editorContainer,
+    onWillOpenDrawer,
     onCreateThread,
     onNavigateToLine,
     onReplyToThread,
@@ -293,6 +294,7 @@ export class CommentUiController {
     this.commentsDrawerList = commentsDrawerList;
     this.commentsToggleButton = commentsToggleButton;
     this.editorContainer = editorContainer;
+    this.onWillOpenDrawer = onWillOpenDrawer;
     this.onCreateThread = onCreateThread;
     this.onNavigateToLine = onNavigateToLine;
     this.onReplyToThread = onReplyToThread;
@@ -384,13 +386,30 @@ export class CommentUiController {
       this.scheduleLayoutRefresh();
     };
     this.handleDocumentPointerDown = (event) => {
-      if (!this.activeCard || !this.cardRoot) {
+      const target = event.target;
+
+      if (this.activeCard && this.cardRoot) {
+        if (this.cardRoot.contains(target)) {
+          return;
+        }
+        this.closeCard();
+      }
+
+      if (!this.drawerOpen) {
         return;
       }
-      if (this.cardRoot.contains(event.target)) {
+
+      if (
+        target instanceof Node
+        && (
+          this.commentsDrawer?.contains(target)
+          || this.commentsToggleButton?.contains(target)
+        )
+      ) {
         return;
       }
-      this.closeCard();
+
+      this.closeDrawer();
     };
     this.handleDocumentKeyDown = (event) => {
       if (event.key === 'Escape' && this.reactionPicker) {
@@ -414,8 +433,7 @@ export class CommentUiController {
       this.openComposerForSelection('toolbar');
     });
     this.commentsToggleButton?.addEventListener('click', () => {
-      this.drawerOpen = !this.drawerOpen;
-      this.render();
+      this.setDrawerOpen(!this.drawerOpen);
     });
     this.previewContainer?.addEventListener('scroll', this.handlePreviewScroll, { passive: true });
     this.editorContainer?.addEventListener('pointerdown', this.handleEditorPointerDown);
@@ -567,6 +585,24 @@ export class CommentUiController {
       this.reactionPicker = null;
     }
     this.render();
+  }
+
+  setDrawerOpen(nextState) {
+    const normalizedState = Boolean(nextState);
+    if (normalizedState === this.drawerOpen) {
+      return;
+    }
+
+    if (normalizedState) {
+      this.onWillOpenDrawer?.();
+    }
+
+    this.drawerOpen = normalizedState;
+    this.render();
+  }
+
+  closeDrawer() {
+    this.setDrawerOpen(false);
   }
 
   refreshLayout() {

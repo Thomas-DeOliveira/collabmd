@@ -872,7 +872,8 @@ test('creates and syncs a line comment across collaborators', async ({ browser }
 
   await pageB.locator('#commentsToggle').click();
   await expect(pageB.locator('#commentsDrawer')).toBeVisible();
-  await pageB.locator('#previewContent .comment-preview-badge').click();
+  await expect(pageB.locator('.comments-drawer-item')).toHaveCount(1);
+  await pageB.locator('.comments-drawer-item').first().click();
   await expect(pageB.locator('.comment-card')).toContainText('Please tighten this intro.');
 
   await pageA.close();
@@ -988,6 +989,96 @@ test('shows wrapped excerpts and the latest comment preview in the comments draw
   await expect.poll(async () => (
     page.locator('.comments-drawer-item-quote').evaluate((element) => getComputedStyle(element).whiteSpace)
   )).toBe('pre-wrap');
+});
+
+test('keeps the preview container width stable when comments open in preview mode', async ({ page }) => {
+  await clearReadmeCollaborationSidecars();
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, README_TEST_DOCUMENT);
+
+  await createComment(page, {
+    body: 'Keep this sidebar floating.',
+    targetText: 'Welcome to the test vault. This is the top-level readme.',
+  });
+  await expect(page.locator('#commentsToggle')).toContainText('1');
+
+  await page.locator('.view-btn[data-view="preview"]').click();
+  await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
+
+  const widthBefore = await page.locator('#previewContainer').evaluate((element) => element.clientWidth);
+
+  await page.locator('#commentsToggle').click();
+  await expect(page.locator('#commentsDrawer')).toBeVisible();
+
+  const widthAfter = await page.locator('#previewContainer').evaluate((element) => element.clientWidth);
+
+  expect(Math.abs(widthAfter - widthBefore)).toBeLessThanOrEqual(1);
+});
+
+test('keeps the preview container width stable when comments open in split mode', async ({ page }) => {
+  await clearReadmeCollaborationSidecars();
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, README_TEST_DOCUMENT);
+
+  await createComment(page, {
+    body: 'Keep this sidebar floating in split mode.',
+    targetText: 'Welcome to the test vault. This is the top-level readme.',
+  });
+  await expect(page.locator('#commentsToggle')).toContainText('1');
+  await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'split');
+
+  const widthBefore = await page.locator('#previewContainer').evaluate((element) => element.clientWidth);
+
+  await page.locator('#commentsToggle').click();
+  await expect(page.locator('#commentsDrawer')).toBeVisible();
+
+  const widthAfter = await page.locator('#previewContainer').evaluate((element) => element.clientWidth);
+
+  expect(Math.abs(widthAfter - widthBefore)).toBeLessThanOrEqual(1);
+});
+
+test('shows only one preview overlay at a time', async ({ page }) => {
+  await clearReadmeCollaborationSidecars();
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, README_TEST_DOCUMENT);
+
+  await createComment(page, {
+    body: 'Mutually exclusive overlay.',
+    targetText: 'Welcome to the test vault. This is the top-level readme.',
+  });
+
+  await page.locator('#commentsToggle').click();
+  await expect(page.locator('#commentsDrawer')).toBeVisible();
+  await expect(page.locator('#outlinePanel')).toBeHidden();
+
+  await page.locator('#outlineToggle').click();
+  await expect(page.locator('#outlinePanel')).toBeVisible();
+  await expect(page.locator('#commentsDrawer')).toBeHidden();
+
+  await page.locator('#commentsToggle').click();
+  await expect(page.locator('#commentsDrawer')).toBeVisible();
+  await expect(page.locator('#outlinePanel')).toBeHidden();
+});
+
+test('closes preview overlays when clicking the editor pane', async ({ page }) => {
+  await clearReadmeCollaborationSidecars();
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, README_TEST_DOCUMENT);
+
+  await createComment(page, {
+    body: 'Dismiss on outside click.',
+    targetText: 'Welcome to the test vault. This is the top-level readme.',
+  });
+
+  await page.locator('#commentsToggle').click();
+  await expect(page.locator('#commentsDrawer')).toBeVisible();
+  await page.locator('.cm-content').first().click();
+  await expect(page.locator('#commentsDrawer')).toBeHidden();
+
+  await page.locator('#outlineToggle').click();
+  await expect(page.locator('#outlinePanel')).toBeVisible();
+  await page.locator('.cm-content').first().click();
+  await expect(page.locator('#outlinePanel')).toBeHidden();
 });
 
 test('keeps the refreshed comment card within a narrow viewport', async ({ page }) => {

@@ -2265,6 +2265,9 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
 
 /* Preview body (contains preview + outline side by side) */
 .preview-body {
+  --preview-floating-sidebar-gap: var(--space-3);
+  --preview-floating-comments-width: min(300px, 34vw);
+  --preview-floating-outline-width: 220px;
   display: flex;
   flex: 1;
   overflow: hidden;
@@ -3922,6 +3925,55 @@ body.plantuml-maximized-open::before {
 
 .editor-layout[data-view="preview"] .preview-content p:has(> .plantuml-shell:only-child) {
   max-width: none;
+}
+@media (min-width: 769px) {
+  .preview-body > .comments-drawer,
+  .preview-body > .outline-panel {
+    position: absolute;
+    top: var(--preview-floating-sidebar-gap);
+    right: var(--preview-floating-sidebar-gap);
+    bottom: var(--preview-floating-sidebar-gap);
+    z-index: 20;
+    overflow: hidden;
+    border: 1px solid var(--color-divider);
+    border-radius: calc(var(--radius-lg) + 2px);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(14px);
+  }
+
+  .preview-body > .comments-drawer {
+    width: var(--preview-floating-comments-width);
+    min-width: 240px;
+    border-left: 1px solid var(--color-divider);
+  }
+
+  .preview-body > .outline-panel {
+    width: var(--preview-floating-outline-width);
+    border-left: 1px solid var(--color-divider);
+  }
+
+  .preview-body > .comments-drawer.hidden,
+  .preview-body > .outline-panel.hidden {
+    display: flex !important;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(12px);
+    visibility: hidden;
+  }
+
+  .preview-body > .comments-drawer:not(.hidden),
+  .preview-body > .outline-panel:not(.hidden) {
+    opacity: 1;
+    transform: translateX(0);
+    visibility: visible;
+  }
+
+  .preview-body:has(> .outline-panel:not(.hidden)) > .comments-drawer:not(.hidden) {
+    right: calc(
+      var(--preview-floating-sidebar-gap) * 2
+      + var(--preview-floating-outline-width)
+    );
+  }
 }
 .editor-layout[data-view="editor"] .editor-pane {
   flex: 1;

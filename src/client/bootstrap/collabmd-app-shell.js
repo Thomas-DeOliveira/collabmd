@@ -150,6 +150,7 @@ export class CollabMdAppShell {
         this.scrollSyncController.suspendSync(250);
         this.session?.scrollToLine(sourceLine, 0);
       },
+      onWillOpen: () => this.commentUi?.closeDrawer(),
     });
     this.videoEmbed = new VideoEmbedController({
       previewElement: this.elements.previewContent,
@@ -215,6 +216,7 @@ export class CollabMdAppShell {
       commentsDrawerList: this.elements.commentsDrawerList,
       commentsToggleButton: this.elements.commentsToggleButton,
       editorContainer: this.elements.editorContainer,
+      onWillOpenDrawer: () => this.outlineController.close(),
       previewContainer: this.elements.previewContainer,
       previewElement: this.elements.previewContent,
       onCreateThread: ({ anchor, body }) => this.session?.createCommentThread({ anchor, body }),
