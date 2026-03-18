@@ -125,6 +125,18 @@ test('keeps the linked mentions dock reachable while preview scrolls and expands
   await expect(dock).toBeVisible();
   await expect.poll(async () => Number.parseInt(await dock.locator('.backlinks-count').textContent() || '0', 10)).toBeGreaterThan(10);
 
+  const measureDockAlignment = async () => page.evaluate(() => {
+    const dockElement = document.querySelector('#backlinksPanel .backlinks-panel-dock');
+    const contentElement = document.getElementById('previewContent');
+    const dockRect = dockElement.getBoundingClientRect();
+    const contentRect = contentElement.getBoundingClientRect();
+
+    return Math.round(dockRect.left - contentRect.left);
+  });
+
+  const splitAlignment = await measureDockAlignment();
+  expect(splitAlignment).toBeGreaterThanOrEqual(0);
+
   const positions = [];
   for (const progress of [0, 0.5, 0.9]) {
     // Keep the preview scroll moving while the dock should remain fixed to preview chrome.
@@ -170,6 +182,13 @@ test('keeps the linked mentions dock reachable while preview scrolls and expands
 
   expect(bodyMetrics.overflowY).toBe('auto');
   expect(bodyMetrics.scrollHeight).toBeGreaterThan(bodyMetrics.clientHeight);
+
+  await page.locator('.view-btn[data-view="preview"]').click();
+  await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
+  await expect(dock).toBeVisible();
+
+  const previewAlignment = await measureDockAlignment();
+  expect(Math.abs(previewAlignment - splitAlignment)).toBeLessThanOrEqual(2);
 });
 
 test('keeps the clicked parent heading active in the outline after navigation', async ({ page }) => {
