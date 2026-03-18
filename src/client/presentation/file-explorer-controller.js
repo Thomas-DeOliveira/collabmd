@@ -54,11 +54,15 @@ export class FileExplorerController {
   async refresh() {
     try {
       const data = await this.vaultClient.readTree();
-      this.state.setTree(data.tree || []);
-      this.renderTree();
+      this.setTree(data.tree || []);
     } catch (error) {
       console.error('[explorer] Failed to load file tree:', error.message);
     }
+  }
+
+  setTree(tree) {
+    this.state.setTree(tree);
+    this.renderTree();
   }
 
   setActiveFile(filePath) {

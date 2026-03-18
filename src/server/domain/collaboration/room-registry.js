@@ -57,27 +57,67 @@ export class RoomRegistry {
     this.rooms.clear();
   }
 
+  getRooms() {
+    return Array.from(this.rooms.entries());
+  }
+
+  async reloadAllFromDisk() {
+    await Promise.allSettled(
+      Array.from(this.rooms.values(), (room) => room.reloadFromDisk?.()),
+    );
+  }
+
   async reconcileWorkspaceChange(workspaceChange = {}) {
     const deletedPaths = new Set(workspaceChange.deletedPaths ?? []);
     const renamedPaths = Array.isArray(workspaceChange.renamedPaths) ? workspaceChange.renamedPaths : [];
-    const renamedOldPaths = new Set(renamedPaths.map((entry) => entry?.oldPath).filter(Boolean));
+    const pendingDeletes = [];
+    const highlightRanges = [];
+    const reloadRequiredPaths = [];
+
+    renamedPaths.forEach((entry) => {
+      if (!entry?.oldPath || !entry?.newPath) {
+        return;
+      }
+
+      if (this.rename(entry.oldPath, entry.newPath)) {
+        return;
+      }
+
+      const room = this.rooms.get(entry.oldPath);
+      if (room) {
+        pendingDeletes.push([entry.oldPath, room]);
+      }
+    });
+
+    deletedPaths.forEach((pathValue) => {
+      if (!pathValue) {
+        return;
+      }
+
+      const room = this.rooms.get(pathValue);
+      if (room) {
+        pendingDeletes.push([pathValue, room]);
+      }
+    });
 
     await Promise.allSettled(
-      [...deletedPaths, ...renamedOldPaths].map(async (pathValue) => {
-        const room = this.rooms.get(pathValue);
-        if (!room) {
-          return;
-        }
-
+      pendingDeletes.map(async ([pathValue, room]) => {
         room.markDeleted?.();
-        await room.destroy?.();
+        if (typeof room.applyExternalDeletion === 'function') {
+          await room.applyExternalDeletion();
+        } else {
+          await room.destroy?.();
+        }
         if (this.rooms.get(pathValue) === room) {
           this.rooms.delete(pathValue);
         }
       }),
     );
 
-    const blockedPaths = new Set([...deletedPaths, ...renamedOldPaths]);
+    const blockedPaths = new Set([
+      ...deletedPaths,
+      ...renamedPaths.flatMap((entry) => [entry?.oldPath, entry?.newPath]),
+    ]);
     await Promise.allSettled(
       Array.from(new Set(workspaceChange.changedPaths ?? []))
         .filter((pathValue) => pathValue && !blockedPaths.has(pathValue))
@@ -87,8 +127,22 @@ export class RoomRegistry {
             return;
           }
 
-          await room.reloadFromDisk?.();
+          const result = await room.reloadFromDisk?.();
+          if (result && result.ok === false && result.reason === 'invalid-excalidraw') {
+            reloadRequiredPaths.push(pathValue);
+          } else if (result?.highlightRange) {
+            highlightRanges.push({
+              from: result.highlightRange.from,
+              path: pathValue,
+              to: result.highlightRange.to,
+            });
+          }
         }),
     );
+
+    return {
+      highlightRanges,
+      reloadRequiredPaths,
+    };
   }
 }

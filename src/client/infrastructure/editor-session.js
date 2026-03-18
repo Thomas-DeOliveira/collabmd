@@ -229,6 +229,10 @@ export class EditorSession {
     return this.viewAdapter.insertText(text);
   }
 
+  flashExternalUpdate(range) {
+    return this.viewAdapter.flashRemoteRange(range);
+  }
+
   waitForInitialSync(timeoutMs = 1500) {
     return this.collaborationClient.waitForInitialSync(timeoutMs);
   }

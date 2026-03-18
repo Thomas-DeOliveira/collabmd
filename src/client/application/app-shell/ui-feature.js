@@ -534,6 +534,9 @@ export const uiFeature = {
     if (!this.lobby.provider) {
       this.lobby.connect();
     }
+    if (!this.workspaceSync.provider) {
+      this.workspaceSync.connect();
+    }
 
     if (wasInactive) {
       if (this.fileExplorerReady) {
@@ -554,6 +557,7 @@ export const uiFeature = {
       this.elements.displayNameDialog.close();
     }
     this.lobby.disconnect();
+    this.workspaceSync.disconnect();
     this.globalUsers = [];
     this.chatMessages = [];
     this.chatMessageIds.clear();

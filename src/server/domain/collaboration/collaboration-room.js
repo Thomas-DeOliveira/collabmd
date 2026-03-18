@@ -17,6 +17,8 @@ import {
   serializeExcalidrawRoomScene,
   tryParseExcalidrawSceneJson,
 } from '../../../domain/excalidraw-room-codec.js';
+import { normalizeWorkspaceEvent } from '../../../domain/workspace-change.js';
+import { WORKSPACE_EVENT_MAX_MESSAGES, WORKSPACE_ROOM_NAME } from '../../../domain/workspace-room.js';
 
 function closeSlowClient(ws, clientState, { maxBufferedAmountBytes, name }) {
   if (!clientState || clientState.backpressureCloseIssued) {
@@ -84,6 +86,41 @@ function readAwarenessEntries(update) {
 
 function isExcalidrawRoom(name) {
   return typeof name === 'string' && name.endsWith('.excalidraw');
+}
+
+function isWorkspaceRoom(name) {
+  return name === WORKSPACE_ROOM_NAME;
+}
+
+function computeTextReplacement(currentContent, nextContent) {
+  const currentText = String(currentContent ?? '');
+  const nextText = String(nextContent ?? '');
+  if (currentText === nextText) {
+    return null;
+  }
+
+  let prefixLength = 0;
+  const maxPrefix = Math.min(currentText.length, nextText.length);
+  while (prefixLength < maxPrefix && currentText[prefixLength] === nextText[prefixLength]) {
+    prefixLength += 1;
+  }
+
+  let currentSuffixLength = currentText.length;
+  let nextSuffixLength = nextText.length;
+  while (
+    currentSuffixLength > prefixLength
+    && nextSuffixLength > prefixLength
+    && currentText[currentSuffixLength - 1] === nextText[nextSuffixLength - 1]
+  ) {
+    currentSuffixLength -= 1;
+    nextSuffixLength -= 1;
+  }
+
+  return {
+    deleteCount: currentSuffixLength - prefixLength,
+    insertText: nextText.slice(prefixLength, nextSuffixLength),
+    start: prefixLength,
+  };
 }
 
 export class CollaborationRoom {
@@ -332,36 +369,75 @@ export class CollaborationRoom {
       return false;
     }
 
-    const ytext = this.doc.getText('codemirror');
+    return this.applyExternalContent(content, {
+      commentThreads,
+      replaceCommentThreads: true,
+    });
+  }
+
+  async applyExternalContent(content, {
+    commentThreads = [],
+    replaceCommentThreads = false,
+  } = {}) {
+    if (this.deleted || this.destroyed) {
+      return { ok: false, reason: 'room-unavailable' };
+    }
+
     const comments = this.doc.getArray('comments');
-    const parsedExcalidrawScene = isExcalidrawRoom(this.name)
-      ? tryParseExcalidrawSceneJson(content)
-      : null;
-    if (isExcalidrawRoom(this.name) && !parsedExcalidrawScene) {
-      return false;
+    if (isExcalidrawRoom(this.name)) {
+      const parsedExcalidrawScene = tryParseExcalidrawSceneJson(content);
+      if (!parsedExcalidrawScene) {
+        return { ok: false, reason: 'invalid-excalidraw' };
+      }
+
+      this.doc.transact(() => {
+        replaceExcalidrawRoomScene(this.doc, parsedExcalidrawScene);
+        if (replaceCommentThreads) {
+          if (comments.length > 0) {
+            comments.delete(0, comments.length);
+          }
+          populateCommentThreads(comments, commentThreads);
+        }
+      }, 'workspace-reconcile');
+
+      return { ok: true, highlightRange: null };
+    }
+
+    const ytext = this.doc.getText('codemirror');
+    const replacement = computeTextReplacement(ytext.toString(), content);
+    if (!replacement && !replaceCommentThreads) {
+      return { highlightRange: null, ok: true, skipped: true };
     }
 
     this.doc.transact(() => {
-      if (isExcalidrawRoom(this.name)) {
-        if (ytext.length > 0) {
-          ytext.delete(0, ytext.length);
-        }
-        replaceExcalidrawRoomScene(this.doc, parsedExcalidrawScene);
-      } else {
-        if (ytext.length > 0) {
-          ytext.delete(0, ytext.length);
-        }
-        if (content) {
-          ytext.insert(0, content);
-        }
+      if (replacement?.deleteCount) {
+        ytext.delete(replacement.start, replacement.deleteCount);
       }
-      if (comments.length > 0) {
-        comments.delete(0, comments.length);
+      if (replacement?.insertText) {
+        ytext.insert(replacement.start, replacement.insertText);
       }
-      populateCommentThreads(comments, commentThreads);
+      if (replaceCommentThreads) {
+        if (comments.length > 0) {
+          comments.delete(0, comments.length);
+        }
+        populateCommentThreads(comments, commentThreads);
+      }
     }, 'workspace-reconcile');
 
-    return true;
+    return {
+      highlightRange: replacement
+        ? {
+          from: replacement.start,
+          to: replacement.start + replacement.insertText.length,
+        }
+        : null,
+      ok: true,
+    };
+  }
+
+  applyExternalDeletion() {
+    this.markDeleted();
+    return this.destroy();
   }
 
   rename(nextName) {
@@ -537,6 +613,10 @@ export class CollaborationRoom {
   }
 
   getPersistedContent() {
+    if (isWorkspaceRoom(this.name)) {
+      return null;
+    }
+
     if (!isExcalidrawRoom(this.name)) {
       return this.doc.getText('codemirror').toString();
     }
@@ -599,5 +679,59 @@ export class CollaborationRoom {
     } catch (error) {
       console.error(`[room:${this.name}] Failed to handle message:`, error.message);
     }
+  }
+
+  replaceWorkspaceEntries(entries = new Map(), {
+    generatedAt = Date.now(),
+  } = {}) {
+    if (!isWorkspaceRoom(this.name)) {
+      return false;
+    }
+
+    const normalizedEntries = entries instanceof Map ? entries : new Map(entries);
+    const entriesMap = this.doc.getMap('entries');
+    const metaMap = this.doc.getMap('meta');
+
+    this.doc.transact(() => {
+      Array.from(entriesMap.keys()).forEach((key) => {
+        if (!normalizedEntries.has(key)) {
+          entriesMap.delete(key);
+        }
+      });
+
+      normalizedEntries.forEach((entry, pathValue) => {
+        entriesMap.set(pathValue, entry);
+      });
+
+      metaMap.set('lastSnapshotAt', generatedAt);
+      metaMap.set('revision', Number(metaMap.get('revision') || 0) + 1);
+    }, 'workspace-room-entries');
+
+    return true;
+  }
+
+  publishWorkspaceEvent(event) {
+    if (!isWorkspaceRoom(this.name)) {
+      return null;
+    }
+
+    const normalizedEvent = normalizeWorkspaceEvent(event);
+    if (!normalizedEvent) {
+      return null;
+    }
+
+    const events = this.doc.getArray('events');
+    const metaMap = this.doc.getMap('meta');
+    this.doc.transact(() => {
+      events.push([normalizedEvent]);
+      const overflow = events.length - WORKSPACE_EVENT_MAX_MESSAGES;
+      if (overflow > 0) {
+        events.delete(0, overflow);
+      }
+      metaMap.set('lastEventAt', normalizedEvent.createdAt);
+      metaMap.set('revision', Number(metaMap.get('revision') || 0) + 1);
+    }, 'workspace-room-event');
+
+    return normalizedEvent;
   }
 }

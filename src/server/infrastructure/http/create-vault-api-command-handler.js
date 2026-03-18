@@ -3,6 +3,7 @@ import {
   isMermaidFilePath,
   isPlantUmlFilePath,
 } from '../../../domain/file-kind.js';
+import { createWorkspaceChange } from '../../../domain/workspace-change.js';
 import { createRequestError, getRequestErrorStatusCode } from './http-errors.js';
 import { jsonResponse } from './http-response.js';
 import { parseJsonBody, readBinaryRequestBody } from './request-body.js';
@@ -36,6 +37,11 @@ function selectWriteOperation(vaultFileStore, filePath, content) {
   return vaultFileStore.writeMarkdownFile(filePath, content);
 }
 
+function readRequestId(req) {
+  const value = String(req.headers['x-collabmd-request-id'] || '').trim();
+  return value ? value.slice(0, 120) : null;
+}
+
 function handleVaultError(req, res, error, logMessage, fallbackMessage) {
   const statusCode = getRequestErrorStatusCode(error);
   if (statusCode) {
@@ -49,9 +55,8 @@ function handleVaultError(req, res, error, logMessage, fallbackMessage) {
 }
 
 export function createVaultApiCommandHandler({
-  backlinkIndex,
-  roomRegistry = null,
   vaultFileStore,
+  workspaceMutationCoordinator = null,
 }) {
   return async function handleVaultApiCommand(req, res, requestUrl) {
     if (requestUrl.pathname === '/api/file' && req.method === 'PUT') {
@@ -67,6 +72,15 @@ export function createVaultApiCommandHandler({
           jsonResponse(req, res, 400, { error: result.error });
           return true;
         }
+
+        await workspaceMutationCoordinator?.apply?.({
+          action: 'write-file',
+          origin: 'api',
+          requestId: readRequestId(req),
+          workspaceChange: createWorkspaceChange({
+            changedPaths: [body.path],
+          }),
+        });
 
         jsonResponse(req, res, 200, { ok: true });
       } catch (error) {
@@ -97,6 +111,15 @@ export function createVaultApiCommandHandler({
           return true;
         }
 
+        await workspaceMutationCoordinator?.apply?.({
+          action: 'upload-attachment',
+          origin: 'api',
+          requestId: readRequestId(req),
+          workspaceChange: createWorkspaceChange({
+            changedPaths: [result.path],
+          }),
+        });
+
         jsonResponse(req, res, 201, {
           markdown: result.markdownSnippet,
           ok: true,
@@ -121,8 +144,14 @@ export function createVaultApiCommandHandler({
           jsonResponse(req, res, 409, { error: result.error });
           return true;
         }
-
-        backlinkIndex?.onFileCreated(body.path, body.content || '');
+        await workspaceMutationCoordinator?.apply?.({
+          action: 'create-file',
+          origin: 'api',
+          requestId: readRequestId(req),
+          workspaceChange: createWorkspaceChange({
+            changedPaths: [body.path],
+          }),
+        });
         jsonResponse(req, res, 201, { ok: true, path: body.path });
       } catch (error) {
         handleVaultError(req, res, error, '[api] Failed to create file:', 'Failed to create file');
@@ -137,21 +166,22 @@ export function createVaultApiCommandHandler({
         return true;
       }
 
-      const activeRoom = roomRegistry?.get(filePath);
       try {
-        activeRoom?.markDeleted?.();
         const result = await vaultFileStore.deleteFile(filePath);
         if (!result.ok) {
-          activeRoom?.unmarkDeleted?.();
           jsonResponse(req, res, 400, { error: result.error });
           return true;
         }
-
-        roomRegistry?.delete?.(filePath);
-        backlinkIndex?.onFileDeleted(filePath);
+        await workspaceMutationCoordinator?.apply?.({
+          action: 'delete-file',
+          origin: 'api',
+          requestId: readRequestId(req),
+          workspaceChange: createWorkspaceChange({
+            deletedPaths: [filePath],
+          }),
+        });
         jsonResponse(req, res, 200, { ok: true });
       } catch (error) {
-        activeRoom?.unmarkDeleted?.();
         console.error('[api] Failed to delete file:', error.message);
         jsonResponse(req, res, 500, { error: 'Failed to delete file' });
       }
@@ -171,9 +201,14 @@ export function createVaultApiCommandHandler({
           jsonResponse(req, res, 400, { error: result.error });
           return true;
         }
-
-        roomRegistry?.rename(body.oldPath, body.newPath);
-        backlinkIndex?.onFileRenamed(body.oldPath, body.newPath);
+        await workspaceMutationCoordinator?.apply?.({
+          action: 'rename-file',
+          origin: 'api',
+          requestId: readRequestId(req),
+          workspaceChange: createWorkspaceChange({
+            renamedPaths: [{ oldPath: body.oldPath, newPath: body.newPath }],
+          }),
+        });
         jsonResponse(req, res, 200, { ok: true, path: body.newPath });
       } catch (error) {
         handleVaultError(req, res, error, '[api] Failed to rename file:', 'Failed to rename file');
@@ -194,6 +229,13 @@ export function createVaultApiCommandHandler({
           jsonResponse(req, res, 400, { error: result.error });
           return true;
         }
+
+        await workspaceMutationCoordinator?.apply?.({
+          action: 'create-directory',
+          origin: 'api',
+          requestId: readRequestId(req),
+          workspaceChange: createWorkspaceChange(),
+        });
 
         jsonResponse(req, res, 201, { ok: true });
       } catch (error) {

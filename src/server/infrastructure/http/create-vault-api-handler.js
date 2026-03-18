@@ -7,6 +7,7 @@ export function createVaultApiHandler({
   plantUmlRenderer = null,
   roomRegistry = null,
   vaultFileStore,
+  workspaceMutationCoordinator = null,
 }) {
   const handleVaultApiQuery = createVaultApiQueryHandler({
     backlinkIndex,
@@ -16,6 +17,7 @@ export function createVaultApiHandler({
     backlinkIndex,
     roomRegistry,
     vaultFileStore,
+    workspaceMutationCoordinator,
   });
   const handlePlantUmlApi = createPlantUmlApiHandler({
     plantUmlRenderer,

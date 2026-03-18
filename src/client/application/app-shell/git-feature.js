@@ -1,14 +1,16 @@
+import { createWorkspaceChange } from '../../../domain/workspace-change.js';
 import { resolveApiUrl } from '../../domain/runtime-paths.js';
 
 function normalizeWorkspaceChange(workspaceChange = {}) {
-  return {
-    changedPaths: Array.isArray(workspaceChange.changedPaths) ? workspaceChange.changedPaths.filter(Boolean) : [],
-    deletedPaths: Array.isArray(workspaceChange.deletedPaths) ? workspaceChange.deletedPaths.filter(Boolean) : [],
-    refreshExplorer: workspaceChange.refreshExplorer !== false,
-    renamedPaths: Array.isArray(workspaceChange.renamedPaths)
-      ? workspaceChange.renamedPaths.filter((entry) => entry?.oldPath && entry?.newPath)
-      : [],
-  };
+  return createWorkspaceChange(workspaceChange);
+}
+
+function createWorkspaceRequestId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `workspace-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
 export const gitFeature = {
@@ -94,15 +96,19 @@ export const gitFeature = {
   },
 
   async postGitAction(endpoint, payload) {
+    const requestId = createWorkspaceRequestId();
+    this.pendingWorkspaceRequestIds?.add(requestId);
     const response = await fetch(endpoint, {
       body: JSON.stringify(payload),
       headers: {
         'Content-Type': 'application/json',
+        'X-CollabMD-Request-Id': requestId,
       },
       method: 'POST',
     });
     const data = await response.json();
     if (!response.ok) {
+      this.pendingWorkspaceRequestIds?.delete(requestId);
       const error = new Error(data.error || 'Git action failed');
       if (typeof data?.code === 'string') {
         error.code = data.code;
@@ -145,11 +151,6 @@ export const gitFeature = {
     const workspaceChange = normalizeWorkspaceChange(result.workspaceChange);
     await this.refreshWorkspaceAfterGitAction({ filePath, preferredScope });
     this.handleWorkspaceChangeForCurrentFile(workspaceChange, { action, local: true, showToast: showLocalFileToast });
-    this.lobby.sendWorkspaceEvent({
-      action,
-      sourceRef: result.sourceRef ?? null,
-      workspaceChange,
-    });
     return workspaceChange;
   },
 
@@ -165,21 +166,27 @@ export const gitFeature = {
       return false;
     }
 
-    this.navigation.navigateToFile(null);
     if (!showToast) {
+      if (renameEntry) {
+        this.navigation.navigateToFile(renameEntry.newPath);
+      } else {
+        this.navigation.navigateToFile(null);
+      }
       return true;
     }
 
     const displayName = this.getDisplayName(currentFilePath);
     if (renameEntry) {
+      this.navigation.navigateToFile(renameEntry.newPath);
       this.toastController.show(
         local
-          ? `${displayName} was reset away from this branch path`
-          : `${displayName} moved after a ${action} operation`,
+          ? `${displayName} moved to ${this.getDisplayName(renameEntry.newPath)}`
+          : `${displayName} moved on disk`,
       );
       return true;
     }
 
+    this.navigation.navigateToFile(null);
     this.toastController.show(
       local
         ? `${displayName} was removed by ${action}`
@@ -193,13 +200,42 @@ export const gitFeature = {
       return;
     }
 
+    if (event.requestId && this.pendingWorkspaceRequestIds?.has(event.requestId)) {
+      this.pendingWorkspaceRequestIds.delete(event.requestId);
+      return;
+    }
+
     const workspaceChange = normalizeWorkspaceChange(event.workspaceChange);
-    await this.refreshWorkspaceAfterGitAction();
+    if (event.origin === 'git') {
+      await this.refreshGitAfterAction();
+    }
     this.handleWorkspaceChangeForCurrentFile(workspaceChange, {
-      action: event.action || 'git',
+      action: event.action || event.origin || 'workspace',
       local: false,
       showToast: true,
     });
+
+    if (
+      event.origin === 'filesystem'
+      && this.currentFilePath
+      && workspaceChange.changedPaths.includes(this.currentFilePath)
+    ) {
+      const highlightRange = Array.isArray(event.highlightRanges)
+        ? event.highlightRanges.find((entry) => entry.path === this.currentFilePath)
+        : null;
+      const didFlash = highlightRange ? this.session?.flashExternalUpdate?.(highlightRange) : false;
+      if (!didFlash) {
+        this.toastController.show(`${this.getDisplayName(this.currentFilePath)} updated from disk`);
+      }
+    }
+
+    if (
+      this.currentFilePath
+      && Array.isArray(event.reloadRequiredPaths)
+      && event.reloadRequiredPaths.includes(this.currentFilePath)
+    ) {
+      this.toastController.show(`${this.getDisplayName(this.currentFilePath)} needs a manual reload`);
+    }
   },
 
   async stageGitFile(filePath, { scope = 'working-tree' } = {}) {

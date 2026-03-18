@@ -42,6 +42,7 @@ export function createRequestHandler(
   roomRegistry = null,
   plantUmlRenderer = null,
   gitService = null,
+  workspaceMutationCoordinator = null,
 ) {
   const handleEsmProxy = createEsmProxyHandler();
   const handleStaticRequest = createStaticHandler(config, authService);
@@ -51,12 +52,14 @@ export function createRequestHandler(
     gitService,
     roomRegistry,
     vaultFileStore,
+    workspaceMutationCoordinator,
   });
   const handleVaultApi = createVaultApiHandler({
     backlinkIndex,
     plantUmlRenderer,
     roomRegistry,
     vaultFileStore,
+    workspaceMutationCoordinator,
   });
 
   return async function handleRequest(req, res) {

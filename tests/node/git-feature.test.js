@@ -88,7 +88,7 @@ function installWindowStub(t) {
   });
 }
 
-test('gitFeature finalizes git actions by refreshing locally and publishing a workspace event', async () => {
+test('gitFeature finalizes git actions by refreshing locally without publishing a lobby workspace event', async () => {
   const { context, events } = createContext();
 
   await gitFeature.finalizeGitAction.call(context, {
@@ -107,16 +107,6 @@ test('gitFeature finalizes git actions by refreshing locally and publishing a wo
   assert.deepEqual(events, [
     ['refresh-explorer'],
     ['refresh-git-panel'],
-    ['workspace-event', {
-      action: 'stage',
-      sourceRef: null,
-      workspaceChange: {
-        changedPaths: [],
-        deletedPaths: [],
-        refreshExplorer: true,
-        renamedPaths: [],
-      },
-    }],
   ]);
 });
 
@@ -125,6 +115,7 @@ test('gitFeature closes the current file when an incoming workspace event delete
 
   await gitFeature.handleIncomingWorkspaceEvent.call(context, {
     action: 'pull',
+    origin: 'git',
     workspaceChange: {
       changedPaths: [],
       deletedPaths: ['README.md'],
@@ -134,11 +125,84 @@ test('gitFeature closes the current file when an incoming workspace event delete
   });
 
   assert.deepEqual(events, [
-    ['refresh-explorer'],
     ['refresh-git-panel'],
     ['navigate-file', null],
     ['toast', 'README was removed after a pull operation'],
   ]);
+});
+
+test('gitFeature follows the renamed current file for incoming workspace events', async () => {
+  const { context, events } = createContext();
+
+  await gitFeature.handleIncomingWorkspaceEvent.call(context, {
+    action: 'filesystem-sync',
+    origin: 'filesystem',
+    workspaceChange: {
+      changedPaths: [],
+      deletedPaths: [],
+      refreshExplorer: true,
+      renamedPaths: [{ oldPath: 'README.md', newPath: 'docs/README.md' }],
+    },
+  });
+
+  assert.deepEqual(events, [
+    ['navigate-file', 'docs/README.md'],
+    ['toast', 'README moved on disk'],
+  ]);
+});
+
+test('gitFeature highlights filesystem updates for the current file instead of showing a toast', async () => {
+  const flashCalls = [];
+  const { context, events } = createContext({
+    session: {
+      flashExternalUpdate(range) {
+        flashCalls.push(range);
+        return true;
+      },
+    },
+  });
+
+  await gitFeature.handleIncomingWorkspaceEvent.call(context, {
+    action: 'filesystem-sync',
+    highlightRanges: [{ path: 'README.md', from: 2, to: 8 }],
+    origin: 'filesystem',
+    workspaceChange: {
+      changedPaths: ['README.md'],
+      deletedPaths: [],
+      refreshExplorer: true,
+      renamedPaths: [],
+    },
+  });
+
+  assert.deepEqual(flashCalls, [{ path: 'README.md', from: 2, to: 8 }]);
+  assert.deepEqual(events, []);
+});
+
+test('gitFeature falls back to a toast when a filesystem update cannot be highlighted', async () => {
+  const flashCalls = [];
+  const { context, events } = createContext({
+    session: {
+      flashExternalUpdate(range) {
+        flashCalls.push(range);
+        return false;
+      },
+    },
+  });
+
+  await gitFeature.handleIncomingWorkspaceEvent.call(context, {
+    action: 'filesystem-sync',
+    highlightRanges: [{ path: 'README.md', from: 2, to: 8 }],
+    origin: 'filesystem',
+    workspaceChange: {
+      changedPaths: ['README.md'],
+      deletedPaths: [],
+      refreshExplorer: true,
+      renamedPaths: [],
+    },
+  });
+
+  assert.deepEqual(flashCalls, [{ path: 'README.md', from: 2, to: 8 }]);
+  assert.deepEqual(events, [['toast', 'README updated from disk']]);
 });
 
 test('gitFeature shows and clears the shared git operation status around a long-running action', async () => {

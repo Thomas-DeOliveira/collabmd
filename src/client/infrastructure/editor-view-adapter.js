@@ -11,7 +11,7 @@ import {
 } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
-import { Compartment, EditorSelection, EditorState, Prec } from '@codemirror/state';
+import { Compartment, EditorSelection, EditorState, Prec, StateEffect, StateField } from '@codemirror/state';
 import { oneDark } from '@codemirror/theme-one-dark';
 import {
   Decoration,
@@ -36,6 +36,32 @@ import { handleImagePasteEvent } from './editor-paste-utils.js';
 const markdownCodeLanguages = [...languages, plantUmlLanguageDescription];
 const pairedMatchingBracketMark = Decoration.mark({ class: 'cm-matchingBracket cm-matchingBracket-paired' });
 const nonmatchingBracketMark = Decoration.mark({ class: 'cm-nonmatchingBracket' });
+const remoteUpdateMark = Decoration.mark({ class: 'cm-remoteUpdateFlash' });
+const addRemoteUpdateFlashEffect = StateEffect.define();
+const clearRemoteUpdateFlashEffect = StateEffect.define();
+const remoteUpdateFlashField = StateField.define({
+  create: () => Decoration.none,
+  update(decorations, transaction) {
+    let nextDecorations = decorations.map(transaction.changes);
+
+    transaction.effects.forEach((effect) => {
+      if (effect.is(clearRemoteUpdateFlashEffect)) {
+        nextDecorations = Decoration.none;
+        return;
+      }
+
+      if (effect.is(addRemoteUpdateFlashEffect)) {
+        const { from, to } = effect.value;
+        nextDecorations = to > from
+          ? Decoration.set([remoteUpdateMark.range(from, to)], true)
+          : Decoration.none;
+      }
+    });
+
+    return nextDecorations;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
 
 function isBracketBeforeCaret(range, state) {
   return state.selection.ranges.some((selectionRange) =>
@@ -150,12 +176,34 @@ function createEditorTheme(theme) {
     '.cm-selectionMatch': {
       backgroundColor: 'var(--color-primary-highlight)',
     },
+    '.cm-remoteUpdateFlash': {
+      animation: 'collabmd-remote-update-flash 1.35s ease-out',
+      backgroundColor: theme === 'dark'
+        ? 'oklch(from var(--color-primary) l c h / 0.22)'
+        : 'oklch(from var(--color-primary) l c h / 0.16)',
+      borderRadius: '3px',
+      boxShadow: `0 0 0 1px ${theme === 'dark'
+        ? 'oklch(from var(--color-primary) calc(l + 0.05) c h / 0.26)'
+        : 'oklch(from var(--color-primary) calc(l - 0.04) c h / 0.2)'}`,
+    },
     '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
       backgroundColor: selectionBackground,
     },
     '&.cm-focused .cm-selectionLayer .cm-selectionBackground': {
       border: `1px solid ${selectionBorder}`,
       borderRadius: '2px',
+    },
+    '@keyframes collabmd-remote-update-flash': {
+      '0%': {
+        backgroundColor: theme === 'dark'
+          ? 'oklch(from var(--color-primary) l c h / 0.34)'
+          : 'oklch(from var(--color-primary) l c h / 0.26)',
+      },
+      '100%': {
+        backgroundColor: theme === 'dark'
+          ? 'oklch(from var(--color-primary) l c h / 0)'
+          : 'oklch(from var(--color-primary) l c h / 0)',
+      },
     },
   }, { dark: theme === 'dark' });
 }
@@ -204,6 +252,7 @@ export class EditorViewAdapter {
     this.syntaxThemeCompartment = new Compartment();
     this.lineWrappingCompartment = new Compartment();
     this.viewportFrame = 0;
+    this.remoteUpdateFlashTimer = 0;
     this.handleScroll = () => {
       if (this.viewportFrame) {
         return;
@@ -276,6 +325,7 @@ export class EditorViewAdapter {
           this.themeCompartment.of(createEditorTheme(this.initialTheme)),
           this.syntaxThemeCompartment.of(this.initialTheme === 'dark' ? oneDark : []),
           this.lineWrappingCompartment.of(this.lineWrappingEnabled ? EditorView.lineWrapping : []),
+          remoteUpdateFlashField,
           yCollab(ytext, awareness, { undoManager }),
           updateListener,
         ],
@@ -292,6 +342,10 @@ export class EditorViewAdapter {
     if (this.viewportFrame) {
       cancelAnimationFrame(this.viewportFrame);
       this.viewportFrame = 0;
+    }
+    if (this.remoteUpdateFlashTimer) {
+      clearTimeout(this.remoteUpdateFlashTimer);
+      this.remoteUpdateFlashTimer = 0;
     }
     this.editorView?.scrollDOM?.removeEventListener('scroll', this.handleScroll);
     this.editorView?.destroy();
@@ -353,6 +407,43 @@ export class EditorViewAdapter {
 
   requestMeasure() {
     this.editorView?.requestMeasure();
+  }
+
+  flashRemoteRange({ from = 0, to = 0 } = {}, durationMs = 1350) {
+    const state = this.editorView?.state;
+    if (!state || state.doc.length === 0) {
+      return false;
+    }
+
+    let start = Math.min(Math.max(Math.round(from), 0), state.doc.length);
+    let end = Math.min(Math.max(Math.round(to), 0), state.doc.length);
+    if (end <= start) {
+      if (start < state.doc.length) {
+        end = start + 1;
+      } else if (start > 0) {
+        start -= 1;
+        end = start + 1;
+      } else {
+        return false;
+      }
+    }
+
+    this.editorView.dispatch({
+      effects: addRemoteUpdateFlashEffect.of({ from: start, to: end }),
+    });
+
+    if (this.remoteUpdateFlashTimer) {
+      clearTimeout(this.remoteUpdateFlashTimer);
+    }
+
+    this.remoteUpdateFlashTimer = window.setTimeout(() => {
+      this.remoteUpdateFlashTimer = 0;
+      this.editorView?.dispatch({
+        effects: clearRemoteUpdateFlashEffect.of(null),
+      });
+    }, durationMs);
+
+    return true;
   }
 
   getViewportState(viewportRatio = 0.35) {

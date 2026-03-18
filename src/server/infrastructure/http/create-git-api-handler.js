@@ -7,6 +7,7 @@ export function createGitApiHandler({
   gitService = null,
   roomRegistry = null,
   vaultFileStore = null,
+  workspaceMutationCoordinator = null,
 }) {
   const handleGitApiQuery = createGitApiQueryHandler({ gitService });
   const handleGitApiCommand = createGitApiCommandHandler({
@@ -14,6 +15,7 @@ export function createGitApiHandler({
     gitService,
     roomRegistry,
     vaultFileStore,
+    workspaceMutationCoordinator,
   });
 
   return async function handleGitApi(req, res, requestUrl) {

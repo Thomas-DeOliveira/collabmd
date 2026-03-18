@@ -53,6 +53,10 @@ async function loginForCookie(app, password) {
   return cookieHeader.split(';')[0];
 }
 
+async function waitForRoomRelease(app, filePath) {
+  await waitForCondition(() => app.server.roomRegistry.get(filePath) === undefined);
+}
+
 test('WebSocket collaboration broadcasts awareness and persists vault file', async (t) => {
   const app = await startTestServer();
   t.after(() => app.close());
@@ -120,7 +124,7 @@ test('WebSocket collaboration broadcasts awareness and persists vault file', asy
   await Promise.all([waitForClose(ws1), waitForClose(ws2)]);
 
   // Wait for the room to drain
-  await waitForCondition(() => app.server.roomRegistry.rooms.size === 0);
+  await waitForRoomRelease(app, filePath);
 
   // The vault file store persists plain text to disk — verify it
   const diskContent = await waitForCondition(async () => {
@@ -272,7 +276,7 @@ test('Renaming an active room keeps persistence on the new path', async (t) => {
 
   ws.close();
   await waitForClose(ws);
-  await waitForCondition(() => app.server.roomRegistry.rooms.size === 0);
+  await waitForRoomRelease(app, 'renamed.md');
 
   await waitForCondition(async () => {
     const exists = await fileExists(join(app.vaultDir, 'renamed.md'));
@@ -305,7 +309,7 @@ test('Deleting an active room does not recreate file on disconnect', async (t) =
 
   ws.close();
   await waitForClose(ws);
-  await waitForCondition(() => app.server.roomRegistry.rooms.size === 0);
+  await waitForRoomRelease(app, 'test.md');
 
   await new Promise((resolve) => setTimeout(resolve, 700));
   assert.equal(await fileExists(join(app.vaultDir, 'test.md')), false);
@@ -405,7 +409,7 @@ test('WebSocket collaboration persists excalidraw room content to .excalidraw fi
 
   ws.close();
   await waitForClose(ws);
-  await waitForCondition(() => app.server.roomRegistry.rooms.size === 0);
+  await waitForRoomRelease(app, scenePath);
 
   const diskContent = await waitForCondition(async () => {
     const content = await readFile(join(app.vaultDir, scenePath), 'utf-8');
@@ -429,14 +433,14 @@ test('WebSocket room rehydration does not duplicate markdown content on reconnec
   await syncClientDocWithRoom(ws1, clientDoc);
   ws1.close();
   await waitForClose(ws1);
-  await waitForCondition(() => app.server.roomRegistry.rooms.size === 0);
+  await waitForRoomRelease(app, filePath);
 
   const ws2 = new WebSocket(app.wsUrl(filePath));
   await waitForOpen(ws2);
   await syncClientDocWithRoom(ws2, clientDoc);
   ws2.close();
   await waitForClose(ws2);
-  await waitForCondition(() => app.server.roomRegistry.rooms.size === 0);
+  await waitForRoomRelease(app, filePath);
 
   const diskContent = await waitForCondition(async () => {
     const content = await readFile(diskPath, 'utf-8');

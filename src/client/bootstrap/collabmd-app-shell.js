@@ -18,6 +18,7 @@ import { BrowserPreferencesPort } from '../infrastructure/browser-preferences-po
 import { getRuntimeConfig } from '../infrastructure/runtime-config.js';
 import { TabActivityLock } from '../infrastructure/tab-activity-lock.js';
 import { vaultApiClient } from '../infrastructure/vault-api-client.js';
+import { WorkspaceSyncClient } from '../infrastructure/workspace-sync-client.js';
 import { BacklinksPanel } from '../presentation/backlinks-panel.js';
 import { CommentUiController } from '../presentation/comment-ui-controller.js';
 import { ExcalidrawEmbedController } from '../presentation/excalidraw-embed-controller.js';
@@ -111,11 +112,22 @@ export class CollabMdAppShell {
     this.quickSwitcherModulePromise = null;
     this.fileExplorerReadyPromise = Promise.resolve();
     this.mobileBreakpointQuery = window.matchMedia('(max-width: 768px)');
+    this.pendingWorkspaceRequestIds = new Set();
 
     this.lobby = new LobbyPresence({
       preferredUserName: this.getStoredUserName(),
       onChange: (users) => this.updateGlobalUsers(users),
       onChatChange: (messages, meta) => this.updateChatMessages(messages, meta),
+    });
+    this.workspaceSync = new WorkspaceSyncClient({
+      onTreeChange: (tree) => {
+        const wasReady = this.fileExplorerReady;
+        this.fileExplorer.setTree(tree);
+        this.fileExplorerReady = true;
+        if (!wasReady && this.isTabActive) {
+          void this.handleHashChange();
+        }
+      },
       onWorkspaceEvent: (event) => {
         void this.handleIncomingWorkspaceEvent(event);
       },

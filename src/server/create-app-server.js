@@ -11,6 +11,9 @@ import { RoomRegistry } from './domain/collaboration/room-registry.js';
 import { createRequestHandler } from './infrastructure/http/create-request-handler.js';
 import { VaultFileStore } from './infrastructure/persistence/vault-file-store.js';
 import { attachCollaborationGateway } from './infrastructure/websocket/attach-collaboration-gateway.js';
+import { WORKSPACE_ROOM_NAME } from '../domain/workspace-room.js';
+import { FileSystemSyncService } from './infrastructure/workspace/file-system-sync-service.js';
+import { WorkspaceMutationCoordinator } from './infrastructure/workspace/workspace-mutation-coordinator.js';
 
 function getDisplayHost(host) {
   return host === '127.0.0.1' ? 'localhost' : host;
@@ -48,15 +51,25 @@ export function createAppServer(config = loadConfig()) {
   const roomRegistry = new RoomRegistry({
     createRoom: ({ name, onEmpty }) => new CollaborationRoom({
       documentStore: new CollaborationDocumentStore({
-        backlinkIndex: name === '__lobby__' ? null : backlinkIndex,
+        backlinkIndex: name === '__lobby__' || name === WORKSPACE_ROOM_NAME ? null : backlinkIndex,
         name,
-        vaultFileStore: name === '__lobby__' ? null : vaultFileStore,
+        vaultFileStore: name === '__lobby__' || name === WORKSPACE_ROOM_NAME ? null : vaultFileStore,
       }),
       idleGraceMs: config.wsRoomIdleGraceMs,
       maxBufferedAmountBytes: config.wsMaxBufferedAmountBytes,
       name,
       onEmpty,
     }),
+  });
+  const workspaceMutationCoordinator = new WorkspaceMutationCoordinator({
+    backlinkIndex,
+    roomRegistry,
+    vaultFileStore,
+  });
+  vaultFileStore.setManagedWriteTracker(workspaceMutationCoordinator);
+  const fileSystemSyncService = new FileSystemSyncService({
+    mutationCoordinator: workspaceMutationCoordinator,
+    vaultFileStore,
   });
   const requestHandler = createRequestHandler(
     config,
@@ -66,6 +79,7 @@ export function createAppServer(config = loadConfig()) {
     roomRegistry,
     plantUmlRenderer,
     gitService,
+    workspaceMutationCoordinator,
   );
   const httpServer = createServer((req, res) => {
     requestHandler(req, res).catch((error) => {
@@ -95,6 +109,8 @@ export function createAppServer(config = loadConfig()) {
   async function listen() {
     vaultFileCount = await vaultFileStore.countVaultFiles();
     await backlinkIndex.build();
+    await workspaceMutationCoordinator.initialize();
+    await fileSystemSyncService.start();
 
     return new Promise((resolve, reject) => {
       httpServer.once('error', reject);
@@ -118,6 +134,7 @@ export function createAppServer(config = loadConfig()) {
 
     shutdownPromise = (async () => {
       await collaborationGateway.close();
+      await fileSystemSyncService.close();
       await roomRegistry.reset();
       await Promise.all([
         closeHttpServer(httpServer),
@@ -135,7 +152,9 @@ export function createAppServer(config = loadConfig()) {
     httpServer,
     listen,
     roomRegistry,
+    workspaceMutationCoordinator,
     authService,
+    fileSystemSyncService,
     gitService,
     vaultFileStore,
     get vaultFileCount() { return vaultFileCount; },

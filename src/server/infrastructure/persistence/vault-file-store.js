@@ -60,6 +60,19 @@ async function pathExists(pathValue) {
   }
 }
 
+function createWorkspaceEntry(relativePath, type) {
+  return {
+    fileKind: type === 'directory' ? null : getVaultTreeNodeType(relativePath),
+    name: basename(relativePath),
+    nodeType: type,
+    parentPath: dirname(relativePath).replace(/\\/g, '/') === '.'
+      ? ''
+      : dirname(relativePath).replace(/\\/g, '/'),
+    path: relativePath,
+    type: type === 'directory' ? 'directory' : getVaultTreeNodeType(relativePath),
+  };
+}
+
 async function cleanupPaths(paths = []) {
   await Promise.allSettled(paths.filter(Boolean).map((pathValue) => rm(pathValue, { force: true })));
 }
@@ -150,6 +163,19 @@ export class VaultFileStore {
   constructor({ vaultDir }) {
     this.vaultDir = resolve(vaultDir);
     this.sidecarStore = new SidecarStore({ vaultDir: this.vaultDir });
+    this.managedWriteTracker = null;
+  }
+
+  setManagedWriteTracker(tracker) {
+    this.managedWriteTracker = tracker ?? null;
+  }
+
+  async runManagedWrite(paths, operation) {
+    if (!this.managedWriteTracker?.runManagedWrite) {
+      return operation();
+    }
+
+    return this.managedWriteTracker.runManagedWrite(paths, operation);
   }
 
   async tree() {
@@ -251,11 +277,13 @@ export class VaultFileStore {
     }
 
     try {
-      await mkdir(dirname(resolved.absolute), { recursive: true });
-      await writeFile(resolved.absolute, content, 'utf-8');
-      if (invalidateCollaborationSnapshot) {
-        await this.deleteCollaborationSnapshot(filePath);
-      }
+      await this.runManagedWrite([filePath], async () => {
+        await mkdir(dirname(resolved.absolute), { recursive: true });
+        await writeFile(resolved.absolute, content, 'utf-8');
+        if (invalidateCollaborationSnapshot) {
+          await this.deleteCollaborationSnapshot(filePath);
+        }
+      });
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error.message };
@@ -356,8 +384,10 @@ export class VaultFileStore {
     }
 
     try {
-      await mkdir(dirname(absolutePath), { recursive: true });
-      await writeFile(absolutePath, content);
+      await this.runManagedWrite([storedPath], async () => {
+        await mkdir(dirname(absolutePath), { recursive: true });
+        await writeFile(absolutePath, content);
+      });
     } catch (error) {
       return { ok: false, error: error.message };
     }
@@ -412,49 +442,51 @@ export class VaultFileStore {
     const committedOperations = [];
 
     try {
-      for (const operation of operations) {
-        if (operation.kind !== 'write') {
-          continue;
-        }
-
-        const tempPath = createTransactionalPath(operation.targetPath, 'tmp');
-        await mkdir(dirname(operation.targetPath), { recursive: true });
-        await writeFile(tempPath, operation.value, operation.writeOptions);
-        operation.tempPath = tempPath;
-        stagedWrites.push(tempPath);
-      }
-
-      for (const operation of operations) {
-        const hadExistingTarget = await pathExists(operation.targetPath);
-        const backupPath = hadExistingTarget
-          ? createTransactionalPath(operation.targetPath, 'bak')
-          : null;
-
-        if (backupPath) {
-          await rename(operation.targetPath, backupPath);
-        }
-
-        try {
-          if (operation.kind === 'write') {
-            await rename(operation.tempPath, operation.targetPath);
-            const stagedIndex = stagedWrites.indexOf(operation.tempPath);
-            if (stagedIndex >= 0) {
-              stagedWrites.splice(stagedIndex, 1);
-            }
+      await this.runManagedWrite([filePath], async () => {
+        for (const operation of operations) {
+          if (operation.kind !== 'write') {
+            continue;
           }
-        } catch (error) {
+
+          const tempPath = createTransactionalPath(operation.targetPath, 'tmp');
+          await mkdir(dirname(operation.targetPath), { recursive: true });
+          await writeFile(tempPath, operation.value, operation.writeOptions);
+          operation.tempPath = tempPath;
+          stagedWrites.push(tempPath);
+        }
+
+        for (const operation of operations) {
+          const hadExistingTarget = await pathExists(operation.targetPath);
+          const backupPath = hadExistingTarget
+            ? createTransactionalPath(operation.targetPath, 'bak')
+            : null;
+
           if (backupPath) {
-            await rename(backupPath, operation.targetPath);
+            await rename(operation.targetPath, backupPath);
           }
-          throw error;
-        }
 
-        committedOperations.push({
-          backupPath,
-          kind: operation.kind,
-          targetPath: operation.targetPath,
-        });
-      }
+          try {
+            if (operation.kind === 'write') {
+              await rename(operation.tempPath, operation.targetPath);
+              const stagedIndex = stagedWrites.indexOf(operation.tempPath);
+              if (stagedIndex >= 0) {
+                stagedWrites.splice(stagedIndex, 1);
+              }
+            }
+          } catch (error) {
+            if (backupPath) {
+              await rename(backupPath, operation.targetPath);
+            }
+            throw error;
+          }
+
+          committedOperations.push({
+            backupPath,
+            kind: operation.kind,
+            targetPath: operation.targetPath,
+          });
+        }
+      });
 
       await cleanupPaths(committedOperations.map((operation) => operation.backupPath));
       return { ok: true };
@@ -510,9 +542,11 @@ export class VaultFileStore {
       }
     }
 
-    await mkdir(dirname(absolute), { recursive: true });
-    await writeFile(absolute, content, 'utf-8');
-    await this.deleteCollaborationSnapshot(filePath);
+    await this.runManagedWrite([filePath], async () => {
+      await mkdir(dirname(absolute), { recursive: true });
+      await writeFile(absolute, content, 'utf-8');
+      await this.deleteCollaborationSnapshot(filePath);
+    });
     return { ok: true };
   }
 
@@ -523,8 +557,10 @@ export class VaultFileStore {
     }
 
     try {
-      await rm(absolute, { force: true });
-      await this.sidecarStore.deleteAllForFile(filePath);
+      await this.runManagedWrite([filePath], async () => {
+        await rm(absolute, { force: true });
+        await this.sidecarStore.deleteAllForFile(filePath);
+      });
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error.message };
@@ -538,9 +574,11 @@ export class VaultFileStore {
     }
 
     try {
-      await mkdir(dirname(absoluteNew), { recursive: true });
-      await rename(absoluteOld, absoluteNew);
-      await this.sidecarStore.renameAllForFile(oldPath, newPath);
+      await this.runManagedWrite([oldPath, newPath], async () => {
+        await mkdir(dirname(absoluteNew), { recursive: true });
+        await rename(absoluteOld, absoluteNew);
+        await this.sidecarStore.renameAllForFile(oldPath, newPath);
+      });
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error.message };
@@ -554,7 +592,7 @@ export class VaultFileStore {
     }
 
     try {
-      await mkdir(absolute, { recursive: true });
+      await this.runManagedWrite([dirPath], () => mkdir(absolute, { recursive: true }));
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error.message };
@@ -632,5 +670,78 @@ export class VaultFileStore {
     }
 
     return toVaultRelativePath(this.vaultDir, absolute);
+  }
+
+  async scanWorkspaceState() {
+    const entries = new Map();
+    const metadata = new Map();
+
+    const visitDirectory = async (dirPath) => {
+      let dirEntries;
+      try {
+        dirEntries = await readdir(dirPath, { withFileTypes: true });
+      } catch {
+        return;
+      }
+
+      const sorted = dirEntries.sort((left, right) => {
+        if (left.isDirectory() && !right.isDirectory()) return -1;
+        if (!left.isDirectory() && right.isDirectory()) return 1;
+        return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
+      });
+
+      for (const entry of sorted) {
+        if (isIgnoredVaultEntry(entry.name)) {
+          continue;
+        }
+
+        const fullPath = join(dirPath, entry.name);
+        const relativePath = toVaultRelativePath(this.vaultDir, fullPath).replace(/\\/g, '/');
+
+        if (entry.isDirectory()) {
+          entries.set(relativePath, createWorkspaceEntry(relativePath, 'directory'));
+          try {
+            const info = await stat(fullPath);
+            metadata.set(relativePath, {
+              inode: Number(info.ino || 0),
+              mtimeMs: Number(info.mtimeMs || 0),
+              path: relativePath,
+              size: 0,
+              type: 'directory',
+            });
+          } catch {
+            // Ignore transient directories that disappear during scans.
+          }
+          await visitDirectory(fullPath);
+          continue;
+        }
+
+        if (!isVaultFilePath(entry.name)) {
+          continue;
+        }
+
+        entries.set(relativePath, createWorkspaceEntry(relativePath, 'file'));
+        try {
+          const info = await stat(fullPath);
+          metadata.set(relativePath, {
+            inode: Number(info.ino || 0),
+            mtimeMs: Number(info.mtimeMs || 0),
+            path: relativePath,
+            size: Number(info.size || 0),
+            type: 'file',
+          });
+        } catch {
+          // Ignore transient files that disappear during scans.
+        }
+      }
+    };
+
+    await visitDirectory(this.vaultDir);
+
+    return {
+      entries,
+      metadata,
+      scannedAt: Date.now(),
+    };
   }
 }

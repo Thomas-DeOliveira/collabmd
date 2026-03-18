@@ -1,3 +1,8 @@
+import {
+  createEmptyWorkspaceChange as createSharedEmptyWorkspaceChange,
+  createWorkspaceChange as createSharedWorkspaceChange,
+} from '../../../domain/workspace-change.js';
+
 const STATUS_MAP = {
   A: { code: 'A', label: 'added', status: 'added' },
   C: { code: 'C', label: 'copied', status: 'copied' },
@@ -43,12 +48,7 @@ export function createEmptyBranchStatus() {
 }
 
 export function createEmptyWorkspaceChange() {
-  return {
-    changedPaths: [],
-    deletedPaths: [],
-    refreshExplorer: true,
-    renamedPaths: [],
-  };
+  return createSharedEmptyWorkspaceChange();
 }
 
 export function createEmptyStatusResponse() {
@@ -92,17 +92,10 @@ export function createWorkspaceChange({
   refreshExplorer = true,
   renamedPaths = [],
 } = {}) {
-  return {
-    changedPaths: Array.from(new Set((changedPaths ?? []).filter(Boolean))),
-    deletedPaths: Array.from(new Set((deletedPaths ?? []).filter(Boolean))),
-    refreshExplorer: Boolean(refreshExplorer),
-    renamedPaths: Array.from(new Map(
-      (renamedPaths ?? [])
-        .filter((entry) => entry?.oldPath && entry?.newPath && entry.oldPath !== entry.newPath)
-        .map((entry) => [`${entry.oldPath}:${entry.newPath}`, {
-          newPath: entry.newPath,
-          oldPath: entry.oldPath,
-        }]),
-    ).values()),
-  };
+  return createSharedWorkspaceChange({
+    changedPaths,
+    deletedPaths,
+    refreshExplorer,
+    renamedPaths,
+  });
 }

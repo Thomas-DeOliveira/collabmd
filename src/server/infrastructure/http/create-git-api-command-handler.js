@@ -1,7 +1,7 @@
 import { getRequestErrorStatusCode } from './http-errors.js';
 import { jsonResponse } from './http-response.js';
 import { parseJsonBody } from './request-body.js';
-import { createEmptyWorkspaceChange } from '../git/responses.js';
+import { createEmptyWorkspaceChange, hasWorkspaceMutation } from '../../../domain/workspace-change.js';
 
 async function parseRequiredBody(req, res, fieldName) {
   const body = await parseJsonBody(req);
@@ -29,19 +29,16 @@ function handleGitError(req, res, error, logMessage, fallbackMessage) {
   return true;
 }
 
-function hasWorkspaceMutation(workspaceChange = {}) {
-  return Boolean(
-    (workspaceChange.changedPaths?.length ?? 0) > 0
-    || (workspaceChange.deletedPaths?.length ?? 0) > 0
-    || (workspaceChange.renamedPaths?.length ?? 0) > 0,
-  );
+function readRequestId(req) {
+  const value = String(req.headers['x-collabmd-request-id'] || '').trim();
+  return value ? value.slice(0, 120) : null;
 }
 
 async function applyWorkspaceMutationEffects({
-  backlinkIndex,
+  action,
+  req,
   responsePayload,
-  roomRegistry,
-  vaultFileStore,
+  workspaceMutationCoordinator,
 }) {
   const workspaceChange = responsePayload?.workspaceChange ?? createEmptyWorkspaceChange();
   responsePayload.workspaceChange = workspaceChange;
@@ -50,18 +47,19 @@ async function applyWorkspaceMutationEffects({
     return responsePayload;
   }
 
-  await vaultFileStore?.reconcileSidecars?.(workspaceChange);
-  await vaultFileStore?.reconcileCollaborationSnapshots?.(workspaceChange);
-  await backlinkIndex?.build?.();
-  await roomRegistry?.reconcileWorkspaceChange?.(workspaceChange);
+  await workspaceMutationCoordinator?.apply?.({
+    action,
+    origin: 'git',
+    requestId: readRequestId(req),
+    sourceRef: responsePayload?.sourceRef ?? null,
+    workspaceChange,
+  });
   return responsePayload;
 }
 
 export function createGitApiCommandHandler({
-  backlinkIndex = null,
   gitService,
-  roomRegistry = null,
-  vaultFileStore = null,
+  workspaceMutationCoordinator = null,
 }) {
   return async function handleGitApiCommand(req, res, requestUrl) {
     if (requestUrl.pathname === '/api/git/stage' && req.method === 'POST') {
@@ -72,10 +70,12 @@ export function createGitApiCommandHandler({
         }
 
         jsonResponse(req, res, 200, await applyWorkspaceMutationEffects({
-          backlinkIndex,
-          responsePayload: await gitService.stageFile(body.path),
-          roomRegistry,
-          vaultFileStore,
+          action: 'stage',
+          req,
+          responsePayload: await workspaceMutationCoordinator.runManagedWorkspaceMutation(
+            () => gitService.stageFile(body.path),
+          ),
+          workspaceMutationCoordinator,
         }));
       } catch (error) {
         handleGitError(req, res, error, '[api] Failed to stage git file:', 'Failed to stage git file');
@@ -91,10 +91,12 @@ export function createGitApiCommandHandler({
         }
 
         jsonResponse(req, res, 200, await applyWorkspaceMutationEffects({
-          backlinkIndex,
-          responsePayload: await gitService.unstageFile(body.path),
-          roomRegistry,
-          vaultFileStore,
+          action: 'unstage',
+          req,
+          responsePayload: await workspaceMutationCoordinator.runManagedWorkspaceMutation(
+            () => gitService.unstageFile(body.path),
+          ),
+          workspaceMutationCoordinator,
         }));
       } catch (error) {
         handleGitError(req, res, error, '[api] Failed to unstage git file:', 'Failed to unstage git file');
@@ -110,12 +112,14 @@ export function createGitApiCommandHandler({
         }
 
         jsonResponse(req, res, 200, await applyWorkspaceMutationEffects({
-          backlinkIndex,
-          responsePayload: await gitService.commitStaged({
-            message: body.message,
-          }),
-          roomRegistry,
-          vaultFileStore,
+          action: 'commit',
+          req,
+          responsePayload: await workspaceMutationCoordinator.runManagedWorkspaceMutation(
+            () => gitService.commitStaged({
+              message: body.message,
+            }),
+          ),
+          workspaceMutationCoordinator,
         }));
       } catch (error) {
         handleGitError(req, res, error, '[api] Failed to commit staged changes:', 'Failed to commit staged changes');
@@ -126,10 +130,12 @@ export function createGitApiCommandHandler({
     if (requestUrl.pathname === '/api/git/push' && req.method === 'POST') {
       try {
         jsonResponse(req, res, 200, await applyWorkspaceMutationEffects({
-          backlinkIndex,
-          responsePayload: await gitService.pushBranch(),
-          roomRegistry,
-          vaultFileStore,
+          action: 'push',
+          req,
+          responsePayload: await workspaceMutationCoordinator.runManagedWorkspaceMutation(
+            () => gitService.pushBranch(),
+          ),
+          workspaceMutationCoordinator,
         }));
       } catch (error) {
         handleGitError(req, res, error, '[api] Failed to push git branch:', 'Failed to push git branch');
@@ -140,10 +146,12 @@ export function createGitApiCommandHandler({
     if (requestUrl.pathname === '/api/git/pull' && req.method === 'POST') {
       try {
         jsonResponse(req, res, 200, await applyWorkspaceMutationEffects({
-          backlinkIndex,
-          responsePayload: await gitService.pullBranch(),
-          roomRegistry,
-          vaultFileStore,
+          action: 'pull',
+          req,
+          responsePayload: await workspaceMutationCoordinator.runManagedWorkspaceMutation(
+            () => gitService.pullBranch(),
+          ),
+          workspaceMutationCoordinator,
         }));
       } catch (error) {
         handleGitError(req, res, error, '[api] Failed to pull git branch:', 'Failed to pull git branch');
@@ -159,10 +167,12 @@ export function createGitApiCommandHandler({
         }
 
         jsonResponse(req, res, 200, await applyWorkspaceMutationEffects({
-          backlinkIndex,
-          responsePayload: await gitService.resetFileToHead(body.path),
-          roomRegistry,
-          vaultFileStore,
+          action: 'reset-file',
+          req,
+          responsePayload: await workspaceMutationCoordinator.runManagedWorkspaceMutation(
+            () => gitService.resetFileToHead(body.path),
+          ),
+          workspaceMutationCoordinator,
         }));
       } catch (error) {
         handleGitError(req, res, error, '[api] Failed to reset git file:', 'Failed to reset git file');
