@@ -220,10 +220,13 @@ export const gitFeature = {
       && this.currentFilePath
       && workspaceChange.changedPaths.includes(this.currentFilePath)
     ) {
-      const highlightRange = Array.isArray(event.highlightRanges)
+      const canUseInlineCue = workspaceChange.changedPaths.length === 1;
+      const highlightRange = canUseInlineCue && Array.isArray(event.highlightRanges)
         ? event.highlightRanges.find((entry) => entry.path === this.currentFilePath)
         : null;
-      const didFlash = highlightRange ? this.session?.flashExternalUpdate?.(highlightRange) : false;
+      const didFlash = highlightRange
+        ? this.session?.flashExternalUpdate?.(highlightRange)
+        : false;
       if (!didFlash) {
         this.toastController.show(`${this.getDisplayName(this.currentFilePath)} updated from disk`);
       }

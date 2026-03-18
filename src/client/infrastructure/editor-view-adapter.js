@@ -16,6 +16,7 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import {
   Decoration,
   EditorView,
+  WidgetType,
   crosshairCursor,
   drawSelection,
   highlightActiveLine,
@@ -37,6 +38,23 @@ const markdownCodeLanguages = [...languages, plantUmlLanguageDescription];
 const pairedMatchingBracketMark = Decoration.mark({ class: 'cm-matchingBracket cm-matchingBracket-paired' });
 const nonmatchingBracketMark = Decoration.mark({ class: 'cm-nonmatchingBracket' });
 const remoteUpdateMark = Decoration.mark({ class: 'cm-remoteUpdateFlash' });
+const REMOTE_UPDATE_FLASH_DURATION_MS = 1350;
+const REMOTE_UPDATE_CARET_MAX_LENGTH = 160;
+const RECENT_LOCAL_INPUT_WINDOW_MS = 900;
+
+class RemoteUpdateCaretWidget extends WidgetType {
+  toDOM() {
+    const element = document.createElement('span');
+    element.className = 'cm-remoteUpdateCaretWidget';
+    element.setAttribute('aria-hidden', 'true');
+    return element;
+  }
+
+  ignoreEvent() {
+    return true;
+  }
+}
+
 const addRemoteUpdateFlashEffect = StateEffect.define();
 const clearRemoteUpdateFlashEffect = StateEffect.define();
 const remoteUpdateFlashField = StateField.define({
@@ -51,9 +69,19 @@ const remoteUpdateFlashField = StateField.define({
       }
 
       if (effect.is(addRemoteUpdateFlashEffect)) {
-        const { from, to } = effect.value;
-        nextDecorations = to > from
-          ? Decoration.set([remoteUpdateMark.range(from, to)], true)
+        const { from, showCaret, to } = effect.value;
+        const nextRanges = [];
+        if (to > from) {
+          nextRanges.push(remoteUpdateMark.range(from, to));
+        }
+        if (showCaret) {
+          nextRanges.push(Decoration.widget({
+            side: -1,
+            widget: new RemoteUpdateCaretWidget(),
+          }).range(from));
+        }
+        nextDecorations = nextRanges.length > 0
+          ? Decoration.set(nextRanges, true)
           : Decoration.none;
       }
     });
@@ -186,6 +214,25 @@ function createEditorTheme(theme) {
         ? 'oklch(from var(--color-primary) calc(l + 0.05) c h / 0.26)'
         : 'oklch(from var(--color-primary) calc(l - 0.04) c h / 0.2)'}`,
     },
+    '.cm-remoteUpdateCaretWidget': {
+      animation: 'collabmd-remote-update-caret 1s ease-out',
+      backgroundColor: 'transparent',
+      borderLeft: `2px solid ${theme === 'dark'
+        ? 'color-mix(in oklab, var(--color-primary) 78%, white)'
+        : 'color-mix(in oklab, var(--color-primary) 84%, black)'}`,
+      borderRadius: '999px',
+      boxShadow: `0 0 0 1px ${theme === 'dark'
+        ? 'oklch(from var(--color-primary) calc(l + 0.06) c h / 0.22)'
+        : 'oklch(from var(--color-primary) calc(l - 0.04) c h / 0.16)'}`,
+      display: 'inline-block',
+      height: '1.2em',
+      marginLeft: '-1px',
+      marginRight: '-1px',
+      pointerEvents: 'none',
+      transformOrigin: 'center bottom',
+      verticalAlign: 'text-bottom',
+      width: '0',
+    },
     '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
       backgroundColor: selectionBackground,
     },
@@ -203,6 +250,30 @@ function createEditorTheme(theme) {
         backgroundColor: theme === 'dark'
           ? 'oklch(from var(--color-primary) l c h / 0)'
           : 'oklch(from var(--color-primary) l c h / 0)',
+      },
+    },
+    '@keyframes collabmd-remote-update-caret': {
+      '0%': {
+        boxShadow: `0 0 0 1px ${theme === 'dark'
+          ? 'oklch(from var(--color-primary) calc(l + 0.08) c h / 0.34)'
+          : 'oklch(from var(--color-primary) calc(l - 0.04) c h / 0.24)'}`,
+        opacity: '0',
+        transform: 'translateY(0.2em) scaleY(0.7)',
+      },
+      '18%': {
+        opacity: '1',
+        transform: 'translateY(0) scaleY(1)',
+      },
+      '72%': {
+        opacity: '1',
+        transform: 'translateY(0) scaleY(1)',
+      },
+      '100%': {
+        boxShadow: `0 0 0 1px ${theme === 'dark'
+          ? 'oklch(from var(--color-primary) calc(l + 0.08) c h / 0)'
+          : 'oklch(from var(--color-primary) calc(l - 0.04) c h / 0)'}`,
+        opacity: '0',
+        transform: 'translateY(-0.05em) scaleY(0.9)',
       },
     },
   }, { dark: theme === 'dark' });
@@ -253,6 +324,7 @@ export class EditorViewAdapter {
     this.lineWrappingCompartment = new Compartment();
     this.viewportFrame = 0;
     this.remoteUpdateFlashTimer = 0;
+    this.lastLocalInputAt = 0;
     this.handleScroll = () => {
       if (this.viewportFrame) {
         return;
@@ -262,6 +334,9 @@ export class EditorViewAdapter {
         this.viewportFrame = 0;
         this.emitViewportChange();
       });
+    };
+    this.handleLocalInputActivity = () => {
+      this.lastLocalInputAt = Date.now();
     };
   }
 
@@ -333,6 +408,10 @@ export class EditorViewAdapter {
     });
 
     this.editorView.scrollDOM.addEventListener('scroll', this.handleScroll, { passive: true });
+    this.editorView.contentDOM.addEventListener('beforeinput', this.handleLocalInputActivity);
+    this.editorView.contentDOM.addEventListener('keydown', this.handleLocalInputActivity);
+    this.editorView.contentDOM.addEventListener('paste', this.handleLocalInputActivity);
+    this.editorView.contentDOM.addEventListener('compositionstart', this.handleLocalInputActivity);
     this.updateCursorInfo(this.editorView.state);
     this.onSelectionChanged?.(this.editorView.state);
     this.emitViewportChange();
@@ -347,6 +426,10 @@ export class EditorViewAdapter {
       clearTimeout(this.remoteUpdateFlashTimer);
       this.remoteUpdateFlashTimer = 0;
     }
+    this.editorView?.contentDOM?.removeEventListener('beforeinput', this.handleLocalInputActivity);
+    this.editorView?.contentDOM?.removeEventListener('keydown', this.handleLocalInputActivity);
+    this.editorView?.contentDOM?.removeEventListener('paste', this.handleLocalInputActivity);
+    this.editorView?.contentDOM?.removeEventListener('compositionstart', this.handleLocalInputActivity);
     this.editorView?.scrollDOM?.removeEventListener('scroll', this.handleScroll);
     this.editorView?.destroy();
     this.editorView = null;
@@ -409,7 +492,7 @@ export class EditorViewAdapter {
     this.editorView?.requestMeasure();
   }
 
-  flashRemoteRange({ from = 0, to = 0 } = {}, durationMs = 1350) {
+  flashRemoteRange({ from = 0, to = 0 } = {}, durationMs = REMOTE_UPDATE_FLASH_DURATION_MS) {
     const state = this.editorView?.state;
     if (!state || state.doc.length === 0) {
       return false;
@@ -428,8 +511,14 @@ export class EditorViewAdapter {
       }
     }
 
+    const rangeLength = Math.max(end - start, 0);
+    const showCaret = (
+      rangeLength <= REMOTE_UPDATE_CARET_MAX_LENGTH
+      && (Date.now() - this.lastLocalInputAt) > RECENT_LOCAL_INPUT_WINDOW_MS
+    );
+
     this.editorView.dispatch({
-      effects: addRemoteUpdateFlashEffect.of({ from: start, to: end }),
+      effects: addRemoteUpdateFlashEffect.of({ from: start, showCaret, to: end }),
     });
 
     if (this.remoteUpdateFlashTimer) {

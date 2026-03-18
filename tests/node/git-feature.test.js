@@ -151,7 +151,7 @@ test('gitFeature follows the renamed current file for incoming workspace events'
   ]);
 });
 
-test('gitFeature highlights filesystem updates for the current file instead of showing a toast', async () => {
+test('gitFeature highlights single-file filesystem updates for the current file instead of showing a toast', async () => {
   const flashCalls = [];
   const { context, events } = createContext({
     session: {
@@ -176,6 +176,33 @@ test('gitFeature highlights filesystem updates for the current file instead of s
 
   assert.deepEqual(flashCalls, [{ path: 'README.md', from: 2, to: 8 }]);
   assert.deepEqual(events, []);
+});
+
+test('gitFeature keeps the toast fallback for multi-file filesystem updates', async () => {
+  const flashCalls = [];
+  const { context, events } = createContext({
+    session: {
+      flashExternalUpdate(range) {
+        flashCalls.push(range);
+        return true;
+      },
+    },
+  });
+
+  await gitFeature.handleIncomingWorkspaceEvent.call(context, {
+    action: 'filesystem-sync',
+    highlightRanges: [{ path: 'README.md', from: 2, to: 8 }],
+    origin: 'filesystem',
+    workspaceChange: {
+      changedPaths: ['README.md', 'docs/guide.md'],
+      deletedPaths: [],
+      refreshExplorer: true,
+      renamedPaths: [],
+    },
+  });
+
+  assert.deepEqual(flashCalls, []);
+  assert.deepEqual(events, [['toast', 'README updated from disk']]);
 });
 
 test('gitFeature falls back to a toast when a filesystem update cannot be highlighted', async () => {
