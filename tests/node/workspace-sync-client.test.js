@@ -9,9 +9,14 @@ function snapshotTree(tree) {
 
 test('WorkspaceSyncClient incrementally applies workspace entry add, rename, and delete changes', () => {
   const treeSnapshots = [];
+  const changeMetadata = [];
   const client = new WorkspaceSyncClient({
-    onTreeChange(tree) {
+    onTreeChange(tree, metadata = {}) {
       treeSnapshots.push(snapshotTree(tree));
+      changeMetadata.push({
+        changedPaths: [...(metadata.changedPaths ?? [])],
+        reset: Boolean(metadata.reset),
+      });
     },
   });
 
@@ -47,6 +52,10 @@ test('WorkspaceSyncClient incrementally applies workspace entry add, rename, and
     path: 'docs',
     type: 'directory',
   }]);
+  assert.deepEqual(changeMetadata.at(-1), {
+    changedPaths: ['docs', 'docs/guide.md'],
+    reset: false,
+  });
 
   client.ydoc.transact(() => {
     client.entries.delete('docs/guide.md');
@@ -70,6 +79,10 @@ test('WorkspaceSyncClient incrementally applies workspace entry add, rename, and
     path: 'docs',
     type: 'directory',
   }]);
+  assert.deepEqual(changeMetadata.at(-1), {
+    changedPaths: ['docs/guide.md', 'docs/readme.md'],
+    reset: false,
+  });
 
   client.ydoc.transact(() => {
     client.entries.delete('docs/readme.md');
@@ -77,6 +90,10 @@ test('WorkspaceSyncClient incrementally applies workspace entry add, rename, and
   });
 
   assert.deepEqual(treeSnapshots.at(-1), []);
+  assert.deepEqual(changeMetadata.at(-1), {
+    changedPaths: ['docs/readme.md', 'docs'],
+    reset: false,
+  });
   client.entries.unobserve(client.handleEntriesChange);
   client.ydoc.destroy();
 });

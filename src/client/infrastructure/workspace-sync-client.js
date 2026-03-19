@@ -246,7 +246,10 @@ export class WorkspaceSyncClient {
         return;
       }
 
-      this.onTreeChange(this.treeModel.applyMapChanges(event.changes.keys, this.entries));
+      this.onTreeChange(this.treeModel.applyMapChanges(event.changes.keys, this.entries), {
+        changedPaths: Array.from(event.changes.keys.keys()),
+        reset: false,
+      });
     };
     this.handleEventsChange = () => {
       if (!this._didInitialSync) {
@@ -287,7 +290,10 @@ export class WorkspaceSyncClient {
 
       this._didInitialSync = true;
       this.primeEventCache();
-      this.onTreeChange(this.treeModel.reset(this.entries.toJSON()));
+      this.onTreeChange(this.treeModel.reset(this.entries.toJSON()), {
+        changedPaths: [],
+        reset: true,
+      });
     });
   }
 

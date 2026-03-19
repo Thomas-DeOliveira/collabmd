@@ -12,6 +12,29 @@ function getPathLeaf(path) {
     .pop() || '';
 }
 
+function getParentPath(pathValue) {
+  const normalized = String(pathValue ?? '').replace(/\/+$/u, '');
+  const separatorIndex = normalized.lastIndexOf('/');
+  return separatorIndex >= 0 ? normalized.slice(0, separatorIndex) : '';
+}
+
+function findNodeByPath(nodes = [], pathValue = '') {
+  for (const node of nodes) {
+    if (node.path === pathValue) {
+      return node;
+    }
+
+    if (node.type === 'directory' && Array.isArray(node.children)) {
+      const nested = findNodeByPath(node.children, pathValue);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  return null;
+}
+
 export class FileExplorerView {
   constructor({
     onDirectoryToggle,
@@ -27,6 +50,9 @@ export class FileExplorerView {
     this.onTreeContextMenu = onTreeContextMenu;
     this.treeContainer = document.getElementById('fileTree');
     this.searchInput = document.getElementById('fileSearchInput');
+    this.renderedDirectoryWrappers = new Map();
+    this.renderedChildContainers = new Map();
+    this.lastRenderMode = 'tree';
   }
 
   initialize() {
@@ -44,30 +70,62 @@ export class FileExplorerView {
     });
   }
 
-  render({ activeFilePath, expandedDirs, searchMatches, searchQuery, tree }) {
+  render({ activeFilePath, changedPaths = null, expandedDirs, reset = false, searchMatches, searchQuery, tree }) {
     if (!this.treeContainer) {
       return;
     }
 
     if (searchQuery) {
+      this.lastRenderMode = 'search';
       this.renderSearchResults(searchMatches, activeFilePath);
       return;
     }
 
-    this.treeContainer.innerHTML = '';
-
-    if (tree.length === 0) {
-      this.treeContainer.innerHTML = '<div class="file-tree-empty">No vault files found</div>';
+    if (
+      reset
+      || this.lastRenderMode !== 'tree'
+      || !Array.isArray(changedPaths)
+      || changedPaths.length === 0
+    ) {
+      this.renderFullTree(tree, {
+        activeFilePath,
+        expandedDirs,
+      });
+      this.lastRenderMode = 'tree';
       return;
     }
 
-    const fragment = document.createDocumentFragment();
-    this.renderNodes(tree, fragment, {
-      activeFilePath,
-      depth: 0,
-      expandedDirs,
-    });
-    this.treeContainer.appendChild(fragment);
+    const affectedParentPaths = Array.from(new Set(
+      changedPaths.map((pathValue) => getParentPath(pathValue)),
+    ))
+      .sort((left, right) => left.split('/').length - right.split('/').length)
+      .filter((pathValue, index, values) => (
+        !values.slice(0, index).some((ancestorPath) => ancestorPath && pathValue.startsWith(`${ancestorPath}/`))
+      ));
+    if (affectedParentPaths.includes('')) {
+      this.renderFullTree(tree, {
+        activeFilePath,
+        expandedDirs,
+      });
+      this.lastRenderMode = 'tree';
+      return;
+    }
+
+    for (const parentPath of affectedParentPaths) {
+      if (!this.rerenderDirectoryBranch(parentPath, tree, {
+        activeFilePath,
+        expandedDirs,
+      })) {
+        this.renderFullTree(tree, {
+          activeFilePath,
+          expandedDirs,
+        });
+        this.lastRenderMode = 'tree';
+        return;
+      }
+    }
+
+    this.lastRenderMode = 'tree';
   }
 
   renderSearchResults(matches, activeFilePath) {
@@ -75,6 +133,7 @@ export class FileExplorerView {
       return;
     }
 
+    this.resetTreeIndexes();
     this.treeContainer.innerHTML = '';
 
     if (matches.length === 0) {
@@ -93,6 +152,29 @@ export class FileExplorerView {
       }));
     }
     this.treeContainer.appendChild(fragment);
+  }
+
+  renderFullTree(tree, { activeFilePath, expandedDirs }) {
+    this.resetTreeIndexes();
+    this.treeContainer.innerHTML = '';
+
+    if (tree.length === 0) {
+      this.treeContainer.innerHTML = '<div class="file-tree-empty">No vault files found</div>';
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    this.renderNodes(tree, fragment, {
+      activeFilePath,
+      depth: 0,
+      expandedDirs,
+    });
+    this.treeContainer.appendChild(fragment);
+  }
+
+  resetTreeIndexes() {
+    this.renderedDirectoryWrappers.clear();
+    this.renderedChildContainers.clear();
   }
 
   renderNodes(nodes, container, { activeFilePath, depth, expandedDirs }) {
@@ -142,19 +224,78 @@ export class FileExplorerView {
     });
 
     wrapper.appendChild(button);
+    this.renderedDirectoryWrappers.set(node.path, wrapper);
 
     if (isExpanded && Array.isArray(node.children)) {
       const childContainer = document.createElement('div');
       childContainer.className = 'file-tree-children';
+      this.renderedChildContainers.set(node.path, childContainer);
       this.renderNodes(node.children, childContainer, {
         activeFilePath,
         depth: depth + 1,
         expandedDirs,
       });
       wrapper.appendChild(childContainer);
+    } else {
+      this.renderedChildContainers.delete(node.path);
     }
 
     return wrapper;
+  }
+
+  rerenderDirectoryBranch(parentPath, tree, { activeFilePath, expandedDirs }) {
+    const wrapper = this.renderedDirectoryWrappers.get(parentPath);
+    const parentNode = findNodeByPath(tree, parentPath);
+    if (!wrapper || parentNode?.type !== 'directory') {
+      return false;
+    }
+
+    const button = wrapper.querySelector('.file-tree-dir');
+    const isExpanded = expandedDirs.has(parentPath);
+    button?.setAttribute('aria-expanded', String(isExpanded));
+    button?.querySelector('.file-tree-chevron')?.classList.toggle('expanded', isExpanded);
+
+    const depth = Number(button?.dataset.depth ?? 0);
+    let childContainer = this.renderedChildContainers.get(parentPath) ?? wrapper.querySelector('.file-tree-children');
+
+    this.clearRenderedDescendants(parentPath);
+
+    if (!isExpanded) {
+      childContainer?.remove();
+      this.renderedChildContainers.delete(parentPath);
+      return true;
+    }
+
+    if (!childContainer) {
+      childContainer = document.createElement('div');
+      childContainer.className = 'file-tree-children';
+      wrapper.appendChild(childContainer);
+    } else {
+      childContainer.innerHTML = '';
+    }
+    this.renderedChildContainers.set(parentPath, childContainer);
+
+    this.renderNodes(parentNode.children ?? [], childContainer, {
+      activeFilePath,
+      depth: depth + 1,
+      expandedDirs,
+    });
+
+    return true;
+  }
+
+  clearRenderedDescendants(parentPath) {
+    const prefix = `${parentPath}/`;
+    Array.from(this.renderedDirectoryWrappers.keys()).forEach((pathValue) => {
+      if (pathValue.startsWith(prefix)) {
+        this.renderedDirectoryWrappers.delete(pathValue);
+      }
+    });
+    Array.from(this.renderedChildContainers.keys()).forEach((pathValue) => {
+      if (pathValue.startsWith(prefix)) {
+        this.renderedChildContainers.delete(pathValue);
+      }
+    });
   }
 
   createFileItem({ activeFilePath, depth, filePath, fileType = 'file', name }) {

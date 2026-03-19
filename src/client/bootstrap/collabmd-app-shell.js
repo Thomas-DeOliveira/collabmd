@@ -120,9 +120,9 @@ export class CollabMdAppShell {
       onChatChange: (messages, meta) => this.updateChatMessages(messages, meta),
     });
     this.workspaceSync = new WorkspaceSyncClient({
-      onTreeChange: (tree) => {
+      onTreeChange: (tree, metadata = {}) => {
         const wasReady = this.fileExplorerReady;
-        this.fileExplorer.setTree(tree);
+        this.fileExplorer.setTree(tree, metadata);
         this.fileExplorerReady = true;
         if (!wasReady && this.isTabActive) {
           void this.handleHashChange();

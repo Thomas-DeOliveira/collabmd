@@ -60,9 +60,12 @@ export class FileExplorerController {
     }
   }
 
-  setTree(tree) {
+  setTree(tree, {
+    changedPaths = null,
+    reset = false,
+  } = {}) {
     this.state.setTree(tree);
-    this.renderTree();
+    this.renderTree({ changedPaths, reset });
   }
 
   setActiveFile(filePath) {
@@ -78,10 +81,15 @@ export class FileExplorerController {
     return this.state.flatFiles.filter((path) => !isImageAttachmentFilePath(path));
   }
 
-  renderTree() {
+  renderTree({
+    changedPaths = null,
+    reset = false,
+  } = {}) {
     this.view.render({
       activeFilePath: this.state.activeFilePath,
+      changedPaths,
       expandedDirs: this.state.expandedDirs,
+      reset,
       searchMatches: this.state.getSearchMatches(),
       searchQuery: this.state.searchQuery,
       tree: this.state.tree,
