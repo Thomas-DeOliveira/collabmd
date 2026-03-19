@@ -66,3 +66,36 @@ test('BacklinkIndex remaps backlink contexts when target file is renamed', async
     },
   ]);
 });
+
+test('BacklinkIndex flushes scheduled rebuilds when backlinks are queried', async () => {
+  const timers = [];
+  const vaultFileStore = new StubVaultStore([
+    ['source.md', '# Source\n\nSee [[target]].'],
+    ['target.md', '# Target'],
+  ]);
+  const index = new BacklinkIndex({
+    clearTimeoutFn(timer) {
+      timer.cleared = true;
+    },
+    setTimeoutFn(callback) {
+      const timer = {
+        callback,
+        cleared: false,
+        unref() {},
+      };
+      timers.push(timer);
+      return timer;
+    },
+    vaultFileStore,
+  });
+
+  await index.build();
+  vaultFileStore.files.set('source.md', '# Source\n\nNo links now.');
+
+  index.scheduleBuild();
+  const backlinks = await index.getBacklinks('target.md');
+
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].cleared, true);
+  assert.deepEqual(backlinks, []);
+});

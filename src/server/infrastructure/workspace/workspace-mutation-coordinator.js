@@ -184,10 +184,9 @@ export class WorkspaceMutationCoordinator {
     const previousEntries = this.workspaceState?.entries ?? new Map();
     if (
       forceRebuild
-      || (workspaceChange.renamedPaths?.length ?? 0) > 0
       || countWorkspacePaths(workspaceChange) > 25
     ) {
-      await this.backlinkIndex.build();
+      this.backlinkIndex.scheduleBuild?.();
       return;
     }
 

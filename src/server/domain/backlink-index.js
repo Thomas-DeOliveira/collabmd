@@ -14,9 +14,27 @@ import { createWikiTargetIndex, resolveWikiTargetWithIndex } from '../../domain/
 
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return { promise, reject, resolve };
+}
+
 export class BacklinkIndex {
-  constructor({ vaultFileStore }) {
+  constructor({
+    rebuildDelayMs = 150,
+    setTimeoutFn = setTimeout,
+    clearTimeoutFn = clearTimeout,
+    vaultFileStore,
+  }) {
     this.vaultFileStore = vaultFileStore;
+    this.rebuildDelayMs = rebuildDelayMs;
+    this.setTimeoutFn = setTimeoutFn;
+    this.clearTimeoutFn = clearTimeoutFn;
     /** @type {Map<string, Set<string>>} sourcePath → set of resolved target paths */
     this.forward = new Map();
     /** @type {Map<string, Set<string>>} targetPath → set of source paths */
@@ -29,6 +47,11 @@ export class BacklinkIndex {
     this._fileSet = new Set();
     this._wikiTargetIndex = createWikiTargetIndex(this._fileList);
     this._built = false;
+    this._requestedBuildVersion = 0;
+    this._completedBuildVersion = 0;
+    this._buildPromise = null;
+    this._scheduledBuildTimer = null;
+    this._scheduledBuildDeferred = null;
   }
 
   /**
@@ -36,6 +59,74 @@ export class BacklinkIndex {
    * Called once at server startup.
    */
   async build() {
+    this._requestedBuildVersion += 1;
+    return this.flushScheduledBuild();
+  }
+
+  scheduleBuild({ delayMs = this.rebuildDelayMs } = {}) {
+    this._requestedBuildVersion += 1;
+    if (!this._scheduledBuildDeferred) {
+      this._scheduledBuildDeferred = createDeferred();
+    }
+
+    if (this._scheduledBuildTimer) {
+      this.clearTimeoutFn(this._scheduledBuildTimer);
+    }
+
+    this._scheduledBuildTimer = this.setTimeoutFn(() => {
+      this._scheduledBuildTimer = null;
+      const deferred = this._scheduledBuildDeferred;
+      this._scheduledBuildDeferred = null;
+      this._ensureBuiltToRequestedVersion()
+        .then(() => deferred?.resolve())
+        .catch((error) => deferred?.reject(error));
+    }, delayMs);
+    this._scheduledBuildTimer.unref?.();
+
+    return this._scheduledBuildDeferred.promise;
+  }
+
+  async flushScheduledBuild() {
+    if (this._scheduledBuildTimer) {
+      this.clearTimeoutFn(this._scheduledBuildTimer);
+      this._scheduledBuildTimer = null;
+    }
+
+    const deferred = this._scheduledBuildDeferred;
+    this._scheduledBuildDeferred = null;
+
+    try {
+      await this._ensureBuiltToRequestedVersion();
+      deferred?.resolve();
+    } catch (error) {
+      deferred?.reject(error);
+      throw error;
+    }
+  }
+
+  async _ensureBuiltToRequestedVersion() {
+    while (this._completedBuildVersion < this._requestedBuildVersion) {
+      await this._runSingleBuild();
+    }
+  }
+
+  async _runSingleBuild() {
+    if (this._buildPromise) {
+      return this._buildPromise;
+    }
+
+    const targetVersion = this._requestedBuildVersion;
+    this._buildPromise = (async () => {
+      await this._performBuild();
+      this._completedBuildVersion = Math.max(this._completedBuildVersion, targetVersion);
+    })().finally(() => {
+      this._buildPromise = null;
+    });
+
+    return this._buildPromise;
+  }
+
+  async _performBuild() {
     this.forward.clear();
     this.reverse.clear();
     this.contextsBySource.clear();
@@ -169,6 +260,8 @@ export class BacklinkIndex {
    * Returns: [{ file: string, contexts: string[] }]
    */
   async getBacklinks(filePath) {
+    await this.flushScheduledBuild();
+
     const sources = this.reverse.get(filePath);
     if (!sources || sources.size === 0) {
       return [];
