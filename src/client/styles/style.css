@@ -9,6 +9,7 @@
 @import './components/navigation.css';
 @import './components/actions.css';
 @import './components/surfaces.css';
+@import './components/states.css';
 @import './features/git.css';
 @import './features/diff.css';
 @import './features/collaboration-ui.css';

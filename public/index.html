@@ -94,9 +94,9 @@
           </button>
           <div class="toolbar-room-info">
             <span class="toolbar-room-name" id="activeFileName">CollabMD</span>
-            <span class="toolbar-badge" id="userCount"></span>
-            <span class="toolbar-badge hidden" id="toolbarDiffBadge">Diff</span>
-            <span class="toolbar-badge hidden" id="gitOperationStatus" aria-live="polite" aria-atomic="true"></span>
+            <span class="ui-pill-badge ui-pill-badge--accent toolbar-badge" id="userCount"></span>
+            <span class="ui-pill-badge ui-pill-badge--accent toolbar-badge hidden" id="toolbarDiffBadge">Diff</span>
+            <span class="ui-pill-badge ui-pill-badge--accent toolbar-badge hidden" id="gitOperationStatus" aria-live="polite" aria-atomic="true"></span>
           </div>
         </div>
 
@@ -129,7 +129,7 @@
             <button class="ui-button btn btn-ghost ui-toolbar-button chat-toggle-btn" id="chatToggleBtn" aria-label="Open team chat" aria-expanded="false" title="Team chat">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
               <span class="ui-toolbar-button-label">Chat</span>
-              <span class="chat-toggle-badge hidden" id="chatToggleBadge">0</span>
+              <span class="ui-pill-badge ui-pill-badge--solid ui-pill-badge--count chat-toggle-badge hidden" id="chatToggleBadge">0</span>
             </button>
             <div class="toast-container chat-toast-container" id="chatToastContainer" aria-live="polite" aria-atomic="true"></div>
 
@@ -441,8 +441,8 @@
           </div>
           <div class="diff-toolbar-right">
             <div class="diff-stats" id="diffStats">
-              <span class="diff-stats-add">+0</span>
-              <span class="diff-stats-del">-0</span>
+              <span class="ui-stat-token ui-stat-token--add diff-stats-add">+0</span>
+              <span class="ui-stat-token ui-stat-token--del diff-stats-del">-0</span>
             </div>
             <div class="ui-segmented-control diff-layout-toggle hidden" id="diffLayoutToggle" role="group" aria-label="Commit diff layout">
               <button class="ui-segmented-btn view-btn diff-layout-btn" data-diff-layout="stacked" type="button">Stacked</button>

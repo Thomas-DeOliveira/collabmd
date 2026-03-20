@@ -19,13 +19,13 @@ function badgeClass(status) {
   switch (status) {
     case 'added':
     case 'untracked':
-      return 'added';
+      return 'ui-status-badge--success';
     case 'deleted':
-      return 'deleted';
+      return 'ui-status-badge--danger';
     case 'renamed':
-      return 'renamed';
+      return 'ui-status-badge--accent';
     default:
-      return 'modified';
+      return 'ui-status-badge--warning';
   }
 }
 
@@ -522,8 +522,8 @@ export class GitDiffViewController {
     return `
       <div class="diff-file-header">
         <span class="diff-file-path">${escapeHtml(file.path)}</span>
-        <span class="git-status-badge ${badgeClass(file.status)}">${escapeHtml(file.status)}</span>
-        <span class="diff-file-header-stats"><span class="diff-stats-add">+${file.stats?.additions ?? 0}</span><span class="diff-stats-del">-${file.stats?.deletions ?? 0}</span></span>
+        <span class="ui-status-badge ${badgeClass(file.status)}">${escapeHtml(file.status)}</span>
+        <span class="diff-file-header-stats"><span class="ui-stat-token ui-stat-token--add diff-stats-add">+${file.stats?.additions ?? 0}</span><span class="ui-stat-token ui-stat-token--del diff-stats-del">-${file.stats?.deletions ?? 0}</span></span>
       </div>
     `;
   }
@@ -659,13 +659,13 @@ export class GitDiffViewController {
         >
           <span class="ui-record-header diff-index-item-top">
             <span class="ui-record-title diff-index-item-name">${escapeHtml(getPathLeaf(file.path))}</span>
-            <span class="git-status-badge ${badgeClass(file.status)}">${escapeHtml(file.status)}</span>
+            <span class="ui-status-badge ${badgeClass(file.status)}">${escapeHtml(file.status)}</span>
           </span>
           ${dirPath ? `<span class="ui-record-subtitle diff-index-item-path">${escapeHtml(dirPath)}</span>` : ''}
           <span class="ui-record-meta diff-index-item-meta">
             <span>${index + 1}</span>
-            <span class="diff-stats-add">+${file.stats?.additions ?? 0}</span>
-            <span class="diff-stats-del">-${file.stats?.deletions ?? 0}</span>
+            <span class="ui-stat-token ui-stat-token--add diff-stats-add">+${file.stats?.additions ?? 0}</span>
+            <span class="ui-stat-token ui-stat-token--del diff-stats-del">-${file.stats?.deletions ?? 0}</span>
           </span>
         </button>
       `;
@@ -718,9 +718,9 @@ export class GitDiffViewController {
             </span>
           </span>
           <span class="diff-commit-section-meta">
-            <span class="git-status-badge ${badgeClass(file.status)}">${escapeHtml(file.status)}</span>
-            <span class="diff-stats-add">+${file.stats?.additions ?? 0}</span>
-            <span class="diff-stats-del">-${file.stats?.deletions ?? 0}</span>
+            <span class="ui-status-badge ${badgeClass(file.status)}">${escapeHtml(file.status)}</span>
+            <span class="ui-stat-token ui-stat-token--add diff-stats-add">+${file.stats?.additions ?? 0}</span>
+            <span class="ui-stat-token ui-stat-token--del diff-stats-del">-${file.stats?.deletions ?? 0}</span>
           </span>
         </button>
         <div class="diff-commit-section-body${isCollapsed ? ' hidden' : ''}">
@@ -1127,8 +1127,8 @@ export class GitDiffViewController {
       const additions = this.data?.summary?.additions ?? 0;
       const deletions = this.data?.summary?.deletions ?? 0;
       this.stats.innerHTML = `
-        <span class="diff-stats-add">+${additions}</span>
-        <span class="diff-stats-del">-${deletions}</span>
+        <span class="ui-stat-token ui-stat-token--add diff-stats-add">+${additions}</span>
+        <span class="ui-stat-token ui-stat-token--del diff-stats-del">-${deletions}</span>
       `;
     }
 

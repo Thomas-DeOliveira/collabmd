@@ -144,12 +144,7 @@
 }
 
 .git-section-count {
-  padding: 1px 6px;
-  border-radius: var(--radius-full);
-  background: var(--color-surface-dynamic);
-  color: var(--color-text-muted);
-  font-size: 10px;
-  font-weight: 600;
+  min-height: 20px;
 }
 
 .git-section-chevron {
@@ -214,42 +209,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
-}
-
-.git-status-badge {
-  flex-shrink: 0;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.git-status-badge.modified {
-  color: var(--color-warning);
-  background: color-mix(in oklab, var(--color-warning) 14%, transparent);
-}
-
-.git-status-badge.added {
-  color: var(--color-success);
-  background: color-mix(in oklab, var(--color-success) 14%, transparent);
-}
-
-.git-status-badge.deleted {
-  color: var(--color-error);
-  background: color-mix(in oklab, var(--color-error) 14%, transparent);
-}
-
-.git-status-badge.renamed {
-  color: var(--color-primary);
-  background: color-mix(in oklab, var(--color-primary) 16%, transparent);
-}
-
-.git-status-badge.untracked {
-  color: var(--color-text-faint);
-  background: var(--color-surface-offset);
 }
 
 .git-file-actions {
@@ -332,14 +291,6 @@
 
 .git-history-hash {
   flex-shrink: 0;
-  padding: 1px 6px;
-  border-radius: var(--radius-full);
-  background: var(--color-surface-offset-2);
-  color: var(--color-text-faint);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
 }
 
 .git-history-row-meta {

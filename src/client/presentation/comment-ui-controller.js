@@ -747,7 +747,7 @@ export class CommentUiController {
       title.textContent = formatAnchorLabel(group.anchor);
 
       const count = document.createElement('span');
-      count.className = 'comments-drawer-item-count';
+      count.className = 'ui-pill-badge ui-pill-badge--count ui-pill-badge--accent comments-drawer-item-count';
       count.textContent = String(group.threads.length);
 
       header.append(title, count);
@@ -822,7 +822,7 @@ export class CommentUiController {
 
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'comment-editor-badge';
+      button.className = 'ui-state-marker ui-state-marker--comment comment-editor-badge';
       button.dataset.count = String(group.threads.length);
       const isActive = this.activeCard?.groupKey === group.key;
       const isHovered = this.hoveredEditorGroupKeys.includes(group.key);
@@ -886,7 +886,7 @@ export class CommentUiController {
     }
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'comment-selection-chip';
+    button.className = 'ui-selection-pill ui-selection-pill--comment comment-selection-chip';
     button.textContent = 'Comment';
     button.style.top = `${chipTop}px`;
     button.style.right = `${COMMENT_SELECTION_CHIP_GAP}px`;
@@ -962,7 +962,7 @@ export class CommentUiController {
 
       const bubble = document.createElement('button');
       bubble.type = 'button';
-      bubble.className = 'comment-preview-badge';
+      bubble.className = 'ui-state-marker ui-state-marker--comment comment-preview-badge';
       bubble.dataset.commentPreviewGroupKeys = group.key;
       bubble.classList.toggle('is-active', isActive);
       bubble.classList.toggle('is-hovered', isHovered);
@@ -1495,7 +1495,7 @@ export class CommentUiController {
     (message.reactions ?? []).forEach((reaction) => {
       const chip = document.createElement('button');
       chip.type = 'button';
-      chip.className = 'comment-reaction-chip';
+      chip.className = 'ui-chip-button ui-chip-button--comment comment-reaction-chip';
       chip.classList.toggle('is-active', hasLocalReaction(reaction, localUserId));
       chip.setAttribute('aria-pressed', String(hasLocalReaction(reaction, localUserId)));
       chip.title = reaction.users?.map((user) => user.userName).join(', ') || reaction.emoji;
@@ -1529,7 +1529,7 @@ export class CommentUiController {
 
     const moreButton = document.createElement('button');
     moreButton.type = 'button';
-    moreButton.className = 'comment-reaction-more-trigger';
+    moreButton.className = 'ui-chip-button ui-chip-button--comment comment-reaction-more-trigger';
     moreButton.dataset.reactionPickerToggle = 'true';
     moreButton.setAttribute('aria-expanded', String(
       isReactionPickerOpen(this.reactionPicker, thread.id, message.id),
@@ -1560,7 +1560,7 @@ export class CommentUiController {
   createQuickReactionButton(thread, message, emoji) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'comment-reaction-quick-add';
+    button.className = 'ui-icon-chip ui-icon-chip--comment comment-reaction-quick-add';
     button.textContent = emoji;
     button.title = `React with ${emoji}`;
     button.addEventListener('click', async () => {
@@ -1585,7 +1585,7 @@ export class CommentUiController {
   createReactionPickerButton(thread, message, emoji) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'comment-reaction-picker-btn';
+    button.className = 'ui-icon-chip ui-icon-chip--comment comment-reaction-picker-btn';
     button.textContent = emoji;
     button.title = `React with ${emoji}`;
     button.addEventListener('click', async () => {

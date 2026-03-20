@@ -46,15 +46,15 @@ function actionIconSvg(action) {
 function badgeClass(status) {
   switch (status) {
     case 'added':
-      return 'added';
+      return 'ui-status-badge--success';
     case 'deleted':
-      return 'deleted';
+      return 'ui-status-badge--danger';
     case 'renamed':
-      return 'renamed';
+      return 'ui-status-badge--accent';
     case 'untracked':
-      return 'untracked';
+      return 'ui-status-badge--muted';
     default:
-      return 'modified';
+      return 'ui-status-badge--warning';
   }
 }
 
@@ -680,7 +680,7 @@ export class GitPanelController {
         <button class="git-section-header" type="button" data-git-section-toggle="${escapeHtml(section.key)}">
           ${chevronSvg(isCollapsed)}
           ${escapeHtml(section.label)}
-          <span class="git-section-count">${files.length}</span>
+          <span class="ui-pill-badge ui-pill-badge--count ui-pill-badge--muted git-section-count">${files.length}</span>
         </button>
         <div class="git-file-list${isCollapsed ? ' hidden' : ''}">
           ${files.map((file) => this.renderFile(file)).join('')}
@@ -699,7 +699,7 @@ export class GitPanelController {
         <button class="git-section-header" type="button" data-git-section-toggle="pull-backups">
           ${chevronSvg(this.collapsedSections.has('pull-backups'))}
           Pull Backups
-          <span class="git-section-count">${this.pullBackups.length}</span>
+          <span class="ui-pill-badge ui-pill-badge--count ui-pill-badge--muted git-section-count">${this.pullBackups.length}</span>
         </button>
         <div class="git-file-list${this.collapsedSections.has('pull-backups') ? ' hidden' : ''}">
           ${this.pullBackups.map((backup) => this.renderPullBackup(backup)).join('')}
@@ -724,7 +724,7 @@ export class GitPanelController {
             <span class="ui-item-title git-file-name">Pull backup ${escapeHtml(backup.id || '')}</span>
             <span class="ui-item-subtitle git-file-path">${escapeHtml(`${createdAt} · ${backup.branch || 'HEAD'} · ${fileCount} file${fileCount === 1 ? '' : 's'}`)}</span>
           </span>
-          <span class="git-status-badge modified">BK</span>
+          <span class="ui-status-badge ui-status-badge--warning">BK</span>
         </button>
       </div>
     `;
@@ -758,7 +758,7 @@ export class GitPanelController {
             <span class="ui-item-title git-file-name">${escapeHtml(displayName)}</span>
             ${dirPath ? `<span class="ui-item-subtitle git-file-path">${escapeHtml(dirPath)}</span>` : ''}
           </span>
-          <span class="git-status-badge ${statusClass}">${escapeHtml(file.code)}</span>
+          <span class="ui-status-badge ${statusClass}">${escapeHtml(file.code)}</span>
         </button>
         <div class="ui-item-actions git-file-actions">
           <button
@@ -826,7 +826,7 @@ export class GitPanelController {
       >
         <span class="ui-record-header git-history-row-top">
           <span class="ui-record-title git-history-subject">${renderHistoryRowTitle(commit)}</span>
-          <span class="git-history-hash">${escapeHtml(commit.shortHash || '')}</span>
+          <span class="ui-pill-badge ui-pill-badge--code git-history-hash">${escapeHtml(commit.shortHash || '')}</span>
         </span>
         <span class="ui-record-meta git-history-row-meta">
           <span>${escapeHtml(commit.authorName || 'Unknown')}</span>

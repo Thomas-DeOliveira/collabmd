@@ -127,14 +127,8 @@
 
 .chat-toggle-badge {
   min-width: 18px;
-  height: 18px;
+  min-height: 18px;
   padding: 0 5px;
-  border-radius: var(--radius-full);
-  background: var(--color-primary);
-  color: var(--color-text-inverse);
-  text-align: center;
-  font-size: 10px;
-  font-weight: 700;
   line-height: 18px;
 }
 

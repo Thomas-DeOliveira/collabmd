@@ -77,17 +77,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  font-family: var(--font-mono);
-  font-size: 12px;
   white-space: nowrap;
-}
-
-.diff-stats-add {
-  color: var(--diff-add-text);
-}
-
-.diff-stats-del {
-  color: var(--diff-del-text);
 }
 
 .diff-scroll {
