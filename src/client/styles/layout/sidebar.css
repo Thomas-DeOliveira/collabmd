@@ -124,7 +124,7 @@
   text-overflow: ellipsis;
   transition: background var(--transition-interactive), color var(--transition-interactive);
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: var(--text-ui-sm);
 }
 
 .file-tree-item:not([data-depth='0'])::before {

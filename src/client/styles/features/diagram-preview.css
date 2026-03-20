@@ -7,7 +7,7 @@
   overflow: hidden;
   margin: var(--space-4) 0;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--color-surface);
 }
 
@@ -38,7 +38,7 @@
   flex-shrink: 0;
   padding: 4px 10px;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--color-surface-2);
   color: var(--color-text);
   font-size: var(--text-xs);
@@ -178,7 +178,7 @@ body.excalidraw-maximized-open .resizer {
   max-width: none;
   margin: 0;
   box-sizing: border-box;
-  border-radius: 10px;
+  border-radius: var(--radius-lg-plus);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
 }
 

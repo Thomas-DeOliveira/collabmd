@@ -14,7 +14,7 @@
 
 .skeleton-line {
   height: 16px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--color-surface-offset);
   animation: pulse-skeleton 1.5s ease-in-out infinite;
 }
@@ -96,7 +96,7 @@
   cursor: pointer;
   transition: background var(--transition-interactive);
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: var(--text-ui-sm);
 }
 
 .file-context-item:hover {

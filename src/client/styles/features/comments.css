@@ -19,7 +19,7 @@
 
 .comments-drawer-title {
   color: var(--color-comment);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -28,7 +28,7 @@
 .comments-drawer-empty {
   padding: var(--space-4);
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 .comments-drawer-list {
@@ -56,7 +56,7 @@
 
 .comments-drawer-item-title {
   color: var(--color-comment);
-  font-size: 11px;
+  font-size: var(--text-meta);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -110,7 +110,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--text-meta);
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -155,7 +155,7 @@
 .comment-preview-highlight {
   position: absolute;
   border: 1px solid oklch(from var(--color-comment) l c h / 0.16);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--color-comment-soft);
   opacity: 0.56;
   transition: opacity 140ms ease, background-color 140ms ease, border-color 140ms ease;
@@ -191,7 +191,7 @@
   overflow: hidden;
   padding: var(--space-4);
   border: 1px solid color-mix(in srgb, var(--color-border) 82%, var(--color-comment) 18%);
-  border-radius: 18px;
+  border-radius: var(--radius-xl-plus);
   background: color-mix(in srgb, var(--color-surface) 94%, var(--color-comment) 6%);
   box-shadow: 0 20px 56px oklch(0 0 0 / 0.24);
   animation: comment-card-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -211,7 +211,7 @@
 }
 
 .comment-card-title {
-  font-size: 15px;
+  font-size: var(--text-title-sm);
   font-weight: 700;
   letter-spacing: -0.01em;
 }
@@ -219,7 +219,7 @@
 .comment-card-meta {
   margin-top: 2px;
   color: var(--color-comment);
-  font-size: 11px;
+  font-size: var(--text-meta);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -256,7 +256,7 @@
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--color-surface-offset) 90%, var(--color-comment) 10%);
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 .comment-card-quote {
@@ -311,14 +311,14 @@
 
 .comment-thread-card-author,
 .comment-message-card-author {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 700;
 }
 
 .comment-thread-card-time,
 .comment-message-card-time {
   color: var(--color-text-faint);
-  font-size: 11px;
+  font-size: var(--text-meta);
 }
 
 .comment-thread-card-actions {
@@ -335,7 +335,7 @@
 
 .comment-message-card-body {
   margin-top: var(--space-1);
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.65;
 }
 
@@ -402,7 +402,7 @@
 
 .comment-markdown {
   color: var(--color-text);
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.65;
 }
 
@@ -481,7 +481,7 @@
   background: none;
   color: var(--color-text);
   white-space: pre;
-  font-size: 12px;
+  font-size: var(--text-label);
   line-height: 1.6;
 }
 
@@ -501,7 +501,7 @@
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-divider);
   text-align: left;
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 .comment-markdown th {

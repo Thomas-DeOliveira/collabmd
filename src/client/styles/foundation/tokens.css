@@ -10,6 +10,10 @@
   --text-label: 12px;
   --text-meta: 11px;
   --text-caption: 10px;
+  --text-ui-sm: 13px;
+  --text-ui-md: 14px;
+  --text-title-sm: 15px;
+  --text-title-md: 18px;
 
   --font-body: 'Inter', system-ui, sans-serif;
   --font-display: 'Geist', 'Cal Sans', 'Inter', system-ui, sans-serif;
@@ -33,6 +37,10 @@
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
   --radius-xl: 1rem;
+  --radius-2xs: 2px;
+  --radius-xs: 4px;
+  --radius-lg-plus: 10px;
+  --radius-xl-plus: 18px;
   --radius-full: 9999px;
 
   --transition-interactive: 180ms cubic-bezier(0.16, 1, 0.3, 1);

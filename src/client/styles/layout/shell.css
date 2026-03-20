@@ -62,14 +62,14 @@
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-size: 11px;
+  font-size: var(--text-meta);
   font-weight: 500;
 }
 
 .pane-label-meta {
   color: var(--color-text-muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-meta);
 }
 
 .resizer {
@@ -117,7 +117,7 @@
 .editor-container .cm-editor {
   height: 100%;
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: var(--text-ui-md);
 }
 
 .editor-container .cm-editor .cm-scroller {
@@ -135,12 +135,12 @@
   left: -1px;
   z-index: 10;
   padding: 1px 4px;
-  border-radius: 3px 3px 3px 0;
+  border-radius: var(--radius-2xs) var(--radius-2xs) var(--radius-2xs) 0;
   opacity: 1;
   white-space: nowrap;
   transition: opacity 0.3s;
   font-family: var(--font-body);
-  font-size: 11px;
+  font-size: var(--text-meta);
   font-weight: 600;
 }
 
