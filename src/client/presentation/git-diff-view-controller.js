@@ -5,6 +5,16 @@ function getPathLeaf(pathValue) {
   return String(pathValue ?? '').split('/').pop() || '';
 }
 
+function getPathDir(pathValue) {
+  const parts = String(pathValue ?? '').split('/');
+  parts.pop();
+  return parts.join('/');
+}
+
+function createSectionId(pathValue) {
+  return `diff-section-${encodeURIComponent(String(pathValue ?? '')).replace(/%/g, '_')}`;
+}
+
 function badgeClass(status) {
   switch (status) {
     case 'added':
@@ -17,6 +27,10 @@ function badgeClass(status) {
     default:
       return 'modified';
   }
+}
+
+function chevronSvg(collapsed = false) {
+  return `<svg class="diff-section-chevron${collapsed ? ' collapsed' : ''}" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>`;
 }
 
 function commonPrefixLength(left, right) {
@@ -158,13 +172,20 @@ export class GitDiffViewController {
     this.stats = document.getElementById('diffStats');
     this.prevButton = document.getElementById('diffPrevBtn');
     this.nextButton = document.getElementById('diffNextBtn');
+    this.layoutToggle = document.getElementById('diffLayoutToggle');
     this.modeButtons = Array.from(document.querySelectorAll('[data-diff-mode]'));
+    this.layoutButtons = Array.from(document.querySelectorAll('[data-diff-layout]'));
     this.mode = 'unified';
+    this.layoutMode = 'focused';
     this.source = 'workspace';
     this.data = null;
     this.currentIndex = 0;
+    this.activeFilePath = null;
     this.fileCache = new Map();
-    this.loadingFilePath = null;
+    this.fileErrors = new Map();
+    this.loadingFiles = new Set();
+    this.collapsedFiles = new Set();
+    this.fileLoadPromises = new Map();
     this.requestScope = 'all';
     this.commitHash = null;
     this.commitMeta = null;
@@ -209,7 +230,32 @@ export class GitDiffViewController {
         ? event.target.closest('[data-load-full-diff]')
         : null;
       if (loadButton) {
-        void this.loadCurrentFile({ forceFullPatch: true });
+        const filePath = loadButton.getAttribute('data-diff-file-path') || this.activeFilePath;
+        if (filePath) {
+          void this.loadFileForPath(filePath, { forceFullPatch: true });
+        }
+        return;
+      }
+
+      const toggleButton = event.target instanceof Element
+        ? event.target.closest('[data-diff-section-toggle]')
+        : null;
+      if (toggleButton) {
+        const filePath = toggleButton.getAttribute('data-diff-section-toggle');
+        if (filePath) {
+          void this.toggleFileSection(filePath);
+        }
+        return;
+      }
+
+      const indexButton = event.target instanceof Element
+        ? event.target.closest('[data-diff-index-path]')
+        : null;
+      if (indexButton) {
+        const filePath = indexButton.getAttribute('data-diff-index-path');
+        if (filePath) {
+          void this.handleIndexSelection(filePath);
+        }
       }
     });
     this.modeButtons.forEach((button) => {
@@ -222,6 +268,18 @@ export class GitDiffViewController {
         this.render();
       });
     });
+    this.layoutButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const nextLayout = button.getAttribute('data-diff-layout');
+        if (!nextLayout || nextLayout === this.layoutMode) {
+          return;
+        }
+        void this.setLayoutMode(nextLayout);
+      });
+    });
+    this.scrollContainer?.addEventListener('scroll', () => {
+      this.handleScrollSelection();
+    });
   }
 
   hide() {
@@ -231,9 +289,14 @@ export class GitDiffViewController {
     }
     this.data = null;
     this.source = 'workspace';
+    this.layoutMode = 'focused';
     this.currentIndex = 0;
+    this.activeFilePath = null;
     this.fileCache.clear();
-    this.loadingFilePath = null;
+    this.fileErrors.clear();
+    this.loadingFiles.clear();
+    this.collapsedFiles.clear();
+    this.fileLoadPromises.clear();
     this.requestScope = 'all';
     this.commitHash = null;
     this.commitMeta = null;
@@ -244,10 +307,15 @@ export class GitDiffViewController {
 
   async openWorkspaceDiff({ filePath = null, scope = 'all' } = {}) {
     this.source = 'workspace';
+    this.layoutMode = 'focused';
     this.commitHash = null;
     this.commitMeta = null;
+    this.activeFilePath = filePath;
     this.fileCache.clear();
-    this.loadingFilePath = null;
+    this.fileErrors.clear();
+    this.loadingFiles.clear();
+    this.collapsedFiles.clear();
+    this.fileLoadPromises.clear();
     this.requestScope = scope;
     this.renderLoading('Loading diff summary...');
 
@@ -270,6 +338,7 @@ export class GitDiffViewController {
         ? Math.max(0, data.files.findIndex((file) => file.path === filePath))
         : 0;
       this.currentIndex = initialIndex;
+      this.activeFilePath = data.files?.[initialIndex]?.path ?? null;
       if ((data.files?.length ?? 0) === 0) {
         this.render();
         return data;
@@ -293,10 +362,15 @@ export class GitDiffViewController {
 
   async openCommitDiff({ hash, path = null } = {}) {
     this.source = 'commit';
+    this.layoutMode = 'stacked';
     this.commitHash = String(hash ?? '').trim() || null;
     this.commitMeta = null;
+    this.activeFilePath = path || null;
     this.fileCache.clear();
-    this.loadingFilePath = null;
+    this.fileErrors.clear();
+    this.loadingFiles.clear();
+    this.collapsedFiles.clear();
+    this.fileLoadPromises.clear();
     this.requestScope = 'all';
     this.renderLoading('Loading commit summary...');
 
@@ -317,12 +391,21 @@ export class GitDiffViewController {
         ? Math.max(0, data.files.findIndex((file) => file.path === path))
         : 0;
       this.currentIndex = initialIndex;
+      this.activeFilePath = data.files?.[initialIndex]?.path ?? null;
+      this.collapsedFiles = new Set(
+        (data.files ?? [])
+          .map((file) => file.path)
+          .filter((filePath) => filePath && filePath !== this.activeFilePath),
+      );
       if ((data.files?.length ?? 0) === 0) {
         this.render();
         return data;
       }
 
-      await this.loadCurrentFile();
+      if (this.activeFilePath) {
+        await this.loadFileForPath(this.activeFilePath, { render: false });
+      }
+      this.render();
       return data;
     } catch (error) {
       console.error('[git-diff] Failed to load commit:', error);
@@ -344,8 +427,32 @@ export class GitDiffViewController {
     return this.openWorkspaceDiff(payload);
   }
 
+  async setLayoutMode(layoutMode) {
+    const normalizedLayout = layoutMode === 'stacked' ? 'stacked' : 'focused';
+    if (this.source !== 'commit') {
+      this.layoutMode = 'focused';
+      this.render();
+      return;
+    }
+
+    this.layoutMode = normalizedLayout;
+    if (this.activeFilePath) {
+      this.setActiveFilePath(this.activeFilePath);
+    }
+    if (this.layoutMode === 'focused') {
+      await this.loadCurrentFile();
+      return;
+    }
+
+    if (this.activeFilePath) {
+      this.collapsedFiles.delete(this.activeFilePath);
+      await this.loadFileForPath(this.activeFilePath, { render: false });
+    }
+    this.render();
+  }
+
   navigateFile(direction) {
-    if (!this.data?.files?.length) {
+    if (!this.data?.files?.length || (this.source === 'commit' && this.layoutMode === 'stacked')) {
       return;
     }
 
@@ -355,6 +462,7 @@ export class GitDiffViewController {
     }
 
     this.currentIndex = nextIndex;
+    this.activeFilePath = this.data.files[nextIndex]?.path ?? null;
     this.scrollContainer?.scrollTo({ top: 0, behavior: 'auto' });
     void this.loadCurrentFile();
   }
@@ -410,21 +518,24 @@ export class GitDiffViewController {
     `;
   }
 
-  renderUnifiedFile(file, index) {
+  renderFileHeader(file) {
     return `
-      <section class="diff-file-block" data-diff-file-index="${index}">
-        <div class="diff-file-header">
-          <span class="diff-file-path">${escapeHtml(file.path)}</span>
-          <span class="git-status-badge ${badgeClass(file.status)}">${escapeHtml(file.status)}</span>
-          <span class="diff-file-header-stats"><span class="diff-stats-add">+${file.stats?.additions ?? 0}</span><span class="diff-stats-del">-${file.stats?.deletions ?? 0}</span></span>
-        </div>
-        ${file.isBinary ? `<div class="diff-binary-message">${escapeHtml(file.binaryMessage || 'Binary file changed')}</div>` : ''}
-        ${file.hunks.map((hunk) => this.renderUnifiedHunk(hunk)).join('')}
-      </section>
+      <div class="diff-file-header">
+        <span class="diff-file-path">${escapeHtml(file.path)}</span>
+        <span class="git-status-badge ${badgeClass(file.status)}">${escapeHtml(file.status)}</span>
+        <span class="diff-file-header-stats"><span class="diff-stats-add">+${file.stats?.additions ?? 0}</span><span class="diff-stats-del">-${file.stats?.deletions ?? 0}</span></span>
+      </div>
     `;
   }
 
-  renderSplitFile(file, index) {
+  renderUnifiedFileBody(file) {
+    return `
+      ${file.isBinary ? `<div class="diff-binary-message">${escapeHtml(file.binaryMessage || 'Binary file changed')}</div>` : ''}
+      ${file.hunks.map((hunk) => this.renderUnifiedHunk(hunk)).join('')}
+    `;
+  }
+
+  renderSplitFileBody(file) {
     const hunks = file.hunks.map((hunk) => {
       const rows = [];
       for (const block of createPairedBlocks(hunk.lines)) {
@@ -448,18 +559,66 @@ export class GitDiffViewController {
     }).join('');
 
     return `
-      <section class="diff-file-block" data-diff-file-index="${index}">
-        <div class="diff-file-header">
-          <span class="diff-file-path">${escapeHtml(file.path)}</span>
-          <span class="git-status-badge ${badgeClass(file.status)}">${escapeHtml(file.status)}</span>
-          <span class="diff-file-header-stats"><span class="diff-stats-add">+${file.stats?.additions ?? 0}</span><span class="diff-stats-del">-${file.stats?.deletions ?? 0}</span></span>
+      <div class="diff-split">
+        <div class="diff-split-pane">
+          <div class="diff-split-pane-header">Before</div>
+          ${hunks}
         </div>
-        <div class="diff-split">
-          <div class="diff-split-pane">
-            <div class="diff-split-pane-header">Before</div>
-            ${hunks}
-          </div>
+      </div>
+    `;
+  }
+
+  renderDiffDetail(detail, index, { includeHeader = true } = {}) {
+    if (!detail) {
+      return '<div class="diff-empty-state">Select a file to load its diff.</div>';
+    }
+
+    if (detail.tooLarge) {
+      return `
+        ${includeHeader ? this.renderFileHeader(detail) : ''}
+        <div class="diff-limit-card">
+          <strong>Large diff withheld</strong>
+          <span>This file diff is large enough to impact rendering performance.</span>
+          <button class="btn btn-secondary diff-load-full-btn" type="button" data-load-full-diff data-diff-file-path="${escapeHtml(detail.path)}">Load full diff</button>
         </div>
+      `;
+    }
+
+    const contentMarkup = this.mode === 'split'
+      ? this.renderSplitFileBody(detail, index)
+      : this.renderUnifiedFileBody(detail, index);
+
+    return `${includeHeader ? this.renderFileHeader(detail) : ''}${contentMarkup}`;
+  }
+
+  renderFocusedFileBody() {
+    const currentFile = this.getCurrentFile();
+    if (!currentFile) {
+      return '<div class="diff-empty-state">No changes to display.</div>';
+    }
+
+    if (this.isFileLoading(currentFile.path)) {
+      return `
+        <section class="diff-file-block">
+          ${this.renderFileHeader(currentFile)}
+          <div class="diff-empty-state">Loading file diff...</div>
+        </section>
+      `;
+    }
+
+    const errorMessage = this.fileErrors.get(currentFile.path);
+    if (errorMessage) {
+      return `
+        <section class="diff-file-block">
+          ${this.renderFileHeader(currentFile)}
+          <div class="diff-empty-state">${escapeHtml(errorMessage)}</div>
+        </section>
+      `;
+    }
+
+    return `
+      <section class="diff-file-block" data-diff-file-index="${this.currentIndex}">
+        ${this.renderDiffDetail(this.getFileDetail(currentFile.path) ?? currentFile, this.currentIndex)}
       </section>
     `;
   }
@@ -486,6 +645,115 @@ export class GitDiffViewController {
     `;
   }
 
+  renderCommitIndex() {
+    const files = this.data?.files ?? [];
+    const items = files.map((file, index) => {
+      const isActive = this.activeFilePath === file.path;
+      const dirPath = getPathDir(file.path);
+      return `
+        <button
+          class="diff-index-item${isActive ? ' active' : ''}"
+          type="button"
+          data-diff-index-path="${escapeHtml(file.path)}"
+          aria-current="${isActive ? 'true' : 'false'}"
+        >
+          <span class="diff-index-item-top">
+            <span class="diff-index-item-name">${escapeHtml(getPathLeaf(file.path))}</span>
+            <span class="git-status-badge ${badgeClass(file.status)}">${escapeHtml(file.status)}</span>
+          </span>
+          ${dirPath ? `<span class="diff-index-item-path">${escapeHtml(dirPath)}</span>` : ''}
+          <span class="diff-index-item-meta">
+            <span>${index + 1}</span>
+            <span class="diff-stats-add">+${file.stats?.additions ?? 0}</span>
+            <span class="diff-stats-del">-${file.stats?.deletions ?? 0}</span>
+          </span>
+        </button>
+      `;
+    }).join('');
+
+    return `
+      <aside class="diff-commit-index" aria-label="Changed files in commit">
+        <div class="diff-commit-index-header">Changed Files</div>
+        <div class="diff-commit-index-list">
+          ${items}
+        </div>
+      </aside>
+    `;
+  }
+
+  renderStackedSection(file, index) {
+    const isCollapsed = this.isFileCollapsed(file.path);
+    const isActive = this.activeFilePath === file.path;
+    const isLoading = this.isFileLoading(file.path);
+    const errorMessage = this.fileErrors.get(file.path);
+    const detail = this.getFileDetail(file.path) ?? file;
+
+    let bodyMarkup = '';
+    if (isCollapsed) {
+      bodyMarkup = '';
+    } else if (isLoading) {
+      bodyMarkup = '<div class="diff-empty-state">Loading file diff...</div>';
+    } else if (errorMessage) {
+      bodyMarkup = `<div class="diff-empty-state">${escapeHtml(errorMessage)}</div>`;
+    } else {
+      bodyMarkup = this.renderDiffDetail(detail, index, { includeHeader: false });
+    }
+
+    return `
+      <section
+        class="diff-commit-section${isActive ? ' active' : ''}${isCollapsed ? ' collapsed' : ''}"
+        id="${createSectionId(file.path)}"
+        data-diff-section-path="${escapeHtml(file.path)}"
+      >
+        <button
+          class="diff-commit-section-header"
+          type="button"
+          data-diff-section-toggle="${escapeHtml(file.path)}"
+        >
+          <span class="diff-commit-section-main">
+            ${chevronSvg(isCollapsed)}
+            <span class="diff-commit-section-copy">
+              <span class="diff-commit-section-name">${escapeHtml(getPathLeaf(file.path))}</span>
+              ${getPathDir(file.path) ? `<span class="diff-commit-section-path">${escapeHtml(getPathDir(file.path))}</span>` : ''}
+            </span>
+          </span>
+          <span class="diff-commit-section-meta">
+            <span class="git-status-badge ${badgeClass(file.status)}">${escapeHtml(file.status)}</span>
+            <span class="diff-stats-add">+${file.stats?.additions ?? 0}</span>
+            <span class="diff-stats-del">-${file.stats?.deletions ?? 0}</span>
+          </span>
+        </button>
+        <div class="diff-commit-section-body${isCollapsed ? ' hidden' : ''}">
+          ${bodyMarkup}
+        </div>
+      </section>
+    `;
+  }
+
+  renderCommitBody() {
+    if (this.layoutMode === 'focused') {
+      return `
+        <div class="diff-commit-shell diff-commit-shell-focused">
+          ${this.renderCommitIndex()}
+          <div class="diff-commit-main">
+            ${this.renderFocusedFileBody()}
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="diff-commit-shell diff-commit-shell-stacked">
+        ${this.renderCommitIndex()}
+        <div class="diff-commit-main">
+          <div class="diff-commit-sections">
+            ${(this.data?.files ?? []).map((file, index) => this.renderStackedSection(file, index)).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   getCurrentFile() {
     const files = this.data?.files ?? [];
     if (files.length === 0) {
@@ -495,20 +763,52 @@ export class GitDiffViewController {
     return files[this.currentIndex] ?? files[0] ?? null;
   }
 
-  getCurrentCacheKey() {
-    const currentFile = this.getCurrentFile();
-    if (!currentFile?.path) {
+  getFileByPath(path) {
+    return (this.data?.files ?? []).find((file) => file.path === path) ?? null;
+  }
+
+  setActiveFilePath(path, { syncIndex = true } = {}) {
+    this.activeFilePath = path;
+    if (!syncIndex) {
+      return;
+    }
+
+    const nextIndex = Math.max(0, (this.data?.files ?? []).findIndex((file) => file.path === path));
+    if (nextIndex >= 0) {
+      this.currentIndex = nextIndex;
+    }
+  }
+
+  getCacheKeyForPath(path) {
+    if (!path) {
       return null;
     }
     if (this.source === 'commit') {
-      return `commit:${this.commitHash}:${currentFile.path}`;
+      return `commit:${this.commitHash}:${path}`;
     }
-    return `workspace:${this.requestScope}:${currentFile.path}`;
+    return `workspace:${this.requestScope}:${path}`;
+  }
+
+  getCurrentCacheKey() {
+    return this.getCacheKeyForPath(this.getCurrentFile()?.path ?? null);
   }
 
   getCurrentFileDetail() {
     const cacheKey = this.getCurrentCacheKey();
     return cacheKey ? this.fileCache.get(cacheKey) : null;
+  }
+
+  getFileDetail(path) {
+    const cacheKey = this.getCacheKeyForPath(path);
+    return cacheKey ? this.fileCache.get(cacheKey) : null;
+  }
+
+  isFileCollapsed(path) {
+    return this.collapsedFiles.has(path);
+  }
+
+  isFileLoading(path) {
+    return this.loadingFiles.has(path);
   }
 
   getCurrentActionState() {
@@ -594,6 +894,116 @@ export class GitDiffViewController {
     this.syncToolbar();
   }
 
+  async handleIndexSelection(filePath) {
+    const file = this.getFileByPath(filePath);
+    if (!file) {
+      return;
+    }
+
+    this.setActiveFilePath(filePath);
+    if (this.source === 'commit' && this.layoutMode === 'stacked') {
+      this.collapsedFiles.delete(filePath);
+      await this.loadFileForPath(filePath, { render: false });
+      this.render();
+      this.scrollToFileSection(filePath);
+      return;
+    }
+
+    await this.loadFileForPath(filePath);
+  }
+
+  async toggleFileSection(filePath) {
+    if (this.source !== 'commit' || this.layoutMode !== 'stacked') {
+      return;
+    }
+
+    this.setActiveFilePath(filePath);
+    if (this.collapsedFiles.has(filePath)) {
+      this.collapsedFiles.delete(filePath);
+      await this.loadFileForPath(filePath, { render: false });
+      this.render();
+      this.scrollToFileSection(filePath);
+      return;
+    }
+
+    this.collapsedFiles.add(filePath);
+    this.render();
+  }
+
+  scrollToFileSection(filePath) {
+    if (!this.content) {
+      return;
+    }
+
+    const targetId = createSectionId(filePath);
+    const scrollToTarget = () => {
+      const section = document.getElementById?.(targetId) ?? null;
+      if (!section) {
+        return;
+      }
+
+      if (this.scrollContainer?.scrollTo && this.scrollContainer.getBoundingClientRect && section.getBoundingClientRect) {
+        const containerRect = this.scrollContainer.getBoundingClientRect();
+        const sectionRect = section.getBoundingClientRect();
+        const currentTop = Number(this.scrollContainer.scrollTop) || 0;
+        const nextTop = Math.max(0, currentTop + (sectionRect.top - containerRect.top) - 8);
+        this.scrollContainer.scrollTo({ top: nextTop, behavior: 'smooth' });
+        return;
+      }
+
+      section.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    };
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(scrollToTarget);
+      return;
+    }
+
+    setTimeout(scrollToTarget, 0);
+  }
+
+  handleScrollSelection() {
+    if (this.source !== 'commit' || this.layoutMode !== 'stacked' || !this.scrollContainer || !this.content) {
+      return;
+    }
+
+    const sections = Array.from(this.content.querySelectorAll?.('[data-diff-section-path]') ?? []);
+    if (sections.length === 0) {
+      return;
+    }
+
+    const containerRect = this.scrollContainer.getBoundingClientRect?.();
+    if (!containerRect) {
+      return;
+    }
+
+    const threshold = containerRect.top + 120;
+    let nextPath = null;
+    for (const section of sections) {
+      const rect = section.getBoundingClientRect?.();
+      if (!rect) {
+        continue;
+      }
+      const sectionPath = section.getAttribute?.('data-diff-section-path');
+      if (!sectionPath) {
+        continue;
+      }
+      if (rect.top <= threshold) {
+        nextPath = sectionPath;
+      } else if (!nextPath) {
+        nextPath = sectionPath;
+        break;
+      } else {
+        break;
+      }
+    }
+
+    if (nextPath && nextPath !== this.activeFilePath) {
+      this.setActiveFilePath(nextPath);
+      this.render();
+    }
+  }
+
   async loadCurrentFile({ forceFullPatch = false } = {}) {
     const currentFile = this.getCurrentFile();
     if (!currentFile?.path) {
@@ -601,132 +1011,116 @@ export class GitDiffViewController {
       return null;
     }
 
-    const cacheKey = this.getCurrentCacheKey();
+    return this.loadFileForPath(currentFile.path, { forceFullPatch });
+  }
+
+  async loadFileForPath(filePath, { forceFullPatch = false, render = true } = {}) {
+    const file = this.getFileByPath(filePath);
+    if (!file?.path) {
+      if (render) {
+        this.render();
+      }
+      return null;
+    }
+
+    this.setActiveFilePath(filePath);
+    const cacheKey = this.getCacheKeyForPath(filePath);
     const cachedFile = cacheKey ? this.fileCache.get(cacheKey) : null;
     if (cachedFile && (!cachedFile.tooLarge || !forceFullPatch)) {
-      this.loadingFilePath = null;
-      this.render();
+      if (render) {
+        this.render();
+      }
       return cachedFile;
     }
 
-    this.loadingFilePath = currentFile.path;
-    this.render();
+    const requestKey = `${filePath}:${forceFullPatch ? 'full' : 'partial'}`;
+    if (this.fileLoadPromises.has(requestKey)) {
+      return this.fileLoadPromises.get(requestKey);
+    }
 
-    try {
-      let detail;
-      if (this.source === 'commit') {
-        const query = new URLSearchParams();
-        query.set('hash', this.commitHash || '');
-        query.set('path', currentFile.path);
-        if (forceFullPatch) {
-          query.set('allowLargePatch', 'true');
-        }
-
-        const response = await fetch(resolveApiUrl(`/git/commit?${query.toString()}`));
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to load commit file diff');
-        }
-
-        detail = {
-          ...currentFile,
-          ...(data.files?.[0] ?? {}),
-        };
-      } else {
-        const query = new URLSearchParams();
-        query.set('scope', this.requestScope);
-        query.set('path', currentFile.path);
-        if (forceFullPatch) {
-          query.set('allowLargePatch', 'true');
-        }
-
-        const response = await fetch(resolveApiUrl(`/git/diff?${query.toString()}`));
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to load file diff');
-        }
-
-        detail = {
-          ...currentFile,
-          ...(data.files?.[0] ?? {}),
-        };
-      }
-
-      if (cacheKey) {
-        this.fileCache.set(cacheKey, detail);
-      }
-      this.loadingFilePath = null;
+    this.loadingFiles.add(filePath);
+    this.fileErrors.delete(filePath);
+    if (render) {
       this.render();
-      return detail;
-    } catch (error) {
-      console.error('[git-diff] Failed to load file diff:', error);
-      this.toastController?.show(this.source === 'commit' ? 'Failed to load commit file diff' : 'Failed to load file diff');
-      this.loadingFilePath = null;
-      this.render();
-      return null;
-    }
-  }
-
-  renderCurrentFileBody() {
-    const currentFile = this.getCurrentFile();
-    if (!currentFile) {
-      return '<div class="diff-empty-state">No changes to display.</div>';
     }
 
-    const detail = this.getCurrentFileDetail();
-    if (this.loadingFilePath === currentFile.path) {
-      return `
-        <section class="diff-file-block">
-          <div class="diff-file-header">
-            <span class="diff-file-path">${escapeHtml(currentFile.path)}</span>
-            <span class="git-status-badge ${badgeClass(currentFile.status)}">${escapeHtml(currentFile.status)}</span>
-          </div>
-          <div class="diff-empty-state">Loading file diff...</div>
-        </section>
-      `;
-    }
+    const requestPromise = (async () => {
+      try {
+        let detail;
+        if (this.source === 'commit') {
+          const query = new URLSearchParams();
+          query.set('hash', this.commitHash || '');
+          query.set('path', filePath);
+          if (forceFullPatch) {
+            query.set('allowLargePatch', 'true');
+          }
 
-    if (!detail) {
-      return `
-        <section class="diff-file-block">
-          <div class="diff-file-header">
-            <span class="diff-file-path">${escapeHtml(currentFile.path)}</span>
-            <span class="git-status-badge ${badgeClass(currentFile.status)}">${escapeHtml(currentFile.status)}</span>
-          </div>
-          <div class="diff-empty-state">Select a file to load its diff.</div>
-        </section>
-      `;
-    }
+          const response = await fetch(resolveApiUrl(`/git/commit?${query.toString()}`));
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.error || 'Failed to load commit file diff');
+          }
 
-    if (detail.tooLarge) {
-      return `
-        <section class="diff-file-block">
-          <div class="diff-file-header">
-            <span class="diff-file-path">${escapeHtml(detail.path)}</span>
-            <span class="git-status-badge ${badgeClass(detail.status)}">${escapeHtml(detail.status)}</span>
-            <span class="diff-file-header-stats"><span class="diff-stats-add">+${detail.stats?.additions ?? 0}</span><span class="diff-stats-del">-${detail.stats?.deletions ?? 0}</span></span>
-          </div>
-          <div class="diff-limit-card">
-            <strong>Large diff withheld</strong>
-            <span>This file diff is large enough to impact rendering performance.</span>
-            <button class="btn btn-secondary diff-load-full-btn" type="button" data-load-full-diff>Load full diff</button>
-          </div>
-        </section>
-      `;
-    }
+          detail = {
+            ...file,
+            ...(data.files?.[0] ?? {}),
+          };
+        } else {
+          const query = new URLSearchParams();
+          query.set('scope', this.requestScope);
+          query.set('path', filePath);
+          if (forceFullPatch) {
+            query.set('allowLargePatch', 'true');
+          }
 
-    return this.mode === 'split'
-      ? this.renderSplitFile(detail, this.currentIndex)
-      : this.renderUnifiedFile(detail, this.currentIndex);
+          const response = await fetch(resolveApiUrl(`/git/diff?${query.toString()}`));
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.error || 'Failed to load file diff');
+          }
+
+          detail = {
+            ...file,
+            ...(data.files?.[0] ?? {}),
+          };
+        }
+
+        if (cacheKey) {
+          this.fileCache.set(cacheKey, detail);
+        }
+        this.fileErrors.delete(filePath);
+        return detail;
+      } catch (error) {
+        console.error('[git-diff] Failed to load file diff:', error);
+        const message = this.source === 'commit' ? 'Failed to load commit file diff' : 'Failed to load file diff';
+        this.fileErrors.set(filePath, message);
+        this.toastController?.show(message);
+        return null;
+      } finally {
+        this.loadingFiles.delete(filePath);
+        this.fileLoadPromises.delete(requestKey);
+        this.render();
+      }
+    })();
+
+    this.fileLoadPromises.set(requestKey, requestPromise);
+    return requestPromise;
   }
 
   syncToolbar() {
     const totalFiles = this.data?.files?.length ?? 0;
     const visibleIndex = totalFiles === 0 ? 0 : this.currentIndex + 1;
+    const isCommitSource = this.source === 'commit';
+    const isStackedCommit = isCommitSource && this.layoutMode === 'stacked';
+
     if (this.fileIndicator) {
-      this.fileIndicator.textContent = totalFiles > 0
-        ? `${visibleIndex} / ${totalFiles} files`
-        : '0 / 0 files';
+      if (isStackedCommit) {
+        this.fileIndicator.textContent = `${totalFiles} file${totalFiles === 1 ? '' : 's'}`;
+      } else {
+        this.fileIndicator.textContent = totalFiles > 0
+          ? `${visibleIndex} / ${totalFiles} files`
+          : '0 / 0 files';
+      }
     }
 
     if (this.stats) {
@@ -741,16 +1135,19 @@ export class GitDiffViewController {
     this.modeButtons.forEach((button) => {
       button.classList.toggle('active', button.getAttribute('data-diff-mode') === this.mode);
     });
+    this.layoutButtons.forEach((button) => {
+      button.classList.toggle('active', button.getAttribute('data-diff-layout') === this.layoutMode);
+    });
 
     const hasCurrentFile = Boolean(this.getCurrentFile()?.path);
     const actionState = this.getCurrentActionState();
     const primaryAction = this.getPrimaryAction();
-    const isCommitSource = this.source === 'commit';
 
     this.backToHistoryButton?.classList.toggle('hidden', !isCommitSource);
     this.gitActionsGroup?.classList.toggle('hidden', isCommitSource);
     this.editorActionsGroup?.classList.toggle('hidden', isCommitSource);
     this.actionsDivider?.classList.toggle('hidden', isCommitSource);
+    this.layoutToggle?.classList.toggle('hidden', !isCommitSource);
 
     this.openEditorButton?.toggleAttribute('disabled', !hasCurrentFile || isCommitSource);
     if (this.primaryActionButton) {
@@ -771,8 +1168,10 @@ export class GitDiffViewController {
       'disabled',
       isCommitSource || !actionState.canCommit || Boolean(this.pendingAction),
     );
-    this.prevButton?.toggleAttribute('disabled', this.currentIndex <= 0);
-    this.nextButton?.toggleAttribute('disabled', totalFiles === 0 || this.currentIndex >= totalFiles - 1);
+    this.prevButton?.classList.toggle('hidden', isStackedCommit);
+    this.nextButton?.classList.toggle('hidden', isStackedCommit);
+    this.prevButton?.toggleAttribute('disabled', isStackedCommit || this.currentIndex <= 0);
+    this.nextButton?.toggleAttribute('disabled', isStackedCommit || totalFiles === 0 || this.currentIndex >= totalFiles - 1);
   }
 
   render() {
@@ -788,14 +1187,31 @@ export class GitDiffViewController {
       return;
     }
 
-    this.content.innerHTML = `${this.renderCommitHeader()}${this.renderCurrentFileBody()}`;
+    if (this.source === 'commit') {
+      this.content.innerHTML = `${this.renderCommitHeader()}${this.renderCommitBody()}`;
+    } else {
+      this.content.innerHTML = this.renderFocusedFileBody();
+    }
     this.syncToolbar();
   }
 
   getToolbarTitle({ commitHash = null, filePath = null, path = null, scope = 'all', source = 'workspace' } = {}) {
     if (source === 'commit' || this.source === 'commit') {
+      if (this.layoutMode === 'stacked') {
+        if (this.commitMeta?.shortHash) {
+          return `Commit ${this.commitMeta.shortHash}`;
+        }
+        if (commitHash) {
+          return `Commit ${String(commitHash).slice(0, 7)}`;
+        }
+        return 'Commit Diff';
+      }
+
       if (path) {
         return getPathLeaf(path);
+      }
+      if (this.activeFilePath) {
+        return getPathLeaf(this.activeFilePath);
       }
       if (this.commitMeta?.shortHash) {
         return `Commit ${this.commitMeta.shortHash}`;

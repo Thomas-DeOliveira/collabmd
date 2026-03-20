@@ -953,33 +953,34 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
 .git-history-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: var(--space-2);
+  gap: 4px;
+  padding: 10px;
 }
 
 .git-history-row {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
-  padding: 12px;
+  padding: 10px 11px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: color-mix(in oklab, var(--color-surface) 86%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-surface) 90%, transparent);
   color: var(--color-text-muted);
   text-align: left;
-  transition: border-color var(--transition-interactive), background var(--transition-interactive), transform var(--transition-interactive);
+  transition: border-color var(--transition-interactive), background var(--transition-interactive), box-shadow var(--transition-interactive);
 }
 
 .git-history-row:hover {
-  background: var(--color-surface-offset);
+  background: color-mix(in oklab, var(--color-surface-offset) 92%, transparent);
   border-color: color-mix(in oklab, var(--color-primary) 24%, var(--color-border));
   color: var(--color-text);
 }
 
 .git-history-row.active {
-  background: color-mix(in oklab, var(--color-primary) 10%, var(--color-surface));
+  background: color-mix(in oklab, var(--color-primary) 8%, var(--color-surface));
   border-color: color-mix(in oklab, var(--color-primary) 40%, var(--color-border));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-primary) 12%, transparent);
   color: var(--color-text);
 }
 
@@ -988,7 +989,7 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
 .git-history-row-stats {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
   min-width: 0;
   flex-wrap: wrap;
 }
@@ -1002,30 +1003,31 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--color-text);
 }
 
 .git-history-hash {
   flex-shrink: 0;
-  padding: 2px 6px;
+  padding: 1px 6px;
   border-radius: var(--radius-full);
   background: var(--color-surface-offset-2);
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .git-history-row-meta {
   color: var(--color-text-faint);
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .git-history-row-stats {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
 }
 
@@ -1351,6 +1353,19 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
   font-weight: 600;
 }
 
+.diff-layout-toggle {
+  padding: 3px;
+}
+
+.diff-layout-btn {
+  width: auto;
+  min-width: 82px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 /* Diff */
 
 .diff-toolbar {
@@ -1514,6 +1529,210 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
   font-size: 11px;
 }
 
+.diff-commit-shell {
+  display: grid;
+  grid-template-columns: minmax(210px, 242px) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+}
+
+.diff-commit-index {
+  position: sticky;
+  top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100dvh - 220px);
+  padding: 8px;
+  border: 1px solid var(--color-divider);
+  border-radius: calc(var(--radius-lg) + 2px);
+  background: color-mix(in oklab, var(--color-surface) 94%, transparent);
+  box-shadow: 0 10px 24px color-mix(in oklab, var(--color-surface-ink) 10%, transparent);
+  overflow: hidden;
+}
+
+.diff-commit-index-header {
+  padding-inline: 1px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
+.diff-commit-index-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  overflow: auto;
+  padding-inline-end: 4px;
+  padding-block-end: 2px;
+  scrollbar-gutter: stable;
+}
+
+.diff-index-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-surface-offset) 84%, transparent);
+  color: var(--color-text-muted);
+  text-align: left;
+  transition: background var(--transition-interactive), border-color var(--transition-interactive), color var(--transition-interactive), transform var(--transition-interactive);
+}
+
+.diff-index-item:hover {
+  background: color-mix(in oklab, var(--color-surface-offset-2) 88%, transparent);
+  color: var(--color-text);
+}
+
+.diff-index-item.active {
+  border-color: color-mix(in oklab, var(--color-primary) 34%, var(--color-border));
+  background: color-mix(in oklab, var(--color-primary) 8%, var(--color-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-primary) 14%, transparent);
+  color: var(--color-text);
+}
+
+.diff-index-item-top,
+.diff-index-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.diff-index-item-top {
+  justify-content: space-between;
+}
+
+.diff-index-item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.diff-index-item-path {
+  color: var(--color-text-faint);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-index-item-meta {
+  flex-wrap: wrap;
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.diff-commit-main {
+  min-width: 0;
+}
+
+.diff-commit-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.diff-commit-section {
+  border: 1px solid var(--color-divider);
+  border-radius: calc(var(--radius-lg) + 2px);
+  background: color-mix(in oklab, var(--color-surface) 94%, transparent);
+  overflow: hidden;
+}
+
+.diff-commit-section.active {
+  border-color: color-mix(in oklab, var(--color-primary) 34%, var(--color-border));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-primary) 16%, transparent);
+}
+
+.diff-commit-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 10px 14px;
+  background: color-mix(in oklab, var(--color-surface-offset) 78%, transparent);
+  text-align: left;
+}
+
+.diff-commit-section-header:hover {
+  background: color-mix(in oklab, var(--color-surface-offset-2) 82%, transparent);
+}
+
+.diff-commit-section-main,
+.diff-commit-section-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.diff-commit-section-main {
+  flex: 1;
+}
+
+.diff-section-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-faint);
+  transition: transform 150ms ease;
+}
+
+.diff-section-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.diff-commit-section-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.diff-commit-section-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.diff-commit-section-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-faint);
+  font-size: 11px;
+}
+
+.diff-commit-section-meta {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.diff-commit-section-body {
+  padding: 0;
+}
+
+.diff-commit-shell-focused .diff-commit-main .diff-file-block {
+  border: 1px solid var(--color-divider);
+  border-radius: calc(var(--radius-lg) + 2px);
+  overflow: hidden;
+}
+
 .diff-file-block {
   margin-bottom: 0;
 }
@@ -1525,7 +1744,7 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
+  padding: 8px 14px;
   background: var(--color-surface-offset);
   border-top: 1px solid var(--color-divider);
   border-bottom: 1px solid var(--color-divider);
@@ -1552,8 +1771,8 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
 
 .diff-hunk-header,
 .diff-split-hunk {
-  padding: 4px var(--space-4);
-  padding-left: 92px;
+  padding: 4px 14px;
+  padding-left: 84px;
   background: var(--diff-hunk-bg);
   color: var(--diff-hunk-text);
   font-family: var(--font-mono);
@@ -1598,7 +1817,7 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
 
 .diff-line-content {
   flex: 1;
-  padding: 0 var(--space-3);
+  padding: 0 10px;
   white-space: pre;
   tab-size: 4;
 }
@@ -1682,7 +1901,7 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
 
 .diff-split-content {
   flex: 1;
-  padding: 0 var(--space-3);
+  padding: 0 10px;
   white-space: pre;
   tab-size: 4;
 }
@@ -4404,8 +4623,32 @@ body.plantuml-maximized-open::before {
     min-width: 74px;
   }
 
+  .diff-layout-btn {
+    min-width: 78px;
+  }
+
   .diff-split-row {
     grid-template-columns: 1fr;
+  }
+
+  .diff-commit-shell {
+    grid-template-columns: 1fr;
+    padding: var(--space-3);
+  }
+
+  .diff-commit-index {
+    position: static;
+    max-height: none;
+  }
+
+  .diff-commit-section-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .diff-commit-section-meta {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .diff-split-line:first-child {
