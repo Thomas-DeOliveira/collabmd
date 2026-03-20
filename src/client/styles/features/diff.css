@@ -44,20 +44,6 @@
   opacity: 0.9;
 }
 
-.diff-toolbar-actions .btn {
-  min-height: 36px;
-  padding: 0 14px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.diff-action-btn {
-  min-width: 92px;
-  border-radius: 9px;
-}
-
 .diff-open-editor-btn {
   min-width: 116px;
 }
@@ -77,11 +63,7 @@
   gap: var(--space-2);
 }
 
-.diff-nav-btn {
-  flex-shrink: 0;
-}
-
-.diff-nav-btn:disabled {
+.diff-file-nav .ui-action-icon:disabled {
   opacity: 0.3;
 }
 

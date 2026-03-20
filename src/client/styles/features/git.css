@@ -103,17 +103,12 @@
   min-width: 0;
 }
 
-.git-branch-action-btn {
+.git-branch-actions .ui-action-pill {
   width: 100%;
-  min-width: 0;
-  background: var(--color-surface-offset);
+  justify-content: center;
 }
 
-.git-branch-action-btn:hover:not(:disabled) {
-  background: var(--color-surface-dynamic);
-}
-
-.git-branch-action-btn svg {
+.git-branch-actions .ui-action-pill svg {
   flex-shrink: 0;
 }
 
@@ -285,12 +280,11 @@
   padding-right: 4px;
 }
 
-.git-file-action-btn {
+.git-file-actions .ui-action-icon {
   width: 30px;
-  background: color-mix(in oklab, var(--color-surface-offset) 82%, transparent);
 }
 
-.git-file-row.active .git-file-action-btn {
+.git-file-row.active .ui-action-icon--surface {
   background: color-mix(in oklab, var(--color-surface) 30%, var(--color-primary-highlight));
   color: var(--color-text);
 }
@@ -307,13 +301,8 @@
   gap: var(--space-2);
 }
 
-.git-view-all-btn {
+.git-panel-footer-actions .ui-action-button {
   width: 100%;
-  background: var(--color-surface-offset);
-}
-
-.git-view-all-btn:hover {
-  background: var(--color-surface-dynamic);
 }
 
 .git-footer-commit-btn {
@@ -421,9 +410,4 @@
 
 .git-history-load-more {
   width: 100%;
-  background: var(--color-surface-offset);
-}
-
-.git-history-load-more:hover:not(:disabled) {
-  background: var(--color-surface-dynamic);
 }
