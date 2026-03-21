@@ -111,7 +111,7 @@ body.excalidraw-maximized-open::before {
   position: fixed;
   inset: 0;
   z-index: 170;
-  background: oklch(0.1 0 0 / 0.42);
+  background: var(--surface-scrim);
   backdrop-filter: blur(2px);
 }
 
@@ -157,11 +157,7 @@ body.excalidraw-maximized-open .resizer {
   width: 100%;
   min-height: 200px;
   border: none;
-  background: white;
-}
-
-[data-theme="dark"] .excalidraw-embed-iframe {
-  background: #121212;
+  background: var(--surface-embed-canvas);
 }
 
 .excalidraw-embed.is-maximized {

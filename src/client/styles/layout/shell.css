@@ -146,9 +146,9 @@
 
 .preview-body {
   --preview-floating-sidebar-gap: var(--space-3);
-  --preview-floating-comments-width: min(300px, 34vw);
-  --preview-floating-outline-width: 220px;
-  --preview-content-max-width: 720px;
+  --preview-floating-comments-width: var(--panel-comments-width);
+  --preview-floating-outline-width: var(--panel-outline-width);
+  --preview-content-max-width: var(--preview-content-width);
   --preview-comment-rail-width: 0px;
   --preview-comment-rail-inset: 10px;
   position: relative;
@@ -170,7 +170,7 @@
 .preview-content {
   position: relative;
   min-width: 0;
-  max-width: 720px;
+  max-width: var(--preview-content-max-width);
   margin: 0 auto;
   overflow: hidden;
   padding: var(--space-6) calc(var(--space-6) + var(--preview-comment-rail-width)) var(--space-12) var(--space-6);
