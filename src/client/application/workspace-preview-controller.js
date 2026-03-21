@@ -164,6 +164,40 @@ export class WorkspacePreviewController {
     this.schedulePreviewLayoutSyncCallback({ delayMs: 0 });
   }
 
+  renderTextFilePreview({ content = '', filePath = '' } = {}) {
+    const previewElement = this.elements.previewContent;
+    if (!previewElement) {
+      return;
+    }
+
+    this.videoEmbed?.detachForCommit();
+    this.excalidrawEmbed.detachForCommit();
+    this.resetPreviewMode();
+    const renderHost = this.previewRenderer.ensureRenderHost();
+    this.previewRenderer.normalizePreviewChildren(renderHost);
+
+    const shell = document.createElement('div');
+    shell.className = 'preview-shell';
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    code.textContent = String(content ?? '');
+    pre.appendChild(code);
+    shell.appendChild(pre);
+
+    if (renderHost) {
+      renderHost.replaceChildren(shell);
+      renderHost.style.minHeight = '';
+    }
+
+    previewElement.dataset.renderPhase = 'ready';
+    this.outlineController.close();
+    this.backlinksPanel.clear();
+    this.scrollSyncController.setLargeDocumentMode(false);
+    this.scrollSyncController.invalidatePreviewBlocks();
+    this.videoEmbed?.reconcileEmbeds(previewElement);
+    this.schedulePreviewLayoutSyncCallback({ delayMs: 0 });
+  }
+
   createResizeHandler(restoreSidebarState) {
     let resizeTimer = null;
     return () => {

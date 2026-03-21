@@ -15,11 +15,13 @@ export const uiFeature = {
     this.fileExplorer.initialize();
     this.gitPanel.initialize();
     this.gitDiffView.initialize();
+    this.fileHistoryView.initialize();
     this.initializePreviewLayoutObserver();
     this.syncIdentityManagementUi();
     this.syncCurrentUserName();
     this.syncWrapToggle();
     this.syncChatNotificationButton();
+    this.syncFileHistoryButton({ mode: 'empty' });
     this.renderChat();
     void this.gitPanel.refresh({ force: true });
     this.elements.chatInput?.setAttribute('maxlength', String(this.lobbyChatMessageMaxLength));
@@ -69,6 +71,16 @@ export const uiFeature = {
 
     this.elements.shareButton?.addEventListener('click', () => {
       void this.copyCurrentLink();
+    });
+
+    this.elements.fileHistoryButton?.addEventListener('click', () => {
+      const route = this.navigation.getHashRoute();
+      if (route.type === 'git-file-preview') {
+        this.handleGitFileHistorySelection(route.currentFilePath ?? route.filePath, { closeSidebarOnMobile: true });
+        return;
+      }
+
+      this.handleGitFileHistorySelection(this.currentFilePath, { closeSidebarOnMobile: true });
     });
 
     this.elements.editNameButton?.addEventListener('click', () => {

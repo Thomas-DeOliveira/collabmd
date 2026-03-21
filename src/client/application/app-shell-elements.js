@@ -38,6 +38,8 @@ export function bindAppShellElements(doc = document) {
     editorPage: doc.getElementById('editor-page'),
     diffPage: doc.getElementById('diff-page'),
     fileSearch: doc.getElementById('fileSearch'),
+    fileHistoryButton: doc.getElementById('fileHistoryBtn'),
+    fileHistoryButtonLabel: doc.getElementById('fileHistoryBtnLabel'),
     filesSidebarTab: doc.getElementById('filesSidebarTab'),
     gitSearch: doc.getElementById('gitSearch'),
     gitSearchInput: doc.getElementById('gitSearchInput'),
