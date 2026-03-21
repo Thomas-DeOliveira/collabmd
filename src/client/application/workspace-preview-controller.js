@@ -164,7 +164,7 @@ export class WorkspacePreviewController {
     this.schedulePreviewLayoutSyncCallback({ delayMs: 0 });
   }
 
-  renderTextFilePreview({ content = '', filePath = '' } = {}) {
+  renderTextFilePreview({ content = '' } = {}) {
     const previewElement = this.elements.previewContent;
     if (!previewElement) {
       return;

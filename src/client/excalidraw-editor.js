@@ -498,7 +498,6 @@ async function waitForPendingRoomWrites({
       return;
     }
 
-    // eslint-disable-next-line no-await-in-loop
     await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
   }
 }
