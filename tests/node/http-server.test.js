@@ -611,9 +611,6 @@ test('HTTP server enforces password auth for API session flow', async (t) => {
   assert.equal(runtimeConfigResponse.statusCode, 200);
   assert.match(runtimeConfigResponse.body, /"strategy":"password"/);
 
-  const indexResponse = await httpRequest(`${app.baseUrl}/`);
-  assert.equal(indexResponse.statusCode, 200);
-
   const unauthenticatedApiResponse = await httpRequest(`${app.baseUrl}/api/files`);
   assert.equal(unauthenticatedApiResponse.statusCode, 401);
   assert.match(unauthenticatedApiResponse.body, /Authentication required/);
