@@ -31,6 +31,7 @@ test('client build emits hashed entry assets and the main bundle references the 
     .find(Boolean);
 
   assert.ok(workerReference, 'expected built JS assets to reference hashed preview worker');
+  await access(resolve(clientDistDir, mainAssetPath), fsConstants.R_OK);
   await access(resolve(clientDistDir, 'assets', workerReference), fsConstants.R_OK);
   await access(resolve(clientDistDir, mainStylesheetPath), fsConstants.R_OK);
   assert.doesNotMatch(indexHtml, /app-config\.js/);
