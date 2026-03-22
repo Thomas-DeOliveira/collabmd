@@ -15,6 +15,7 @@ import { LOBBY_CHAT_MESSAGE_MAX_LENGTH, LobbyPresence } from '../infrastructure/
 import { BrowserNavigationPort } from '../infrastructure/browser-navigation-port.js';
 import { BrowserNotificationPort } from '../infrastructure/browser-notification-port.js';
 import { BrowserPreferencesPort } from '../infrastructure/browser-preferences-port.js';
+import { AppVersionMonitor } from '../infrastructure/app-version-monitor.js';
 import { getRuntimeConfig } from '../infrastructure/runtime-config.js';
 import { TabActivityLock } from '../infrastructure/tab-activity-lock.js';
 import { vaultApiClient } from '../infrastructure/vault-api-client.js';
@@ -104,6 +105,7 @@ export class CollabMdAppShell {
     this._previewHydrationPaused = false;
     this._previewLayoutResizeObserver = null;
     this._previewLayoutSyncTimer = null;
+    this._reloadPromptShown = false;
     this._staticPreviewDocument = null;
     this.pendingGitResetPath = null;
     this.chatTimeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -116,6 +118,11 @@ export class CollabMdAppShell {
     this.mobileBreakpointQuery = window.matchMedia('(max-width: 768px)');
     this.pendingWorkspaceRequestIds = new Set();
     this._fileOpenPerf = null;
+    this.versionMonitor = new AppVersionMonitor({
+      currentBuildId: this.runtimeConfig.build?.id,
+      onUpdateAvailable: (payload) => this.promptForVersionReload(payload),
+      runtimeConfig: this.runtimeConfig,
+    });
 
     this.lobby = new LobbyPresence({
       preferredUserName: this.getStoredUserName(),

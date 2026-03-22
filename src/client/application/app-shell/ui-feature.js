@@ -2,6 +2,7 @@ import { USER_NAME_MAX_LENGTH, normalizeUserName } from '../../domain/room.js';
 import { isMarkdownFilePath, supportsBacklinksForFilePath } from '../../../domain/file-kind.js';
 
 const IMAGE_FILE_PICKER_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml';
+const VERSION_RELOAD_TOAST_DURATION_MS = 0;
 
 export const uiFeature = {
   initialize() {
@@ -27,6 +28,7 @@ export const uiFeature = {
     this.elements.chatInput?.setAttribute('maxlength', String(this.lobbyChatMessageMaxLength));
     this.bindEvents();
     this.restoreSidebarState();
+    this.initializeVersionMonitoring();
     this.tabActivityLock.initialize();
     this.tabActivityLock.tryActivate();
 
@@ -39,6 +41,29 @@ export const uiFeature = {
         return this.handleHashChange();
       }
       return undefined;
+    });
+  },
+
+  initializeVersionMonitoring() {
+    this.versionMonitor?.start();
+  },
+
+  promptForVersionReload(payload = null) {
+    if (this._reloadPromptShown) {
+      return;
+    }
+
+    this._reloadPromptShown = true;
+    const packageVersion = String(payload?.build?.packageVersion ?? this.runtimeConfig?.build?.packageVersion ?? '').trim();
+    const message = packageVersion
+      ? `Version ${packageVersion} is available. Reload to update.`
+      : 'A new version is available. Reload to update.';
+
+    this.toastController.show(message, {
+      actionLabel: 'Reload',
+      dismissible: true,
+      duration: VERSION_RELOAD_TOAST_DURATION_MS,
+      onAction: () => window.location.reload(),
     });
   },
 

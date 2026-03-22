@@ -9,6 +9,7 @@ import {
   createRandomAuthPassword,
   createRandomSessionSecret,
 } from '../auth/create-auth-service.js';
+import { loadBuildInfo } from './build-info.js';
 
 function parsePositiveInt(rawValue, fallbackValue) {
   const parsed = Number.parseInt(rawValue ?? '', 10);
@@ -250,6 +251,7 @@ export function loadConfig(overrides = {}) {
   const nodeEnv = process.env.NODE_ENV || 'development';
   const vaultDir = resolveConfiguredVaultDir(overrides);
   const basePath = normalizeAppBasePath(process.env.BASE_PATH || '');
+  const publicDir = resolve(projectRoot, 'dist/client');
   const authOverrides = overrides.auth ?? {};
   const authStrategy = normalizeAuthStrategy(
     authOverrides.strategy
@@ -265,6 +267,11 @@ export function loadConfig(overrides = {}) {
     ? loadOidcConfig(authOverrides.oidc, { basePath })
     : null;
   const git = loadGitConfig(overrides.git);
+  const build = loadBuildInfo({
+    explicitBuildId: process.env.COLLABMD_BUILD_ID,
+    projectRoot,
+    publicDir,
+  });
 
   return {
     auth: {
@@ -277,6 +284,7 @@ export function loadConfig(overrides = {}) {
       strategy: authStrategy,
     },
     basePath,
+    build,
     host: process.env.HOST || getDefaultHost(nodeEnv),
     httpHeadersTimeoutMs: parsePositiveInt(process.env.HTTP_HEADERS_TIMEOUT_MS, 60_000),
     httpKeepAliveTimeoutMs: parsePositiveInt(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS, 5_000),
@@ -286,7 +294,7 @@ export function loadConfig(overrides = {}) {
     port: parsePort(process.env.PORT, 1234),
     nodeEnv,
     plantumlServerUrl: process.env.PLANTUML_SERVER_URL || 'https://www.plantuml.com/plantuml',
-    publicDir: resolve(projectRoot, 'public'),
+    publicDir,
     vaultDir,
     publicWsBaseUrl: process.env.PUBLIC_WS_BASE_URL || '',
     testWsRoomHydrateDelayMs: parsePositiveInt(process.env.TEST_WS_ROOM_HYDRATE_DELAY_MS, 0),
