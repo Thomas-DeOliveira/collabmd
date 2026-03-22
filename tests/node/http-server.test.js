@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
 import { createServer } from 'node:http';
 import { request } from 'node:http';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -73,10 +73,6 @@ async function createPublicDirSnapshot() {
     cleanup: () => rm(tempRoot, { force: true, recursive: true }),
     publicDir,
   };
-}
-
-async function readBuiltIndexHtml(publicDir = clientDistDir) {
-  return readFile(resolve(publicDir, 'index.html'), 'utf8');
 }
 
 async function startPlantUmlStub() {
