@@ -30,6 +30,7 @@ const VERSION_RELOAD_TOAST_DURATION_MS = 0;
 
 /** @this {UiShellContext} */
 function initialize() {
+  this.renderMarkdownToolbar?.();
   this.themeController.initialize();
   this.previewRenderer.applyTheme(this.themeController.getTheme());
   this.previewRenderer.scheduleWorkerPrewarm();
@@ -170,15 +171,11 @@ function bindEvents() {
   });
 
   this.elements.markdownToolbar?.addEventListener('click', (event) => {
-    const button = event.target instanceof Element
-      ? event.target.closest('[data-markdown-action]')
-      : null;
-    const action = button?.getAttribute('data-markdown-action');
-    if (!action) {
-      return;
-    }
+    this.handleMarkdownToolbarClick?.(event);
+  });
 
-    this.applyMarkdownToolbarAction(action);
+  this.elements.markdownToolbar?.addEventListener('keydown', (event) => {
+    this.handleMarkdownToolbarKeydown?.(event);
   });
 
   this.elements.displayNameForm?.addEventListener('submit', (event) => {
@@ -229,6 +226,8 @@ function bindEvents() {
   });
 
   document.addEventListener('pointerdown', (event) => {
+    this.handleMarkdownToolbarDocumentPointerDown?.(event);
+
     if (!this.chatIsOpen) {
       return;
     }

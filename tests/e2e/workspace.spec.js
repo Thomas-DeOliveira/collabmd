@@ -13,6 +13,11 @@ import {
   appendEditorContent,
 } from './helpers/app-fixture.js';
 
+async function applyBlockToolbarAction(page, action) {
+  await page.locator('[data-markdown-block-menu-toggle]').click();
+  await page.locator(`[data-markdown-block-action="${action}"]`).click();
+}
+
 test('shows empty state when no file is selected', async ({ page }) => {
   await openHome(page);
   await expect(page.locator('#emptyState')).toBeVisible();
@@ -99,6 +104,45 @@ test('video toolbar helper converts a selected video url into markdown embed syn
     'src',
     'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
   );
+});
+
+test('block toolbar switches heading levels and resets back to paragraph text', async ({ page }) => {
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, 'Heading');
+
+  await page.locator('.cm-content').first().click();
+  await page.keyboard.press('Meta+A');
+  await applyBlockToolbarAction(page, 'heading-1');
+  await expect(page.locator('.cm-content').first()).toContainText('# Heading');
+  await expect(page.locator('[data-markdown-block-trigger-label]')).toHaveText('H1');
+
+  await page.keyboard.press('Meta+A');
+  await applyBlockToolbarAction(page, 'heading-3');
+  await expect(page.locator('.cm-content').first()).toContainText('### Heading');
+  await expect(page.locator('[data-markdown-block-trigger-label]')).toHaveText('H3');
+
+  await page.keyboard.press('Meta+A');
+  await applyBlockToolbarAction(page, 'paragraph');
+  await expect(page.locator('.cm-content').first()).toContainText('Heading');
+  await expect(page.locator('.cm-content').first()).not.toContainText('# Heading');
+  await expect(page.locator('[data-markdown-block-trigger-label]')).toHaveText('P');
+});
+
+test('block toolbar converts bullet lists to numbered lists without duplicating markers', async ({ page }) => {
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, 'alpha\nbeta');
+
+  await page.locator('.cm-content').first().click();
+  await page.keyboard.press('Meta+A');
+  await applyBlockToolbarAction(page, 'bullet-list');
+  await expect(page.locator('.cm-content').first()).toContainText('- alpha');
+  await expect(page.locator('.cm-content').first()).toContainText('- beta');
+
+  await page.keyboard.press('Meta+A');
+  await applyBlockToolbarAction(page, 'numbered-list');
+  await expect(page.locator('.cm-content').first()).toContainText('1. alpha');
+  await expect(page.locator('.cm-content').first()).toContainText('2. beta');
+  await expect(page.locator('.cm-content').first()).not.toContainText('1. - alpha');
 });
 
 test('image toolbar uploads a vault attachment and inserts inline markdown', async ({ page }) => {

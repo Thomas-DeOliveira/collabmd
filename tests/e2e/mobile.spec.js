@@ -185,3 +185,48 @@ test.describe('mobile sidebar', () => {
     await expect(sidebar).toBeHidden();
   });
 });
+
+test.describe('mobile markdown toolbar', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+  });
+
+  test('keeps the markdown toolbar as a horizontal scrolling rail', async ({ page }) => {
+    await openFile(page, 'README.md', { waitFor: 'preview' });
+    await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
+
+    await page.locator('#mobileViewToggle').click();
+    await waitForEditor(page);
+
+    const initialMetrics = await page.locator('#markdownToolbar').evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      clientWidth: element.clientWidth,
+      scrollLeft: element.scrollLeft,
+      scrollWidth: element.scrollWidth,
+    }));
+
+    expect(initialMetrics.clientHeight).toBeGreaterThan(0);
+    expect(initialMetrics.scrollWidth).toBeGreaterThanOrEqual(initialMetrics.clientWidth);
+
+    await page.locator('#markdownToolbar').evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+    });
+
+    const scrolledMetrics = await page.locator('#markdownToolbar').evaluate((element) => {
+      const toolbarRect = element.getBoundingClientRect();
+      const lastButton = element.querySelector('[data-markdown-action="horizontal-rule"]');
+      const lastRect = lastButton?.getBoundingClientRect();
+      return {
+        overflow: element.scrollWidth - element.clientWidth,
+        scrollLeft: element.scrollLeft,
+        lastRightOverflow: lastRect ? Math.max(0, Math.ceil(lastRect.right - toolbarRect.right)) : null,
+      };
+    });
+
+    if (scrolledMetrics.overflow > 1) {
+      expect(scrolledMetrics.scrollLeft).toBeGreaterThan(0);
+    }
+    expect(scrolledMetrics.lastRightOverflow).toBeLessThanOrEqual(1);
+    await expect(page.locator('[data-markdown-action="horizontal-rule"]')).toBeVisible();
+  });
+});

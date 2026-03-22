@@ -137,8 +137,12 @@ describe('uiFeature browser helpers', () => {
   });
 
   it('dispatches markdown toolbar actions and image uploads through the toolbar helpers', async () => {
+    document.body.innerHTML = '<div id="markdown-toolbar"></div>';
     const context = {
       currentFilePath: 'README.md',
+      elements: {
+        markdownToolbar: document.getElementById('markdown-toolbar'),
+      },
       fileExplorer: { refresh: vi.fn(async () => {}) },
       handleToolbarImageInsert: uiFeatureToolbarMethods.handleToolbarImageInsert,
       pickImageFile: vi.fn(async () => null),
@@ -153,6 +157,10 @@ describe('uiFeature browser helpers', () => {
     };
 
     Object.assign(context, uiFeatureToolbarMethods);
+    context.renderMarkdownToolbar();
+
+    expect(context.elements.markdownToolbar.querySelector('[data-markdown-block-action="paragraph"]')).not.toBeNull();
+    expect(context.elements.markdownToolbar.querySelector('[data-markdown-block-action="heading-6"]')).not.toBeNull();
 
     context.applyMarkdownToolbarAction('bold');
     expect(context.session.applyMarkdownToolbarAction).toHaveBeenCalledWith('bold');
@@ -161,6 +169,36 @@ describe('uiFeature browser helpers', () => {
     expect(inserted).toBe(true);
     expect(context.fileExplorer.refresh).toHaveBeenCalled();
     expect(context.session.insertText).toHaveBeenCalledWith('![img](image.png)');
+  });
+
+  it('opens the block menu and dispatches explicit heading actions from the rendered toolbar', () => {
+    document.body.innerHTML = '<div id="markdown-toolbar"></div>';
+
+    const context = {
+      currentFilePath: 'README.md',
+      elements: {
+        markdownToolbar: document.getElementById('markdown-toolbar'),
+      },
+      session: {
+        applyMarkdownToolbarAction: vi.fn(() => true),
+        insertText: vi.fn(),
+      },
+      toastController: { show: vi.fn() },
+    };
+
+    Object.assign(context, uiFeatureToolbarMethods);
+    context.renderMarkdownToolbar();
+
+    const toggle = context.elements.markdownToolbar.querySelector('[data-markdown-block-menu-toggle]');
+    context.handleMarkdownToolbarClick({ preventDefault() {}, target: toggle });
+    expect(context.isMarkdownBlockMenuOpen()).toBe(true);
+
+    const headingItem = context.elements.markdownToolbar.querySelector('[data-markdown-block-action="heading-3"]');
+    context.handleMarkdownToolbarClick({ preventDefault() {}, target: headingItem });
+
+    expect(context.session.applyMarkdownToolbarAction).toHaveBeenCalledWith('heading-3');
+    expect(context.elements.markdownToolbar.querySelector('[data-markdown-block-trigger-label]').textContent).toBe('H3');
+    expect(context.isMarkdownBlockMenuOpen()).toBe(false);
   });
 
   it('binds global handlers for chat dismissal and keyboard shortcuts', () => {
