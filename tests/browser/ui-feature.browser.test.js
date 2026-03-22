@@ -137,10 +137,11 @@ describe('uiFeature browser helpers', () => {
   });
 
   it('dispatches markdown toolbar actions and image uploads through the toolbar helpers', async () => {
-    document.body.innerHTML = '<div id="markdown-toolbar"></div>';
+    document.body.innerHTML = '<div id="editor-container"></div><div id="markdown-toolbar"></div>';
     const context = {
       currentFilePath: 'README.md',
       elements: {
+        editorContainer: document.getElementById('editor-container'),
         markdownToolbar: document.getElementById('markdown-toolbar'),
       },
       fileExplorer: { refresh: vi.fn(async () => {}) },
@@ -159,8 +160,8 @@ describe('uiFeature browser helpers', () => {
     Object.assign(context, uiFeatureToolbarMethods);
     context.renderMarkdownToolbar();
 
-    expect(context.elements.markdownToolbar.querySelector('[data-markdown-block-action="paragraph"]')).not.toBeNull();
-    expect(context.elements.markdownToolbar.querySelector('[data-markdown-block-action="heading-6"]')).not.toBeNull();
+    expect(document.querySelector('.markdown-toolbar-popover [data-markdown-block-action="paragraph"]')).not.toBeNull();
+    expect(document.querySelector('.markdown-toolbar-popover [data-markdown-block-action="heading-6"]')).not.toBeNull();
 
     context.applyMarkdownToolbarAction('bold');
     expect(context.session.applyMarkdownToolbarAction).toHaveBeenCalledWith('bold');
@@ -172,11 +173,12 @@ describe('uiFeature browser helpers', () => {
   });
 
   it('opens the block menu and dispatches explicit heading actions from the rendered toolbar', () => {
-    document.body.innerHTML = '<div id="markdown-toolbar"></div>';
+    document.body.innerHTML = '<div id="editor-container"></div><div id="markdown-toolbar"></div>';
 
     const context = {
       currentFilePath: 'README.md',
       elements: {
+        editorContainer: document.getElementById('editor-container'),
         markdownToolbar: document.getElementById('markdown-toolbar'),
       },
       session: {
@@ -192,13 +194,42 @@ describe('uiFeature browser helpers', () => {
     const toggle = context.elements.markdownToolbar.querySelector('[data-markdown-block-menu-toggle]');
     context.handleMarkdownToolbarClick({ preventDefault() {}, target: toggle });
     expect(context.isMarkdownBlockMenuOpen()).toBe(true);
+    expect(document.querySelector('.markdown-toolbar-popover')).not.toBeNull();
 
-    const headingItem = context.elements.markdownToolbar.querySelector('[data-markdown-block-action="heading-3"]');
+    const headingItem = document.querySelector('.markdown-toolbar-popover [data-markdown-block-action="heading-3"]');
     context.handleMarkdownToolbarClick({ preventDefault() {}, target: headingItem });
 
     expect(context.session.applyMarkdownToolbarAction).toHaveBeenCalledWith('heading-3');
     expect(context.elements.markdownToolbar.querySelector('[data-markdown-block-trigger-label]').textContent).toBe('H3');
     expect(context.isMarkdownBlockMenuOpen()).toBe(false);
+  });
+
+  it('toggles the mobile toolbar overflow menu state', () => {
+    document.body.innerHTML = `
+      <div class="toolbar-right">
+        <button id="toolbar-overflow-toggle"></button>
+        <div id="toolbar-overflow-menu"></div>
+      </div>
+    `;
+
+    const context = {
+      elements: {
+        toolbarOverflowMenu: document.getElementById('toolbar-overflow-menu'),
+        toolbarOverflowToggle: document.getElementById('toolbar-overflow-toggle'),
+      },
+      isMobileViewport: () => true,
+    };
+
+    Object.assign(context, uiFeatureShellMethods);
+
+    context.toggleToolbarOverflowMenu();
+    expect(context.toolbarOverflowOpen).toBe(true);
+    expect(context.elements.toolbarOverflowToggle.getAttribute('aria-expanded')).toBe('true');
+    expect(context.elements.toolbarOverflowToggle.closest('.toolbar-right').classList.contains('is-overflow-open')).toBe(true);
+
+    context.closeToolbarOverflowMenu();
+    expect(context.toolbarOverflowOpen).toBe(false);
+    expect(context.elements.toolbarOverflowToggle.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('binds global handlers for chat dismissal and keyboard shortcuts', () => {

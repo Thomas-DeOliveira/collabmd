@@ -6,6 +6,7 @@ import { FileExplorerView } from './file-explorer-view.js';
 
 export class FileExplorerController {
   constructor({
+    mobileBreakpointQuery = window.matchMedia('(max-width: 768px)'),
     onFileSelect,
     onFileDelete,
     pendingWorkspaceRequestIds = null,
@@ -18,6 +19,7 @@ export class FileExplorerController {
     this.vaultClient = vaultClient;
     this.state = new FileTreeState();
     this.view = new FileExplorerView({
+      mobileBreakpointQuery,
       onDirectorySelect: (pathValue) => {
         this.state.expandDirectoryPath(pathValue);
         this.state.setSearchQuery('');

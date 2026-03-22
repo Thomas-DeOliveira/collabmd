@@ -76,6 +76,8 @@ export function bindAppShellElements(doc = document) {
     tabLockTitle: doc.getElementById('tabLockTitle'),
     toolbarCenter: doc.getElementById('toolbarCenter'),
     toolbarDiffBadge: doc.getElementById('toolbarDiffBadge'),
+    toolbarOverflowMenu: doc.getElementById('toolbarOverflowMenu'),
+    toolbarOverflowToggle: doc.getElementById('toolbarOverflowToggle'),
     sidebarTabs: doc.getElementById('sidebarTabs'),
   };
 }

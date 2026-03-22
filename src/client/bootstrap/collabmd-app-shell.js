@@ -146,6 +146,7 @@ export class CollabMdAppShell {
     this.toastController = new ToastController(this.elements.toastContainer);
     this.chatToastController = new ToastController(this.elements.chatToastContainer);
     this.fileExplorer = new FileExplorerController({
+      mobileBreakpointQuery: this.mobileBreakpointQuery,
       onFileDelete: () => this.navigation.navigateToFile(null),
       onFileSelect: (filePath) => this.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
       pendingWorkspaceRequestIds: this.pendingWorkspaceRequestIds,

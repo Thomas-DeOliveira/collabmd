@@ -36,7 +36,26 @@ function renderToolbarButtons(actions) {
 function renderBlockMenuMarkup(activeAction) {
   const triggerLabel = escapeHtml(getMarkdownBlockActionLabel(activeAction));
   const icons = getMarkdownToolbarIcons();
-  const menuItems = getMarkdownBlockMenuActions().map((item) => {
+
+  return `
+    <div class="markdown-toolbar-block-menu-shell">
+      <button
+        type="button"
+        class="ui-button btn btn-ghost markdown-toolbar-block-trigger"
+        data-markdown-block-menu-toggle
+        aria-haspopup="menu"
+        aria-expanded="false"
+        title="Block formatting"
+      >
+        <span class="markdown-toolbar-block-trigger-label" data-markdown-block-trigger-label>${triggerLabel}</span>
+        <span class="markdown-toolbar-block-trigger-icon" aria-hidden="true">${icons.chevronDown}</span>
+      </button>
+    </div>
+  `;
+}
+
+function renderBlockMenuItemsMarkup(activeAction) {
+  return getMarkdownBlockMenuActions().map((item) => {
     const isActive = item.action === activeAction;
     return `
       <button
@@ -52,25 +71,6 @@ function renderBlockMenuMarkup(activeAction) {
       </button>
     `;
   }).join('');
-
-  return `
-    <div class="markdown-toolbar-block-menu-shell">
-      <button
-        type="button"
-        class="ui-button btn btn-ghost markdown-toolbar-block-trigger"
-        data-markdown-block-menu-toggle
-        aria-haspopup="menu"
-        aria-expanded="false"
-        title="Block formatting"
-      >
-        <span class="markdown-toolbar-block-trigger-label" data-markdown-block-trigger-label>${triggerLabel}</span>
-        <span class="markdown-toolbar-block-trigger-icon" aria-hidden="true">${icons.chevronDown}</span>
-      </button>
-      <div class="markdown-toolbar-menu hidden" data-markdown-block-menu role="menu" aria-label="Block formatting">
-        ${menuItems}
-      </div>
-    </div>
-  `;
 }
 
 function renderMarkdownToolbarMarkup(activeAction) {
@@ -116,7 +116,39 @@ function renderMarkdownToolbar() {
 
   const activeAction = this.getActiveMarkdownBlockAction();
   root.innerHTML = renderMarkdownToolbarMarkup(activeAction);
+  this.renderMarkdownBlockMenuPopover();
   this.syncMarkdownToolbarBlockUi();
+}
+
+/** @this {UiToolbarContext} */
+function getMarkdownBlockMenuPopover() {
+  return this._markdownBlockMenuPopover ?? null;
+}
+
+/** @this {UiToolbarContext} */
+function renderMarkdownBlockMenuPopover() {
+  const mountTarget = this.elements?.editorContainer ?? document.body;
+  let popover = this.getMarkdownBlockMenuPopover();
+  if (!popover) {
+    popover = document.createElement('div');
+    popover.className = 'markdown-toolbar-popover hidden';
+    popover.innerHTML = '<div class="markdown-toolbar-menu" data-markdown-block-menu role="menu" aria-label="Block formatting"></div>';
+    popover.addEventListener('click', (event) => {
+      this.handleMarkdownToolbarClick?.(event);
+    });
+    popover.addEventListener('keydown', (event) => {
+      this.handleMarkdownToolbarKeydown?.(event);
+    });
+    mountTarget?.appendChild(popover);
+    this._markdownBlockMenuPopover = popover;
+  } else if (popover.parentElement !== mountTarget) {
+    mountTarget?.appendChild(popover);
+  }
+
+  const menu = popover.querySelector('[data-markdown-block-menu]');
+  if (menu) {
+    menu.innerHTML = renderBlockMenuItemsMarkup(this.getActiveMarkdownBlockAction());
+  }
 }
 
 /** @this {UiToolbarContext} */
@@ -139,7 +171,14 @@ function syncMarkdownToolbarBlockUi() {
     toggle.setAttribute('title', `${actionMeta.label}. Block formatting`);
   }
 
-  root.querySelectorAll('[data-markdown-block-action]').forEach((item) => {
+  const popoverItems = Array.from(
+    this.getMarkdownBlockMenuPopover()?.querySelectorAll('[data-markdown-block-action]') ?? [],
+  );
+  const blockActionItems = [
+    ...root.querySelectorAll('[data-markdown-block-action]'),
+    ...popoverItems,
+  ];
+  blockActionItems.forEach((item) => {
     const itemAction = item.getAttribute('data-markdown-block-action');
     const isActive = itemAction === activeAction;
     item.classList.toggle('is-active', isActive);
@@ -164,15 +203,45 @@ function isMarkdownBlockMenuOpen() {
 }
 
 /** @this {UiToolbarContext} */
+function positionMarkdownBlockMenu() {
+  const popover = this.getMarkdownBlockMenuPopover();
+  const toggle = this.elements?.markdownToolbar?.querySelector('[data-markdown-block-menu-toggle]');
+  const mountTarget = popover?.parentElement;
+  if (!popover || !toggle || !(mountTarget instanceof HTMLElement)) {
+    return;
+  }
+
+  const toggleRect = toggle.getBoundingClientRect();
+  const mountRect = mountTarget.getBoundingClientRect();
+  const menuRect = popover.getBoundingClientRect();
+  const menuWidth = menuRect.width || 176;
+  const menuHeight = menuRect.height || 240;
+  const horizontalPadding = 8;
+  const verticalGap = 6;
+  const preferredLeft = toggleRect.left - mountRect.left;
+  const maxLeft = Math.max(horizontalPadding, mountRect.width - menuWidth - horizontalPadding);
+  const preferredTop = (toggleRect.bottom - mountRect.top) + verticalGap;
+  const fitsBelow = preferredTop + menuHeight <= mountRect.height - horizontalPadding;
+
+  popover.style.left = `${Math.max(horizontalPadding, Math.min(preferredLeft, maxLeft))}px`;
+  popover.style.top = `${fitsBelow
+    ? preferredTop
+    : Math.max(horizontalPadding, (toggleRect.top - mountRect.top) - menuHeight - verticalGap)}px`;
+}
+
+/** @this {UiToolbarContext} */
 function openMarkdownBlockMenu() {
   const root = this.elements?.markdownToolbar;
   if (!root) {
     return;
   }
 
+  this.renderMarkdownBlockMenuPopover();
   root.classList.add('is-menu-open');
-  root.querySelector('[data-markdown-block-menu]')?.classList.remove('hidden');
+  const popover = this.getMarkdownBlockMenuPopover();
+  popover?.classList.remove('hidden');
   root.querySelector('[data-markdown-block-menu-toggle]')?.setAttribute('aria-expanded', 'true');
+  this.positionMarkdownBlockMenu();
 }
 
 /** @this {UiToolbarContext} */
@@ -183,7 +252,7 @@ function closeMarkdownBlockMenu() {
   }
 
   root.classList.remove('is-menu-open');
-  root.querySelector('[data-markdown-block-menu]')?.classList.add('hidden');
+  this.getMarkdownBlockMenuPopover()?.classList.add('hidden');
   root.querySelector('[data-markdown-block-menu-toggle]')?.setAttribute('aria-expanded', 'false');
 }
 
@@ -240,7 +309,7 @@ function handleMarkdownToolbarKeydown(event) {
     if (toggle && ['ArrowDown', 'Enter', ' '].includes(event.key)) {
       event.preventDefault();
       this.openMarkdownBlockMenu();
-      this.elements?.markdownToolbar?.querySelector('[data-markdown-block-action]')?.focus();
+      this.getMarkdownBlockMenuPopover()?.querySelector('[data-markdown-block-action]')?.focus();
     }
     return;
   }
@@ -252,7 +321,7 @@ function handleMarkdownToolbarKeydown(event) {
     return;
   }
 
-  const menuItems = Array.from(this.elements?.markdownToolbar?.querySelectorAll('[data-markdown-block-action]') ?? []);
+  const menuItems = Array.from(this.getMarkdownBlockMenuPopover()?.querySelectorAll('[data-markdown-block-action]') ?? []);
   if (menuItems.length === 0) {
     return;
   }
@@ -277,7 +346,10 @@ function handleMarkdownToolbarDocumentPointerDown(event) {
     return;
   }
 
-  if (this.elements?.markdownToolbar?.contains(event.target)) {
+  if (
+    this.elements?.markdownToolbar?.contains(event.target)
+    || this.getMarkdownBlockMenuPopover()?.contains(event.target)
+  ) {
     return;
   }
 
@@ -430,6 +502,7 @@ export const uiFeatureToolbarMethods = {
   copyCurrentLink,
   closeMarkdownBlockMenu,
   getActiveMarkdownBlockAction,
+  getMarkdownBlockMenuPopover,
   handleEditorImageInsert,
   handleMarkdownToolbarClick,
   handleMarkdownToolbarDocumentPointerDown,
@@ -437,6 +510,8 @@ export const uiFeatureToolbarMethods = {
   handleToolbarImageInsert,
   isMarkdownBlockMenuOpen,
   openMarkdownBlockMenu,
+  positionMarkdownBlockMenu,
+  renderMarkdownBlockMenuPopover,
   pickImageFile,
   renderMarkdownToolbar,
   setActiveMarkdownBlockAction,

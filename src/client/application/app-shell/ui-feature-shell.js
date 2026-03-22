@@ -106,6 +106,7 @@ function bindEvents() {
 
   this.elements.chatToggleButton?.addEventListener('click', () => {
     this.toggleChatPanel();
+    this.closeToolbarOverflowMenu?.();
   });
 
   this.elements.chatForm?.addEventListener('submit', (event) => {
@@ -119,20 +120,24 @@ function bindEvents() {
 
   this.elements.shareButton?.addEventListener('click', () => {
     void this.copyCurrentLink();
+    this.closeToolbarOverflowMenu?.();
   });
 
   this.elements.fileHistoryButton?.addEventListener('click', () => {
     const route = this.navigation.getHashRoute();
     if (route.type === 'git-file-preview') {
       this.handleGitFileHistorySelection(route.currentFilePath ?? route.filePath, { closeSidebarOnMobile: true });
+      this.closeToolbarOverflowMenu?.();
       return;
     }
 
     this.handleGitFileHistorySelection(this.currentFilePath, { closeSidebarOnMobile: true });
+    this.closeToolbarOverflowMenu?.();
   });
 
   this.elements.editNameButton?.addEventListener('click', () => {
     this.openDisplayNameDialog();
+    this.closeToolbarOverflowMenu?.();
   });
 
   this.elements.displayNameCancel?.addEventListener('click', () => {
@@ -196,6 +201,17 @@ function bindEvents() {
     this.toggleLineWrapping();
   });
 
+  this.elements.toolbarOverflowToggle?.addEventListener('click', (event) => {
+    event.preventDefault();
+    this.toggleToolbarOverflowMenu();
+  });
+
+  this.elements.toolbarOverflowMenu?.addEventListener('click', (event) => {
+    if (event.target instanceof Element && event.target.closest('button')) {
+      this.closeToolbarOverflowMenu();
+    }
+  });
+
   this.elements.previewContent?.addEventListener('click', (event) => {
     const wikiLink = event.target.closest('a.wiki-link[data-wiki-target]');
     if (!wikiLink) {
@@ -207,6 +223,7 @@ function bindEvents() {
   });
 
   this.elements.sidebarToggle?.addEventListener('click', () => {
+    this.closeToolbarOverflowMenu();
     this.toggleSidebar();
   });
 
@@ -228,6 +245,14 @@ function bindEvents() {
   document.addEventListener('pointerdown', (event) => {
     this.handleMarkdownToolbarDocumentPointerDown?.(event);
 
+    if (
+      this.toolbarOverflowOpen
+      && !this.elements.toolbarOverflowMenu?.contains(event.target)
+      && !this.elements.toolbarOverflowToggle?.contains(event.target)
+    ) {
+      this.closeToolbarOverflowMenu();
+    }
+
     if (!this.chatIsOpen) {
       return;
     }
@@ -240,6 +265,11 @@ function bindEvents() {
   });
 
   document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && this.toolbarOverflowOpen) {
+      this.closeToolbarOverflowMenu();
+      return;
+    }
+
     if (event.key === 'Escape' && this.chatIsOpen) {
       this.closeChatPanel();
       return;
@@ -250,6 +280,24 @@ function bindEvents() {
       void this.toggleQuickSwitcher();
     }
   });
+}
+
+/** @this {UiShellContext} */
+function setToolbarOverflowOpen(nextState) {
+  this.toolbarOverflowOpen = Boolean(nextState) && this.isMobileViewport?.();
+  this.elements.toolbarOverflowToggle?.setAttribute('aria-expanded', String(this.toolbarOverflowOpen));
+  this.elements.toolbarOverflowToggle?.classList.toggle('active', this.toolbarOverflowOpen);
+  this.elements.toolbarOverflowToggle?.closest('.toolbar-right')?.classList.toggle('is-overflow-open', this.toolbarOverflowOpen);
+}
+
+/** @this {UiShellContext} */
+function closeToolbarOverflowMenu() {
+  this.setToolbarOverflowOpen(false);
+}
+
+/** @this {UiShellContext} */
+function toggleToolbarOverflowMenu() {
+  this.setToolbarOverflowOpen(!this.toolbarOverflowOpen);
 }
 
 /** @this {UiShellContext} */
@@ -353,16 +401,19 @@ function clearInitialFileBootstrap() {
 export const uiFeatureShellMethods = {
   bindEvents,
   clearInitialFileBootstrap,
+  closeToolbarOverflowMenu,
   getStoredLineWrapping,
   handleConnectionChange,
   handleThemeChange,
   hideEditorLoading,
   initialize,
   initializeVersionMonitoring,
+  setToolbarOverflowOpen,
   promptForVersionReload,
   scheduleBacklinkRefresh,
   showEditorLoadError,
   showEditorLoading,
   syncWrapToggle,
+  toggleToolbarOverflowMenu,
   toggleLineWrapping,
 };

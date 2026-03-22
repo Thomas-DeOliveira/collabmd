@@ -121,6 +121,11 @@
 }
 
 .toolbar-right {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.toolbar-presence-cluster {
   flex-shrink: 0;
 }
 
@@ -159,6 +164,16 @@
 
 .toolbar-center {
   flex-shrink: 0;
+}
+
+.toolbar-overflow-toggle {
+  display: none;
+}
+
+.toolbar-overflow-menu {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .diff-mode-toggle,
@@ -236,13 +251,14 @@
   color: var(--color-text);
 }
 
-.markdown-toolbar-menu {
+.markdown-toolbar-popover {
   position: absolute;
-  top: calc(100% + var(--space-1));
-  left: 0;
-  z-index: 7;
-  display: grid;
+  z-index: 12;
   min-width: 176px;
+}
+
+.markdown-toolbar-menu {
+  display: grid;
   padding: 3px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
