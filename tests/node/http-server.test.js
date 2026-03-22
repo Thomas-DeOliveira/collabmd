@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
 import { createServer } from 'node:http';
 import { request } from 'node:http';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,8 +64,19 @@ function extractAssetPath(html, pattern, label) {
   return match[1];
 }
 
-async function readBuiltIndexHtml() {
-  return readFile(resolve(clientDistDir, 'index.html'), 'utf8');
+async function createPublicDirSnapshot() {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'collabmd-public-'));
+  const publicDir = resolve(tempRoot, 'public');
+  await cp(clientDistDir, publicDir, { recursive: true });
+
+  return {
+    cleanup: () => rm(tempRoot, { force: true, recursive: true }),
+    publicDir,
+  };
+}
+
+async function readBuiltIndexHtml(publicDir = clientDistDir) {
+  return readFile(resolve(publicDir, 'index.html'), 'utf8');
 }
 
 async function startPlantUmlStub() {
@@ -99,7 +110,12 @@ async function startPlantUmlStub() {
 }
 
 test('HTTP server serves health, runtime config, and static assets', async (t) => {
-  const app = await startTestServer();
+  const publicDirSnapshot = await createPublicDirSnapshot();
+  t.after(() => publicDirSnapshot.cleanup());
+
+  const app = await startTestServer({
+    publicDir: publicDirSnapshot.publicDir,
+  });
   t.after(() => app.close());
 
   const healthResponse = await httpRequest(`${app.baseUrl}/health`);
@@ -186,12 +202,16 @@ test('HTTP server serves /api/files from the cached workspace tree', async (t) =
 });
 
 test('HTTP server serves prefixed routes when BASE_PATH is configured', async (t) => {
+  const publicDirSnapshot = await createPublicDirSnapshot();
+  t.after(() => publicDirSnapshot.cleanup());
+
   const app = await startTestServer({
     auth: {
       password: 'test-password-123',
       strategy: 'password',
     },
     basePath: '/collabmd',
+    publicDir: publicDirSnapshot.publicDir,
   });
   t.after(() => app.close());
 
@@ -579,11 +599,15 @@ test('HTTP git reset invalidates stale collaboration snapshots so reopening hydr
 });
 
 test('HTTP server supports password auth without blocking static assets', async (t) => {
+  const publicDirSnapshot = await createPublicDirSnapshot();
+  t.after(() => publicDirSnapshot.cleanup());
+
   const app = await startTestServer({
     auth: {
       password: 'test-password-123',
       strategy: 'password',
     },
+    publicDir: publicDirSnapshot.publicDir,
   });
   t.after(() => app.close());
 
@@ -593,7 +617,7 @@ test('HTTP server supports password auth without blocking static assets', async 
 
   const indexResponse = await httpRequest(`${app.baseUrl}/`);
   assert.equal(indexResponse.statusCode, 200);
-  const builtIndexHtml = await readBuiltIndexHtml();
+  const builtIndexHtml = await readBuiltIndexHtml(publicDirSnapshot.publicDir);
   const styleAssetPath = extractAssetPath(
     builtIndexHtml,
     /href="\.\/(assets\/[^"]+-[A-Za-z0-9_-]{8,}\.css)"/,
