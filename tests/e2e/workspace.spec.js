@@ -341,7 +341,7 @@ test('creates root files from empty tree space context menu', async ({ page }) =
   await expect(page.locator('#fileTree')).toContainText('quick-diagram');
 });
 
-test('renames and deletes files from the sidebar with the custom dialog', async ({ page }) => {
+test('moves and deletes files from the sidebar with the custom dialog', async ({ page }) => {
   await openHome(page);
 
   await page.locator('#newFileBtn').click();
@@ -353,16 +353,17 @@ test('renames and deletes files from the sidebar with the custom dialog', async 
   const scratchpadItem = page.locator('#fileTree .file-tree-item', { hasText: 'scratchpad' }).first();
   await scratchpadItem.click({ button: 'right' });
   await expect(page.locator('.file-context-menu')).toBeVisible();
-  await page.locator('.file-context-menu').getByRole('button', { name: 'Rename' }).click();
+  await page.locator('.file-context-menu').getByRole('button', { name: 'Rename / move' }).click();
 
   await expect(page.locator('#fileActionDialog')).toBeVisible();
-  await expect(page.locator('#fileActionLabel')).toHaveText('Name');
-  await page.locator('#fileActionInput').fill('release-notes');
+  await expect(page.locator('#fileActionLabel')).toHaveText('Path');
+  await page.locator('#fileActionInput').fill('notes/release-notes');
   await page.locator('#fileActionSubmit').click();
 
   await expect(page.locator('#activeFileName')).toContainText('release-notes');
   await expect(page.locator('#fileTree')).toContainText('release-notes');
   await expect(page.locator('#fileTree')).not.toContainText('scratchpad');
+  await expect(page.locator('#fileTree')).toContainText('notes');
 
   const renamedItem = page.locator('#fileTree .file-tree-item', { hasText: 'release-notes' }).first();
   await renamedItem.click({ button: 'right' });
@@ -376,6 +377,72 @@ test('renames and deletes files from the sidebar with the custom dialog', async 
 
   await expect(page.locator('#emptyState')).toBeVisible();
   await expect(page.locator('#fileTree')).not.toContainText('release-notes');
+});
+
+test('renames folders from the sidebar context menu', async ({ page }) => {
+  await openHome(page);
+
+  await page.locator('#newFolderBtn').click();
+  await page.locator('#fileActionInput').fill('drafts-old');
+  await page.locator('#fileActionSubmit').click();
+
+  const folderItem = page.locator('#fileTree .file-tree-dir', { hasText: 'drafts-old' }).first();
+  await folderItem.click({ button: 'right' });
+  await page.locator('.file-context-menu').getByRole('button', { name: 'Rename / move' }).click();
+
+  await expect(page.locator('#fileActionDialog')).toBeVisible();
+  await expect(page.locator('#fileActionTitle')).toHaveText('Rename or move folder');
+  await expect(page.locator('#fileActionLabel')).toHaveText('Path');
+  await page.locator('#fileActionInput').fill('drafts-new');
+  await page.locator('#fileActionSubmit').click();
+
+  await expect(page.locator('#fileTree')).toContainText('drafts-new');
+  await expect(page.locator('#fileTree')).not.toContainText('drafts-old');
+});
+
+test('deletes empty folders from the sidebar context menu', async ({ page }) => {
+  await openHome(page);
+
+  await page.locator('#newFolderBtn').click();
+  await page.locator('#fileActionInput').fill('scratch-empty');
+  await page.locator('#fileActionSubmit').click();
+
+  const folderItem = page.locator('#fileTree .file-tree-dir', { hasText: 'scratch-empty' }).first();
+  await folderItem.click({ button: 'right' });
+  await page.locator('.file-context-menu').getByRole('button', { name: 'Delete' }).click();
+
+  await expect(page.locator('#fileActionDialog')).toBeVisible();
+  await expect(page.locator('#fileActionTitle')).toHaveText('Delete folder');
+  await page.locator('#fileActionSubmit').click();
+
+  await expect(page.locator('#fileTree')).not.toContainText('scratch-empty');
+});
+
+test('deletes non-empty folders with an explicit recursive confirmation', async ({ page }) => {
+  await openHome(page);
+
+  const dailyFolder = page.locator('#fileTree .file-tree-dir', { hasText: 'daily' }).first();
+  await dailyFolder.click({ button: 'right' });
+  await page.locator('.file-context-menu').getByRole('button', { name: 'Delete' }).click();
+
+  await expect(page.locator('#fileActionDialog')).toBeVisible();
+  await expect(page.locator('#fileActionTitle')).toHaveText('Delete folder and contents');
+  await expect(page.locator('#fileActionCopy')).toContainText('file');
+  await page.locator('#fileActionSubmit').click();
+
+  await expect(page.locator('#fileTree')).not.toContainText('daily');
+});
+
+test('search can find folders and open them into the expanded tree', async ({ page }) => {
+  await openHome(page);
+
+  await page.locator('#fileSearchInput').fill('daily');
+  await expect(page.locator('#fileTree')).toContainText('daily');
+
+  await page.locator('#fileTree .file-tree-dir', { hasText: 'daily' }).first().click();
+
+  await expect(page.locator('#fileSearchInput')).toHaveValue('');
+  await expect(page.locator('#fileTree')).toContainText('2026-03-05');
 });
 
 test('creates and opens unresolved wiki-link targets', async ({ page }) => {

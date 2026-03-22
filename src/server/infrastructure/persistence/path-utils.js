@@ -58,6 +58,17 @@ export function resolveVaultDirectoryPath(vaultDir, requestedPath) {
   return { absolute, error: null };
 }
 
+export function resolveVaultDirectoryRenamePaths(vaultDir, oldPath, newPath) {
+  const absoluteOld = sanitizeVaultPath(vaultDir, oldPath);
+  const absoluteNew = sanitizeVaultPath(vaultDir, newPath);
+
+  if (!absoluteOld || !absoluteNew) {
+    return { absoluteNew: null, absoluteOld: null, error: INVALID_DIRECTORY_PATH_ERROR };
+  }
+
+  return { absoluteNew, absoluteOld, error: null };
+}
+
 export function resolveVaultRenamePaths(vaultDir, oldPath, newPath) {
   const absoluteOld = sanitizeVaultPath(vaultDir, oldPath);
   const absoluteNew = sanitizeVaultPath(vaultDir, newPath);

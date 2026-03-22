@@ -197,6 +197,58 @@ test('HTTP server serves /api/files from the cached workspace tree', async (t) =
   assert.match(treeResponse.body, /"type":"directory"/);
 });
 
+test('HTTP server renames directories and requires recursive delete for non-empty folders', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const createDirResponse = await httpRequest(`${app.baseUrl}/api/directory`, {
+    body: JSON.stringify({ path: 'docs/guides' }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+  assert.equal(createDirResponse.statusCode, 201);
+
+  const createFileResponse = await httpRequest(`${app.baseUrl}/api/file`, {
+    body: JSON.stringify({ content: '# Guide\n', path: 'docs/guides/guide.md' }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+  assert.equal(createFileResponse.statusCode, 201);
+
+  const renameDirResponse = await httpRequest(`${app.baseUrl}/api/directory`, {
+    body: JSON.stringify({ oldPath: 'docs/guides', newPath: 'docs/reference' }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'PATCH',
+  });
+  assert.equal(renameDirResponse.statusCode, 200);
+
+  const renamedTreeResponse = await httpRequest(`${app.baseUrl}/api/files`);
+  assert.equal(renamedTreeResponse.statusCode, 200);
+  assert.match(renamedTreeResponse.body, /"path":"docs\/reference"/);
+  assert.match(renamedTreeResponse.body, /"path":"docs\/reference\/guide\.md"/);
+
+  const rejectedDeleteResponse = await httpRequest(`${app.baseUrl}/api/directory?path=docs%2Freference`, {
+    method: 'DELETE',
+  });
+  assert.equal(rejectedDeleteResponse.statusCode, 409);
+  assert.match(rejectedDeleteResponse.body, /Directory is not empty/);
+
+  const recursiveDeleteResponse = await httpRequest(`${app.baseUrl}/api/directory?path=docs%2Freference&recursive=1`, {
+    method: 'DELETE',
+  });
+  assert.equal(recursiveDeleteResponse.statusCode, 200);
+
+  const finalTreeResponse = await httpRequest(`${app.baseUrl}/api/files`);
+  assert.equal(finalTreeResponse.statusCode, 200);
+  assert.doesNotMatch(finalTreeResponse.body, /docs\/reference/);
+});
+
 test('HTTP server serves prefixed routes when BASE_PATH is configured', async (t) => {
   const publicDirSnapshot = await createPublicDirSnapshot();
   t.after(() => publicDirSnapshot.cleanup());

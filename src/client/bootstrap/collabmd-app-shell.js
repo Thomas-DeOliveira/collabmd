@@ -148,6 +148,7 @@ export class CollabMdAppShell {
     this.fileExplorer = new FileExplorerController({
       onFileDelete: () => this.navigation.navigateToFile(null),
       onFileSelect: (filePath) => this.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
+      pendingWorkspaceRequestIds: this.pendingWorkspaceRequestIds,
       toastController: this.toastController,
     });
     this.gitPanel = new GitPanelController({

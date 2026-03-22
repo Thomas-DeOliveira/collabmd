@@ -1,16 +1,9 @@
 import { createWorkspaceChange } from '../../../domain/workspace-change.js';
 import { resolveApiUrl } from '../../domain/runtime-paths.js';
+import { createWorkspaceRequestId } from '../../domain/workspace-request-id.js';
 
 function normalizeWorkspaceChange(workspaceChange = {}) {
   return createWorkspaceChange(workspaceChange);
-}
-
-function createWorkspaceRequestId() {
-  if (globalThis.crypto?.randomUUID) {
-    return globalThis.crypto.randomUUID();
-  }
-
-  return `workspace-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
 export const gitFeature = {
@@ -312,24 +305,29 @@ export const gitFeature = {
   async postGitAction(endpoint, payload) {
     const requestId = createWorkspaceRequestId();
     this.pendingWorkspaceRequestIds?.add(requestId);
-    const response = await fetch(endpoint, {
-      body: JSON.stringify(payload),
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CollabMD-Request-Id': requestId,
-      },
-      method: 'POST',
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      this.pendingWorkspaceRequestIds?.delete(requestId);
-      const error = new Error(data.error || 'Git action failed');
-      if (typeof data?.code === 'string') {
-        error.code = data.code;
+    try {
+      const response = await fetch(endpoint, {
+        body: JSON.stringify(payload),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CollabMD-Request-Id': requestId,
+        },
+        method: 'POST',
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        this.pendingWorkspaceRequestIds?.delete(requestId);
+        const error = new Error(data.error || 'Git action failed');
+        if (typeof data?.code === 'string') {
+          error.code = data.code;
+        }
+        throw error;
       }
+      return data;
+    } catch (error) {
+      this.pendingWorkspaceRequestIds?.delete(requestId);
       throw error;
     }
-    return data;
   },
 
   async refreshWorkspaceAfterGitAction({ filePath = null, preferredScope = null } = {}) {

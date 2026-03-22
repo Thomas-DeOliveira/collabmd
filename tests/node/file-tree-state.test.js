@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { FileTreeState } from '../../src/client/presentation/file-tree-state.js';
 
-test('FileTreeState flattens tree nodes and filters search matches', () => {
+test('FileTreeState flattens tree nodes and filters search matches for files and folders', () => {
   const state = new FileTreeState();
 
   state.setTree([
@@ -28,7 +28,43 @@ test('FileTreeState flattens tree nodes and filters search matches', () => {
     'docs/diagram.png',
     'sketch.excalidraw',
   ]);
-  assert.deepEqual(state.getSearchMatches(), ['docs/diagram.puml', 'docs/diagram.png']);
+  assert.deepEqual(state.getSearchMatches(), [
+    { name: 'diagram.puml', path: 'docs/diagram.puml', type: 'plantuml' },
+    { name: 'diagram.png', path: 'docs/diagram.png', type: 'image' },
+  ]);
+});
+
+test('FileTreeState search matches can include directories and descendant summaries', () => {
+  const state = new FileTreeState();
+
+  state.setTree([
+    {
+      children: [
+        {
+          children: [
+            { name: 'guide.md', path: 'docs/guides/guide.md', type: 'file' },
+          ],
+          name: 'guides',
+          path: 'docs/guides',
+          type: 'directory',
+        },
+      ],
+      name: 'docs',
+      path: 'docs',
+      type: 'directory',
+    },
+  ]);
+
+  state.setSearchQuery('guide');
+
+  assert.deepEqual(state.getSearchMatches(), [
+    { name: 'guides', path: 'docs/guides', type: 'directory' },
+    { name: 'guide.md', path: 'docs/guides/guide.md', type: 'file' },
+  ]);
+  assert.deepEqual(state.getDirectoryDescendantSummary('docs/guides'), {
+    directoryCount: 0,
+    fileCount: 1,
+  });
 });
 
 test('FileTreeState expands parent directories for active files', () => {
@@ -50,4 +86,15 @@ test('FileTreeState toggles directories and ignores invalid expansion paths', ()
 
   state.expandDirectoryPath('../escape');
   assert.deepEqual([...state.expandedDirs], []);
+});
+
+test('FileTreeState updates expanded directories for folder rename and delete', () => {
+  const state = new FileTreeState();
+  state.expandDirectoryPath('docs/guides/archive');
+
+  state.replaceExpandedDirectoryPrefix('docs/guides', 'docs/reference');
+  assert.deepEqual([...state.expandedDirs], ['docs', 'docs/reference', 'docs/reference/archive']);
+
+  state.removeExpandedDirectoryPrefix('docs/reference');
+  assert.deepEqual([...state.expandedDirs], ['docs']);
 });

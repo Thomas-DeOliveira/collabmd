@@ -37,12 +37,14 @@ function findNodeByPath(nodes = [], pathValue = '') {
 
 export class FileExplorerView {
   constructor({
+    onDirectorySelect,
     onDirectoryToggle,
     onFileContextMenu,
     onFileSelect,
     onSearchChange,
     onTreeContextMenu,
   }) {
+    this.onDirectorySelect = onDirectorySelect;
     this.onDirectoryToggle = onDirectoryToggle;
     this.onFileContextMenu = onFileContextMenu;
     this.onFileSelect = onFileSelect;
@@ -73,6 +75,10 @@ export class FileExplorerView {
   render({ activeFilePath, changedPaths = null, expandedDirs, reset = false, searchMatches, searchQuery, tree }) {
     if (!this.treeContainer) {
       return;
+    }
+
+    if (this.searchInput && this.searchInput.value !== searchQuery) {
+      this.searchInput.value = searchQuery;
     }
 
     if (searchQuery) {
@@ -142,13 +148,18 @@ export class FileExplorerView {
     }
 
     const fragment = document.createDocumentFragment();
-    for (const filePath of matches) {
+    for (const match of matches) {
+      if (match.type === 'directory') {
+        fragment.appendChild(this.createSearchDirectoryItem(match));
+        continue;
+      }
+
       fragment.appendChild(this.createFileItem({
         activeFilePath,
         depth: 0,
-        filePath,
-        fileType: getVaultTreeNodeType(filePath) ?? 'file',
-        name: getPathLeaf(filePath),
+        filePath: match.path,
+        fileType: match.type || (getVaultTreeNodeType(match.path) ?? 'file'),
+        name: match.name || getPathLeaf(match.path),
       }));
     }
     this.treeContainer.appendChild(fragment);
@@ -241,6 +252,27 @@ export class FileExplorerView {
     }
 
     return wrapper;
+  }
+
+  createSearchDirectoryItem(node) {
+    const button = document.createElement('button');
+    button.className = 'file-tree-item file-tree-dir';
+    button.style.setProperty('--depth', 0);
+    button.dataset.depth = 0;
+    button.innerHTML = `
+      <svg class="file-tree-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      <span class="file-tree-name">${escapeHtml(node.name || getPathLeaf(node.path))}</span>
+    `;
+
+    button.addEventListener('click', () => {
+      this.onDirectorySelect?.(node.path);
+    });
+    button.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      this.onFileContextMenu?.(event, { directoryPath: node.path, type: 'directory' });
+    });
+
+    return button;
   }
 
   rerenderDirectoryBranch(parentPath, tree, { activeFilePath, expandedDirs }) {
