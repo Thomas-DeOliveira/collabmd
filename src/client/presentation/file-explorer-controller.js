@@ -49,6 +49,7 @@ export class FileExplorerController {
       },
     });
     this.actionController = new FileActionController({
+      mobileBreakpointQuery,
       onFileDelete: this.onFileDelete,
       onFileSelect: this.onFileSelect,
       pendingWorkspaceRequestIds,

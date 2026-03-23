@@ -283,6 +283,19 @@ test.describe('mobile sidebar', () => {
     await expect(page.locator('.file-action-sheet')).toBeVisible();
     await expect(page.locator('.file-action-sheet')).toContainText('New markdown file');
   });
+
+  test('opens the create picker as a mobile action sheet', async ({ page }) => {
+    await openHome(page);
+    await ensureMobileSidebarVisible(page);
+
+    await page.locator('#sidebarCreateBtn').click();
+    await expect(page.locator('.create-action-sheet')).toBeVisible();
+    await expect(page.locator('.create-action-sheet')).toContainText('draw.io diagram');
+
+    await page.getByRole('button', { name: /Markdown note/i }).click();
+    await expect(page.locator('#fileActionDialog')).toBeVisible();
+    await expect(page.locator('#fileActionTitle')).toHaveText('Create markdown file');
+  });
 });
 
 test.describe('mobile markdown toolbar', () => {
@@ -374,6 +387,14 @@ test.describe('mobile comments and header chrome', () => {
     await expect(page.locator('#editNameBtn')).toBeVisible();
     await expect(page.locator('#chatToggleBtn')).toBeVisible();
     await expect(page.locator('#shareBtn')).toBeVisible();
-    await expect(page.locator('#themeToggleBtn')).toBeVisible();
+    const themeButton = page.locator('#themeToggleBtn');
+    await expect(themeButton).toBeVisible();
+    await expect(themeButton).toContainText('Theme');
+    await expect(themeButton.locator('[data-theme-toggle-state]')).toContainText(/Dark|Light/);
+
+    const currentTheme = await page.locator('html').getAttribute('data-theme');
+    const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    await themeButton.click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', nextTheme);
   });
 });

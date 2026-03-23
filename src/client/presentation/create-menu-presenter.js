@@ -1,0 +1,274 @@
+function getDefaultMobileBreakpointQuery() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return { matches: false };
+  }
+
+  return window.matchMedia('(max-width: 768px)');
+}
+
+function getFocusableItems(container) {
+  if (typeof HTMLElement === 'undefined' || !(container instanceof HTMLElement)) {
+    return [];
+  }
+
+  return Array.from(container.querySelectorAll('.create-menu-item'));
+}
+
+export class CreateMenuPresenter {
+  constructor({
+    mobileBreakpointQuery = getDefaultMobileBreakpointQuery(),
+  } = {}) {
+    this.mobileBreakpointQuery = mobileBreakpointQuery;
+    this.activeAnchor = null;
+    this.desktopMenu = null;
+    this.mobileBackdrop = null;
+    this.mobileSheet = null;
+    this.documentPointerDownHandler = null;
+    this.windowResizeHandler = null;
+    this.boundClose = () => this.close();
+  }
+
+  isMobileViewport() {
+    return Boolean(this.mobileBreakpointQuery?.matches);
+  }
+
+  isOpen() {
+    return Boolean(this.desktopMenu || this.mobileSheet);
+  }
+
+  toggle(options = {}) {
+    if (this.isOpen()) {
+      this.close();
+      return;
+    }
+
+    this.open(options);
+  }
+
+  open({ anchor = null, items = [], title = 'Create' } = {}) {
+    this.close({ restoreFocus: false });
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return;
+    }
+
+    this.activeAnchor = typeof HTMLElement !== 'undefined' && anchor instanceof HTMLElement ? anchor : null;
+    this.activeAnchor?.setAttribute('aria-expanded', 'true');
+
+    if (this.isMobileViewport()) {
+      this.openMobileSheet({ items, title });
+      return;
+    }
+
+    this.openDesktopMenu({ anchor: this.activeAnchor, items, title });
+  }
+
+  close({ restoreFocus = true } = {}) {
+    if (this.desktopMenu) {
+      this.desktopMenu.remove();
+      this.desktopMenu = null;
+    }
+
+    if (this.mobileBackdrop) {
+      this.mobileBackdrop.remove();
+      this.mobileBackdrop = null;
+    }
+
+    if (this.mobileSheet) {
+      this.mobileSheet.remove();
+      this.mobileSheet = null;
+    }
+
+    if (this.documentPointerDownHandler) {
+      document.removeEventListener('pointerdown', this.documentPointerDownHandler);
+      this.documentPointerDownHandler = null;
+    }
+
+    if (this.windowResizeHandler && typeof window !== 'undefined') {
+      window.removeEventListener('resize', this.windowResizeHandler);
+      this.windowResizeHandler = null;
+    } else {
+      this.windowResizeHandler = null;
+    }
+
+    const previousAnchor = this.activeAnchor;
+    this.activeAnchor?.setAttribute('aria-expanded', 'false');
+    this.activeAnchor = null;
+
+    if (restoreFocus) {
+      previousAnchor?.focus?.();
+    }
+  }
+
+  openDesktopMenu({ anchor, items, title }) {
+    const menu = document.createElement('div');
+    menu.className = 'create-menu';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', title);
+
+    this.renderMenuItems(menu, items);
+    document.body.appendChild(menu);
+    this.positionDesktopMenu(menu, anchor);
+
+    menu.addEventListener('keydown', (event) => {
+      this.handleDesktopMenuKeyDown(event, menu);
+    });
+
+    this.documentPointerDownHandler = (event) => {
+      if (menu.contains(event.target) || anchor?.contains?.(event.target)) {
+        return;
+      }
+
+      this.close();
+    };
+    this.windowResizeHandler = this.boundClose;
+    setTimeout(() => {
+      document.addEventListener('pointerdown', this.documentPointerDownHandler);
+    }, 0);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', this.windowResizeHandler);
+    }
+
+    this.desktopMenu = menu;
+    getFocusableItems(menu)[0]?.focus();
+  }
+
+  openMobileSheet({ items, title }) {
+    const backdrop = document.createElement('button');
+    backdrop.type = 'button';
+    backdrop.className = 'file-action-sheet-backdrop';
+    backdrop.setAttribute('aria-label', `Close ${title.toLowerCase()} menu`);
+
+    const sheet = document.createElement('div');
+    sheet.className = 'file-action-sheet create-action-sheet';
+
+    const header = document.createElement('div');
+    header.className = 'create-action-sheet-header';
+    header.textContent = title;
+    sheet.appendChild(header);
+
+    this.renderMenuItems(sheet, items, { mobile: true });
+
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'ui-button btn btn-ghost file-action-sheet-item create-action-sheet-item';
+    cancelButton.textContent = 'Cancel';
+    cancelButton.addEventListener('click', () => {
+      this.close();
+    });
+    sheet.appendChild(cancelButton);
+
+    backdrop.addEventListener('click', () => {
+      this.close();
+    });
+
+    document.body.append(backdrop, sheet);
+    this.mobileBackdrop = backdrop;
+    this.mobileSheet = sheet;
+  }
+
+  renderMenuItems(container, items, { mobile = false } = {}) {
+    let lastGroup = null;
+
+    items.forEach((item) => {
+      if (item.group && item.group !== lastGroup) {
+        const groupLabel = document.createElement('div');
+        groupLabel.className = mobile ? 'create-action-sheet-group' : 'create-menu-group';
+        groupLabel.textContent = item.group;
+        container.appendChild(groupLabel);
+        lastGroup = item.group;
+      }
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = mobile
+        ? 'ui-button btn btn-secondary file-action-sheet-item create-action-sheet-item'
+        : 'create-menu-item';
+      button.setAttribute('role', mobile ? 'button' : 'menuitem');
+      button.dataset.actionId = item.id;
+
+      const icon = document.createElement('span');
+      icon.className = 'create-menu-item-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = item.icon || '';
+      button.appendChild(icon);
+
+      const copy = document.createElement('span');
+      copy.className = 'create-menu-item-copy';
+
+      const label = document.createElement('span');
+      label.className = 'create-menu-item-label';
+      label.textContent = item.label;
+      copy.appendChild(label);
+
+      const meta = item.meta || item.hint;
+      if (meta) {
+        const metaEl = document.createElement('span');
+        metaEl.className = 'create-menu-item-meta';
+        metaEl.textContent = meta;
+        copy.appendChild(metaEl);
+      }
+
+      button.appendChild(copy);
+      button.addEventListener('click', () => {
+        this.close({ restoreFocus: false });
+        item.onSelect?.();
+      });
+
+      container.appendChild(button);
+    });
+  }
+
+  positionDesktopMenu(menu, anchor) {
+    const menuRect = menu.getBoundingClientRect();
+    const anchorRect = anchor?.getBoundingClientRect?.();
+    const viewportPadding = 8;
+    const defaultLeft = anchorRect?.left ?? viewportPadding;
+    const maxLeft = Math.max(viewportPadding, window.innerWidth - menuRect.width - viewportPadding);
+    const left = Math.max(viewportPadding, Math.min(defaultLeft, maxLeft));
+
+    let top = (anchorRect?.bottom ?? viewportPadding) + 8;
+    const maxTop = window.innerHeight - menuRect.height - viewportPadding;
+    if (top > maxTop && anchorRect) {
+      top = Math.max(viewportPadding, anchorRect.top - menuRect.height - 8);
+    }
+
+    menu.style.left = `${left}px`;
+    menu.style.top = `${Math.max(viewportPadding, top)}px`;
+  }
+
+  handleDesktopMenuKeyDown(event, menu) {
+    const items = getFocusableItems(menu);
+    if (items.length === 0) {
+      return;
+    }
+
+    const activeIndex = Math.max(0, items.indexOf(document.activeElement));
+
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        items[(activeIndex + 1) % items.length]?.focus();
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        items[(activeIndex - 1 + items.length) % items.length]?.focus();
+        break;
+      case 'Home':
+        event.preventDefault();
+        items[0]?.focus();
+        break;
+      case 'End':
+        event.preventDefault();
+        items[items.length - 1]?.focus();
+        break;
+      case 'Escape':
+        event.preventDefault();
+        this.close();
+        break;
+      case 'Tab':
+        this.close({ restoreFocus: false });
+        break;
+    }
+  }
+}

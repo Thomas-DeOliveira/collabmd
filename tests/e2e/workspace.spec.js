@@ -9,6 +9,7 @@ import {
   test,
   waitForCollaborativeEditor,
   waitForEditor,
+  waitForPreview,
   waitForHeavyPreviewContent,
   appendEditorContent,
 } from './helpers/app-fixture.js';
@@ -16,6 +17,16 @@ import {
 async function applyBlockToolbarAction(page, action) {
   await page.locator('[data-markdown-block-menu-toggle]').click();
   await page.locator(`[data-markdown-block-action="${action}"]`).click();
+}
+
+async function chooseCreateAction(page, actionName, { from = 'sidebar' } = {}) {
+  const trigger = from === 'empty-state'
+    ? page.locator('#emptyStateNewFileBtn')
+    : page.locator('#sidebarCreateBtn');
+
+  await trigger.click();
+  await expect(page.locator('.create-menu, .create-action-sheet').first()).toBeVisible();
+  await page.locator('.create-menu-item, .create-action-sheet-item').filter({ hasText: actionName }).first().click();
 }
 
 test('shows empty state when no file is selected', async ({ page }) => {
@@ -65,6 +76,8 @@ test('keeps the overflow trigger hidden on desktop and shows toolbar actions inl
   await expect(page.locator('#chatToggleBtn')).toBeVisible();
   await expect(page.locator('#shareBtn')).toBeVisible();
   await expect(page.locator('#themeToggleBtn')).toBeVisible();
+  await expect(page.locator('#themeToggleBtn .ui-toolbar-button-label')).toBeHidden();
+  await expect(page.locator('#themeToggleBtn [data-theme-toggle-state]')).toBeHidden();
 });
 
 test('shows provisional content before delayed websocket sync and upgrades to collaborative editing', async ({ page }) => {
@@ -284,7 +297,7 @@ test('opens a file by clicking the sidebar', async ({ page }) => {
 test('creates files from the sidebar with the custom dialog', async ({ page }) => {
   await openHome(page);
 
-  await page.locator('#newFileBtn').click();
+  await chooseCreateAction(page, /Markdown note/i);
   await expect(page.locator('#fileActionDialog')).toBeVisible();
   await expect(page.locator('#fileActionTitle')).toHaveText('Create markdown file');
 
@@ -300,7 +313,7 @@ test('creates files from the sidebar with the custom dialog', async ({ page }) =
 test('creates empty folders from the sidebar with the custom dialog', async ({ page }) => {
   await openHome(page);
 
-  await page.locator('#newFolderBtn').click();
+  await chooseCreateAction(page, /^Folder/i);
   await expect(page.locator('#fileActionDialog')).toBeVisible();
 
   await page.locator('#fileActionInput').fill('plans/archive');
@@ -308,6 +321,29 @@ test('creates empty folders from the sidebar with the custom dialog', async ({ p
 
   await expect(page.locator('#fileTree')).toContainText('plans');
   await expect(page.locator('#fileTree')).toContainText('archive');
+});
+
+test('empty state create uses the shared create picker', async ({ page }) => {
+  await openHome(page);
+
+  await chooseCreateAction(page, /Markdown note/i, { from: 'empty-state' });
+  await expect(page.locator('#fileActionDialog')).toBeVisible();
+  await expect(page.locator('#fileActionTitle')).toHaveText('Create markdown file');
+});
+
+test('creates draw.io diagrams from the sidebar create picker', async ({ page }) => {
+  await openHome(page);
+
+  await chooseCreateAction(page, /draw\.io diagram/i);
+  await expect(page.locator('#fileActionDialog')).toBeVisible();
+  await expect(page.locator('#fileActionTitle')).toHaveText('Create draw.io diagram');
+
+  await page.locator('#fileActionInput').fill('diagrams/system-map');
+  await page.locator('#fileActionSubmit').click();
+
+  await waitForPreview(page);
+  await expect(page.locator('#activeFileName')).toContainText('system-map');
+  await expect(page.locator('#fileTree')).toContainText('system-map');
 });
 
 test('creates files inside a folder from the tree context menu', async ({ page }) => {
@@ -354,7 +390,7 @@ test('creates root files from empty tree space context menu', async ({ page }) =
 test('moves and deletes files from the sidebar with the custom dialog', async ({ page }) => {
   await openHome(page);
 
-  await page.locator('#newFileBtn').click();
+  await chooseCreateAction(page, /Markdown note/i);
   await expect(page.locator('#fileActionDialog')).toBeVisible();
   await page.locator('#fileActionInput').fill('scratchpad');
   await page.locator('#fileActionSubmit').click();
@@ -392,7 +428,7 @@ test('moves and deletes files from the sidebar with the custom dialog', async ({
 test('renames folders from the sidebar context menu', async ({ page }) => {
   await openHome(page);
 
-  await page.locator('#newFolderBtn').click();
+  await chooseCreateAction(page, /^Folder/i);
   await page.locator('#fileActionInput').fill('drafts-old');
   await page.locator('#fileActionSubmit').click();
 
@@ -413,7 +449,7 @@ test('renames folders from the sidebar context menu', async ({ page }) => {
 test('deletes empty folders from the sidebar context menu', async ({ page }) => {
   await openHome(page);
 
-  await page.locator('#newFolderBtn').click();
+  await chooseCreateAction(page, /^Folder/i);
   await page.locator('#fileActionInput').fill('scratch-empty');
   await page.locator('#fileActionSubmit').click();
 

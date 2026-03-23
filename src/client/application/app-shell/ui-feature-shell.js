@@ -102,7 +102,9 @@ function promptForVersionReload(payload = null) {
 /** @this {UiShellContext} */
 function bindEvents() {
   this.elements.emptyStateNewFileBtn?.addEventListener('click', () => {
-    this.fileExplorer.actionController.handleNewFile();
+    this.fileExplorer.actionController.openRootCreateMenu({
+      anchor: this.elements.emptyStateNewFileBtn,
+    });
   });
 
   this.elements.emptyStateSearchBtn?.addEventListener('click', () => {

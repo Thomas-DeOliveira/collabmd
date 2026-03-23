@@ -11,6 +11,7 @@ import {
   normalizeVaultPathInput,
 } from '../domain/vault-paths.js';
 import { createWorkspaceRequestId } from '../domain/workspace-request-id.js';
+import { CreateMenuPresenter } from './create-menu-presenter.js';
 
 function getPathLeaf(path) {
   return String(path ?? '')
@@ -56,6 +57,9 @@ function withRequestId(payload, requestId) {
 
 export class FileActionController {
   constructor({
+    mobileBreakpointQuery = (typeof window !== 'undefined' && typeof window.matchMedia === 'function')
+      ? window.matchMedia('(max-width: 768px)')
+      : { matches: false },
     onFileDelete,
     onFileSelect,
     pendingWorkspaceRequestIds = null,
@@ -73,12 +77,7 @@ export class FileActionController {
     this.vaultClient = vaultClient;
     this.view = view;
     this.refresh = refresh;
-    this.newFileButton = document.getElementById('newFileBtn');
-    this.newDrawingButton = document.getElementById('newDrawingBtn');
-    this.newDrawioButton = document.getElementById('newDrawioBtn');
-    this.newMermaidButton = document.getElementById('newMermaidBtn');
-    this.newPlantumlButton = document.getElementById('newPlantumlBtn');
-    this.newFolderButton = document.getElementById('newFolderBtn');
+    this.createButton = document.getElementById('sidebarCreateBtn');
     this.refreshButton = document.getElementById('refreshFilesBtn');
     this.actionDialog = document.getElementById('fileActionDialog');
     this.actionForm = document.getElementById('fileActionForm');
@@ -91,17 +90,17 @@ export class FileActionController {
     this.actionNote = document.getElementById('fileActionNote');
     this.actionCancelButton = document.getElementById('fileActionCancel');
     this.actionSubmitButton = document.getElementById('fileActionSubmit');
+    this.createMenu = new CreateMenuPresenter({
+      mobileBreakpointQuery,
+    });
     this.pendingAction = null;
     this.actionBusy = false;
   }
 
   initialize() {
-    this.newFileButton?.addEventListener('click', () => this.handleNewFile());
-    this.newDrawingButton?.addEventListener('click', () => this.handleNewDrawing());
-    this.newDrawioButton?.addEventListener('click', () => this.handleNewDrawio());
-    this.newMermaidButton?.addEventListener('click', () => this.handleNewMermaid());
-    this.newPlantumlButton?.addEventListener('click', () => this.handleNewPlantUml());
-    this.newFolderButton?.addEventListener('click', () => this.handleNewFolder());
+    this.createButton?.addEventListener('click', () => {
+      this.openRootCreateMenu({ anchor: this.createButton });
+    });
     this.refreshButton?.addEventListener('click', () => this.refresh());
     this.actionCancelButton?.addEventListener('click', () => this.closeActionDialog());
     this.actionForm?.addEventListener('submit', (event) => {
@@ -111,33 +110,76 @@ export class FileActionController {
     this.actionDialog?.addEventListener('close', () => this.resetActionDialog());
   }
 
-  createContextMenuItems(parentDir = '') {
+  getCreateActions({ parentDir = '' } = {}) {
     return [
       {
-        label: 'New markdown file',
+        contextLabel: 'New markdown file',
+        group: 'Note',
+        hint: 'Markdown',
+        icon: this.getCreateActionIcon('markdown'),
+        id: 'markdown',
+        label: 'Markdown note',
+        meta: '.md',
         onSelect: () => this.handleNewFile({ parentDir }),
       },
       {
-        label: 'New Excalidraw drawing',
+        contextLabel: 'New Excalidraw drawing',
+        group: 'Diagram',
+        hint: 'Excalidraw',
+        icon: this.getCreateActionIcon('excalidraw'),
+        id: 'excalidraw',
+        label: 'Excalidraw drawing',
+        meta: '.excalidraw',
         onSelect: () => this.handleNewDrawing({ parentDir }),
       },
       {
-        label: 'New draw.io diagram',
+        contextLabel: 'New draw.io diagram',
+        group: 'Diagram',
+        hint: 'draw.io',
+        icon: this.getCreateActionIcon('drawio'),
+        id: 'drawio',
+        label: 'draw.io diagram',
+        meta: '.drawio',
         onSelect: () => this.handleNewDrawio({ parentDir }),
       },
       {
-        label: 'New Mermaid diagram',
+        contextLabel: 'New Mermaid diagram',
+        group: 'Diagram',
+        hint: 'Mermaid',
+        icon: this.getCreateActionIcon('mermaid'),
+        id: 'mermaid',
+        label: 'Mermaid diagram',
+        meta: '.mmd',
         onSelect: () => this.handleNewMermaid({ parentDir }),
       },
       {
-        label: 'New PlantUML diagram',
+        contextLabel: 'New PlantUML diagram',
+        group: 'Diagram',
+        hint: 'PlantUML',
+        icon: this.getCreateActionIcon('plantuml'),
+        id: 'plantuml',
+        label: 'PlantUML diagram',
+        meta: '.puml',
         onSelect: () => this.handleNewPlantUml({ parentDir }),
       },
       {
-        label: 'New folder',
+        contextLabel: 'New folder',
+        group: 'Structure',
+        hint: 'Folder',
+        icon: this.getCreateActionIcon('folder'),
+        id: 'folder',
+        label: 'Folder',
+        meta: 'folder',
         onSelect: () => this.handleNewFolder({ parentDir }),
       },
     ];
+  }
+
+  createContextMenuItems(parentDir = '') {
+    return this.getCreateActions({ parentDir }).map((item) => ({
+      label: item.contextLabel,
+      onSelect: item.onSelect,
+    }));
   }
 
   getDirectoryContextMenuItems(directoryPath) {
@@ -172,6 +214,23 @@ export class FileActionController {
   showToast(message) {
     if (message) {
       this.toastController?.show(String(message));
+    }
+  }
+
+  getCreateActionIcon(kind) {
+    switch (kind) {
+      case 'drawio':
+      case 'plantuml':
+        return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="6" rx="1"/><rect x="14" y="4" width="7" height="6" rx="1"/><rect x="8.5" y="14" width="7" height="6" rx="1"/><path d="M10 7h4"/><path d="M17.5 10v2.5"/><path d="M6.5 10v2.5"/><path d="M6.5 12.5h11"/></svg>';
+      case 'excalidraw':
+        return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>';
+      case 'folder':
+        return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+      case 'mermaid':
+        return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7.5c0-1.38 1.12-2.5 2.5-2.5 1.04 0 1.93.64 2.3 1.56A2.5 2.5 0 0 1 14 8.5v1"/><path d="M19 16.5c0 1.38-1.12 2.5-2.5 2.5-1.04 0-1.93-.64-2.3-1.56A2.5 2.5 0 0 1 10 15.5v-1"/><path d="M8 10.5h8"/><path d="M8 13.5h8"/><path d="M10 8.5v7"/><path d="M14 8.5v7"/></svg>';
+      case 'markdown':
+      default:
+        return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
     }
   }
 
@@ -244,6 +303,7 @@ export class FileActionController {
     }
 
     this.pendingAction = { requiresInput, emptyMessage, onSubmit };
+    this.createMenu.close({ restoreFocus: false });
     this.view?.removeContextMenu?.();
 
     this.actionTitle.textContent = title;
@@ -566,6 +626,19 @@ export class FileActionController {
       note: normalizedParentDir ? `Parent folder: ${normalizedParentDir}` : '',
       normalizedParentDir,
     };
+  }
+
+  openRootCreateMenu({ anchor = this.createButton } = {}) {
+    this.openCreateMenu({ anchor, parentDir: '' });
+  }
+
+  openCreateMenu({ anchor = this.createButton, parentDir = '' } = {}) {
+    this.view?.removeContextMenu?.();
+    this.createMenu.toggle({
+      anchor,
+      items: this.getCreateActions({ parentDir }),
+      title: 'Create',
+    });
   }
 
   handleNewFile({ parentDir = '' } = {}) {

@@ -288,3 +288,20 @@ test('FileActionController rename dialog explains that file type stays fixed', (
   assert.equal(dialogConfig?.copy, 'Update the relative path without changing the file type.');
   assert.match(dialogConfig?.hint ?? '', /\.md is kept automatically\./);
 });
+
+test('FileActionController shares the create registry across menus and includes draw.io', (t) => {
+  const { controller } = createController(t);
+
+  const createActions = controller.getCreateActions();
+  const contextItems = controller.createContextMenuItems();
+
+  assert.deepEqual(createActions.map((item) => item.id), [
+    'markdown',
+    'excalidraw',
+    'drawio',
+    'mermaid',
+    'plantuml',
+    'folder',
+  ]);
+  assert.deepEqual(contextItems.map((item) => item.label), createActions.map((item) => item.contextLabel));
+});
