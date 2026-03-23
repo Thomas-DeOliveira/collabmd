@@ -46,6 +46,7 @@ function initialize() {
   this.syncIdentityManagementUi();
   this.syncCurrentUserName();
   this.syncWrapToggle();
+  this.syncToolbarOverflowVisibility?.();
   this.syncChatNotificationButton();
   this.syncFileHistoryButton({ mode: 'empty' });
   this.renderChat();
@@ -58,7 +59,11 @@ function initialize() {
   this.tabActivityLock.tryActivate();
 
   window.addEventListener('hashchange', () => this.handleHashChange());
-  window.addEventListener('resize', this.createResizeHandler());
+  const handleResize = this.createResizeHandler();
+  window.addEventListener('resize', () => {
+    handleResize();
+    this.syncToolbarOverflowVisibility?.();
+  });
 
   this.fileExplorerReadyPromise = this.fileExplorer.refresh().then(() => {
     this.fileExplorerReady = true;
@@ -291,6 +296,23 @@ function setToolbarOverflowOpen(nextState) {
 }
 
 /** @this {UiShellContext} */
+function syncToolbarOverflowVisibility() {
+  const toggle = this.elements.toolbarOverflowToggle;
+  if (!toggle) {
+    return;
+  }
+
+  const isMobile = this.isMobileViewport?.();
+  if (!isMobile) {
+    this.setToolbarOverflowOpen(false);
+  }
+
+  toggle.classList.toggle('hidden', !isMobile);
+  toggle.hidden = !isMobile;
+  toggle.setAttribute('aria-hidden', String(!isMobile));
+}
+
+/** @this {UiShellContext} */
 function closeToolbarOverflowMenu() {
   this.setToolbarOverflowOpen(false);
 }
@@ -414,6 +436,7 @@ export const uiFeatureShellMethods = {
   scheduleBacklinkRefresh,
   showEditorLoadError,
   showEditorLoading,
+  syncToolbarOverflowVisibility,
   syncWrapToggle,
   toggleToolbarOverflowMenu,
   toggleLineWrapping,

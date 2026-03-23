@@ -57,6 +57,16 @@ test('renders markdown preview when a file is opened', async ({ page }) => {
   await expect(page.locator('#previewContent')).toContainText('Welcome to the test vault');
 });
 
+test('keeps the overflow trigger hidden on desktop and shows toolbar actions inline', async ({ page }) => {
+  await openFile(page, 'README.md', { waitFor: 'preview' });
+
+  await expect(page.locator('#toolbarOverflowToggle')).toBeHidden();
+  await expect(page.locator('#editNameBtn')).toBeVisible();
+  await expect(page.locator('#chatToggleBtn')).toBeVisible();
+  await expect(page.locator('#shareBtn')).toBeVisible();
+  await expect(page.locator('#themeToggleBtn')).toBeVisible();
+});
+
 test('shows provisional content before delayed websocket sync and upgrades to collaborative editing', async ({ page }) => {
   await setHydrateDelay(page, 700);
 
