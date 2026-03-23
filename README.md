@@ -18,7 +18,7 @@ Throughout this guide, **vault** simply means a regular folder on your computer 
 - Your filesystem stays the source of truth: CollabMD does not move, rename, or delete files unless you explicitly do that in the app
 - Realtime editing with Yjs
 - External filesystem edits sync back into the app and connected browsers
-- Mermaid, PlantUML, and Excalidraw support
+- Mermaid, PlantUML, Excalidraw, and draw.io support
 - Source-anchored comments, chat, and presence
 - Works with plain folders, Obsidian-style vaults, and git-backed docs
 
@@ -65,7 +65,7 @@ Prefer video? [Open the WebM demo](https://raw.githubusercontent.com/andes90/col
 - **Markdown with context** — live preview, wiki-links, backlinks, outline, quick switcher, and scroll sync
 - **Source-anchored comments** — comment on lines or selected text with inline markers, preview bubbles, and thread cards
 - **Collaboration built in** — collaborator presence, follow mode, and team chat
-- **Diagram-friendly** — Mermaid fences and standalone `.mmd` / `.mermaid`, PlantUML `.puml` / `.plantuml`, `.excalidraw`, and public video embeds in Markdown
+- **Diagram-friendly** — Mermaid fences and standalone `.mmd` / `.mermaid`, PlantUML `.puml` / `.plantuml`, `.excalidraw`, `.drawio`, and public video embeds in Markdown
 - **Easy browser access** — optional Cloudflare Tunnel support makes a running session easy to share
 
 ## Best fit for
@@ -160,7 +160,7 @@ Then share the printed URL and password with your collaborator. If `cloudflared`
 
 - Single-instance deployment only: collaboration room state is kept in-process and is not shared across replicas
 - `oidc` currently supports Google only
-- Source-anchored comments currently support markdown, Mermaid, and PlantUML text files, but not `.excalidraw`
+- Source-anchored comments currently support markdown, Mermaid, and PlantUML text files, but not `.excalidraw` or `.drawio`
 - Windows use is supported via WSL2 rather than native Windows execution
 
 ## How it works
@@ -171,16 +171,20 @@ collabmd ~/my-vault --no-tunnel
 
 CollabMD starts a local server, scans the vault, and opens a browser-based editor with:
 
-- **File explorer sidebar** — browse, create, rename, and delete `.md`, `.mmd`, `.mermaid`, `.puml`, `.plantuml`, and `.excalidraw` files plus folders
+- **File explorer sidebar** — browse, create, rename, and delete `.md`, `.mmd`, `.mermaid`, `.puml`, `.plantuml`, `.excalidraw`, and `.drawio` files plus folders
 - **Live preview** — rendered as you type, with syntax-highlighted code blocks, public video embeds, plus Mermaid and PlantUML diagrams
 - **Anchored comments** — add comments from the editor, open threads from inline markers or preview bubbles, and review them from the comments drawer
 - **`[[wiki-links]]` + backlinks** — jump between notes and inspect linked mentions
 - **Room chat** — discuss changes without leaving the workspace
 - **Presence + follow mode** — see who is online and follow another collaborator's active cursor
 - **Quick switcher + outline** — move around large vaults and long documents faster
-- **Standalone diagram files** — open `.mmd` / `.mermaid` or `.puml` / `.plantuml` files in side-by-side editor + preview, or `.excalidraw` files in direct preview mode
+- **Standalone diagram files** — open `.mmd` / `.mermaid` or `.puml` / `.plantuml` files in side-by-side editor + preview, `.excalidraw` files in direct preview mode, and `.drawio` files in an embedded diagrams.net editor/viewer
 
-Comment threads are source-anchored and currently supported for markdown, Mermaid, and PlantUML text files. You can comment on a whole line or a text selection, then reopen the thread from either the editor marker or the preview bubble. Excalidraw files are currently excluded from comments.
+Comment threads are source-anchored and currently supported for markdown, Mermaid, and PlantUML text files. You can comment on a whole line or a text selection, then reopen the thread from either the editor marker or the preview bubble. Excalidraw and draw.io files are currently excluded from comments.
+
+Draw.io files use the diagrams.net embed/runtime. Opening a `.drawio` file directly mounts an interactive editor in the preview pane. Markdown embeds such as `![[architecture.drawio]]` use the diagrams.net viewer for a lighter inline preview and include an `Open` action to jump into the full file view.
+
+Draw.io collaboration is intentionally conservative in this release: one connected client holds the edit lease for a `.drawio` file, while other viewers open it read-only and refresh after saves land. This avoids silent overwrite races without claiming true realtime canvas co-editing.
 
 Markdown video embeds are opt-in and use standard image syntax such as `![Video](https://www.youtube.com/watch?v=...)` or `![Video](https://cdn.example.com/demo.webm)`. The preview currently supports public YouTube URLs plus direct public `https` video files ending in `.mp4`, `.webm`, or `.ogg`. The editor toolbar also includes a `Video` action that inserts the same Markdown syntax for you.
 
@@ -297,6 +301,22 @@ Notes:
 - After sign-in, the verified Google name/email become the displayed app identity and the default in-app git commit author
 - You can restrict sign-in to exact users with `AUTH_OIDC_ALLOWED_EMAILS` or entire domains with `AUTH_OIDC_ALLOWED_DOMAINS`
 - The CLI disables the tunnel automatically when `--auth oidc` is active
+
+### Draw.io setup
+
+CollabMD uses diagrams.net for `.drawio` rendering and editing. By default it points at the hosted embed runtime:
+
+```bash
+COLLABMD_DRAWIO_BASE_URL=https://embed.diagrams.net
+```
+
+You can also point it at a self-hosted diagrams.net deployment:
+
+```bash
+COLLABMD_DRAWIO_BASE_URL=https://drawio.example.com
+```
+
+If the draw.io runtime is unavailable, direct `.drawio` file opens fall back to plain XML editing instead of leaving the file inaccessible.
 
 You can also configure the tunnel via environment variables:
 
@@ -579,6 +599,7 @@ vite.config.mjs            Vite multi-page build and dev-server proxy config
 | `AUTH_OIDC_ALLOWED_DOMAINS` | Comma-separated email domain allowlist for `AUTH_STRATEGY=oidc` | |
 | `BASE_PATH` | URL path prefix for subpath deployments | |
 | `PLANTUML_SERVER_URL` | Upstream PlantUML server base URL used for server-side SVG rendering | `https://www.plantuml.com/plantuml` |
+| `COLLABMD_DRAWIO_BASE_URL` | diagrams.net base URL used for `.drawio` viewing and editing | `https://embed.diagrams.net` |
 | `COLLABMD_VAULT_DIR` | Vault directory path | CLI: current directory, server entrypoint: `data/vault`, Docker: `/data` |
 | `COLLABMD_GIT_ENABLED` | Enable or disable git integration in the UI and API | `true` |
 | `COLLABMD_GIT_REPO_URL` | Remote git repository used to bootstrap the vault checkout | |
