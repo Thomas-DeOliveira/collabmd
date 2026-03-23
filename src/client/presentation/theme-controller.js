@@ -1,5 +1,5 @@
-const DARK_THEME_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>';
-const LIGHT_THEME_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+const SUN_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>';
+const MOON_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
 
 export class ThemeController {
   constructor({ storageKey = 'collabmd-theme', onChange }) {
@@ -55,10 +55,27 @@ export class ThemeController {
   }
 
   updateToggleIcons() {
-    const icon = this.currentTheme === 'dark' ? DARK_THEME_ICON : LIGHT_THEME_ICON;
+    const currentLabel = this.currentTheme === 'dark' ? 'Dark' : 'Light';
+    const nextLabel = this.currentTheme === 'dark' ? 'light' : 'dark';
+    const icon = this.currentTheme === 'dark' ? MOON_ICON : SUN_ICON;
 
     document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
-      button.innerHTML = icon;
+      const iconElement = button.querySelector('[data-theme-toggle-icon]');
+      const stateElement = button.querySelector('[data-theme-toggle-state]');
+
+      if (iconElement) {
+        iconElement.innerHTML = icon;
+      } else {
+        button.innerHTML = icon;
+      }
+
+      if (stateElement) {
+        stateElement.textContent = currentLabel;
+        stateElement.dataset.theme = this.currentTheme;
+      }
+
+      button.setAttribute('aria-label', `Theme: ${currentLabel}. Switch to ${nextLabel} mode`);
+      button.setAttribute('title', `Theme: ${currentLabel}. Switch to ${nextLabel} mode`);
     });
   }
 }
