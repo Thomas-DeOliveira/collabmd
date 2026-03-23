@@ -64,6 +64,34 @@
   }
 
   .toolbar-presence-cluster {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .toolbar-presence-cluster .user-avatar {
+    width: 22px;
+    height: 22px;
+    margin-left: -3px;
+    border-width: 1.5px;
+  }
+
+  .toolbar-presence-cluster .user-avatar.is-local {
+    width: 22px;
+    min-width: 22px;
+    margin-right: 0;
+    padding: 0;
+    gap: 0;
+  }
+
+  .toolbar-presence-cluster .user-avatar.is-local .user-avatar-initial {
+    width: auto;
+    height: auto;
+    background: transparent;
+    font-size: var(--text-meta);
+  }
+
+  .toolbar-presence-cluster .user-avatar-self-label {
     display: none;
   }
 

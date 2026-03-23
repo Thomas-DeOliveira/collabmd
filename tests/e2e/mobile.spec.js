@@ -73,6 +73,33 @@ test.describe('mobile outline', () => {
   });
 });
 
+test.describe('mobile presence', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+  });
+
+  test('shows collaborator avatars in the mobile header', async ({ browser }) => {
+    const viewport = { width: 390, height: 844 };
+    const ownerContext = await browser.newContext({ viewport });
+    const teammateContext = await browser.newContext({ viewport });
+
+    const ownerPage = await ownerContext.newPage();
+    const teammatePage = await teammateContext.newPage();
+
+    await openFile(ownerPage, 'README.md', { userName: 'Owner', waitFor: 'preview' });
+    await openFile(teammatePage, 'README.md', { userName: 'Teammate', waitFor: 'preview' });
+
+    await expect(ownerPage.locator('#userCount')).toHaveText('2 online');
+    await expect(ownerPage.locator('#userAvatars')).toBeVisible();
+    await expect(ownerPage.locator('#userAvatars .user-avatar').first()).toBeVisible();
+    await expect(ownerPage.locator('#userAvatars .user-avatar-button').first()).toBeVisible();
+    await expect(ownerPage.locator('#userAvatars .user-avatar-button').first()).toHaveAttribute('aria-label', /Follow Teammate/);
+
+    await ownerContext.close();
+    await teammateContext.close();
+  });
+});
+
 test.describe('mobile linked mentions', () => {
   test.use({
     viewport: { width: 390, height: 844 },
