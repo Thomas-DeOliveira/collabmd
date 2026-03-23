@@ -13,8 +13,8 @@ export class BrowserNavigationPort {
     return getHashRoute();
   }
 
-  navigateToFile(filePath) {
-    navigateToFile(filePath);
+  navigateToFile(filePath, options) {
+    navigateToFile(filePath, options);
   }
 
   navigateToGitDiff(payload) {

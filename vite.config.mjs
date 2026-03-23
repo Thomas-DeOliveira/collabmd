@@ -17,6 +17,7 @@ export default defineConfig(({ command }) => ({
     outDir: clientDistRoot,
     rollupOptions: {
       input: {
+        drawioEditor: resolve(clientAppRoot, 'drawio-editor.html'),
         excalidrawEditor: resolve(clientAppRoot, 'excalidraw-editor.html'),
         index: resolve(clientAppRoot, 'index.html'),
       },

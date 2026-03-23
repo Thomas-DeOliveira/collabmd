@@ -1,4 +1,5 @@
 import {
+  isDrawioFilePath,
   isExcalidrawFilePath,
   isMermaidFilePath,
   isPlantUmlFilePath,
@@ -24,6 +25,10 @@ function decodeHeaderMetadata(value) {
 function selectWriteOperation(vaultFileStore, filePath, content) {
   if (isExcalidrawFilePath(filePath)) {
     return vaultFileStore.writeExcalidrawFile(filePath, content);
+  }
+
+  if (isDrawioFilePath(filePath)) {
+    return vaultFileStore.writeDrawioFile(filePath, content);
   }
 
   if (isMermaidFilePath(filePath)) {

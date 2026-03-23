@@ -382,11 +382,15 @@ export class FileExplorerView {
   createFileItem({ activeFilePath, depth, filePath, fileType = 'file', name }) {
     const button = document.createElement('button');
     button.className = 'file-tree-item file-tree-file';
+    const isDrawio = fileType === 'drawio';
     const isExcalidraw = fileType === 'excalidraw';
     const isImage = fileType === 'image';
     const isMermaid = fileType === 'mermaid';
     const isPlantUml = fileType === 'plantuml';
 
+    if (isDrawio) {
+      button.classList.add('is-drawio');
+    }
     if (isExcalidraw) {
       button.classList.add('is-excalidraw');
     }
@@ -407,7 +411,7 @@ export class FileExplorerView {
     button.dataset.depth = depth;
     button.dataset.path = filePath;
     button.innerHTML = `
-      ${this.getFileIconSvg({ isExcalidraw, isImage, isMermaid, isPlantUml })}
+      ${this.getFileIconSvg({ isDrawio, isExcalidraw, isImage, isMermaid, isPlantUml })}
       <span class="file-tree-name">${escapeHtml(stripVaultFileExtension(name))}</span>
     `;
 
@@ -529,7 +533,11 @@ export class FileExplorerView {
     return true;
   }
 
-  getFileIconSvg({ isExcalidraw, isImage, isMermaid, isPlantUml }) {
+  getFileIconSvg({ isDrawio, isExcalidraw, isImage, isMermaid, isPlantUml }) {
+    if (isDrawio) {
+      return '<svg class="file-tree-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="6" rx="1"/><rect x="14" y="4" width="7" height="6" rx="1"/><rect x="8.5" y="14" width="7" height="6" rx="1"/><path d="M10 7h4"/><path d="M17.5 10v2.5"/><path d="M6.5 10v2.5"/><path d="M6.5 12.5h11"/></svg>';
+    }
+
     if (isExcalidraw) {
       return '<svg class="file-tree-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>';
     }

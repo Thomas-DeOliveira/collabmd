@@ -3,6 +3,7 @@ import {
 } from '../../domain/file-kind.js';
 import {
   composeVaultChildPath,
+  createDrawioStarter,
   createMarkdownStarter,
   createMermaidStarter,
   createPlantUmlStarter,
@@ -74,6 +75,7 @@ export class FileActionController {
     this.refresh = refresh;
     this.newFileButton = document.getElementById('newFileBtn');
     this.newDrawingButton = document.getElementById('newDrawingBtn');
+    this.newDrawioButton = document.getElementById('newDrawioBtn');
     this.newMermaidButton = document.getElementById('newMermaidBtn');
     this.newPlantumlButton = document.getElementById('newPlantumlBtn');
     this.newFolderButton = document.getElementById('newFolderBtn');
@@ -96,6 +98,7 @@ export class FileActionController {
   initialize() {
     this.newFileButton?.addEventListener('click', () => this.handleNewFile());
     this.newDrawingButton?.addEventListener('click', () => this.handleNewDrawing());
+    this.newDrawioButton?.addEventListener('click', () => this.handleNewDrawio());
     this.newMermaidButton?.addEventListener('click', () => this.handleNewMermaid());
     this.newPlantumlButton?.addEventListener('click', () => this.handleNewPlantUml());
     this.newFolderButton?.addEventListener('click', () => this.handleNewFolder());
@@ -117,6 +120,10 @@ export class FileActionController {
       {
         label: 'New Excalidraw drawing',
         onSelect: () => this.handleNewDrawing({ parentDir }),
+      },
+      {
+        label: 'New draw.io diagram',
+        onSelect: () => this.handleNewDrawio({ parentDir }),
       },
       {
         label: 'New Mermaid diagram',
@@ -663,6 +670,36 @@ export class FileActionController {
         const starter = createMermaidStarter(composeVaultChildPath(context.normalizedParentDir, normalizedPath));
         return this.createVaultFile(starter.path, starter.content, {
           errorMessage: 'Failed to create Mermaid diagram',
+          openAfterCreate: true,
+        });
+      },
+    });
+  }
+
+  handleNewDrawio({ parentDir = '' } = {}) {
+    const context = this.getCreateContext(parentDir);
+
+    this.openActionDialog({
+      title: 'Create draw.io diagram',
+      copy: context.normalizedParentDir
+        ? 'Create a new `.drawio` diagram inside the selected folder.'
+        : 'Create a new `.drawio` diagram with a native starter document.',
+      label: `Diagram ${context.inputLabelSuffix}`,
+      hint: `${context.hintPrefix} ".drawio" is added automatically.`,
+      note: context.note,
+      placeholder: context.normalizedParentDir ? 'architecture' : 'diagrams/architecture',
+      submitLabel: 'Create diagram',
+      emptyMessage: 'Diagram path is required',
+      onSubmit: (value) => {
+        const normalizedPath = normalizeVaultPathInput(value);
+        if (!normalizedPath) {
+          this.showToast('Diagram path is required');
+          return false;
+        }
+
+        const starter = createDrawioStarter(composeVaultChildPath(context.normalizedParentDir, normalizedPath));
+        return this.createVaultFile(starter.path, starter.content, {
+          errorMessage: 'Failed to create draw.io diagram',
           openAfterCreate: true,
         });
       },

@@ -71,6 +71,7 @@ export function getHashRoute() {
 
   if (params.has('file')) {
     return {
+      drawioMode: params.get('drawio') || null,
       filePath: params.get('file'),
       type: 'file',
     };
@@ -79,10 +80,13 @@ export function getHashRoute() {
   return { type: 'empty' };
 }
 
-export function navigateToFile(filePath) {
+export function navigateToFile(filePath, { drawioMode = null } = {}) {
   const params = new URLSearchParams();
   if (filePath) {
     params.set('file', filePath);
+  }
+  if (drawioMode) {
+    params.set('drawio', drawioMode);
   }
   window.location.hash = params.toString();
 }

@@ -45,6 +45,15 @@ export class VaultApiClient {
     return parseApiResponse(response, 'Failed to create file');
   }
 
+  async writeFile({ content, path, requestId = null }) {
+    const response = await fetch(resolveApiUrl('/file'), {
+      body: JSON.stringify({ content, path }),
+      headers: createRequestHeaders(requestId, { 'Content-Type': 'application/json' }),
+      method: 'PUT',
+    });
+    return parseApiResponse(response, 'Failed to write file');
+  }
+
   async renameFile({ oldPath, newPath, requestId = null }) {
     const response = await fetch(resolveApiUrl('/file'), {
       body: JSON.stringify({ newPath, oldPath }),

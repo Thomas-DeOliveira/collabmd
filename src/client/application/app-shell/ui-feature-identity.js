@@ -8,7 +8,8 @@ import { USER_NAME_MAX_LENGTH, normalizeUserName } from '../../domain/room.js';
  * @property {{ getUserName(): string, setUserName(name: string): void }} preferences
  * @property {{ getLocalUser(): { name?: string } | null, setUserName(name: string): void }} lobby
  * @property {{ getLocalUser(): { name?: string } | null, setUserName(name: string): string } | null} session
- * @property {{ updateLocalUser(user: unknown): void }} excalidrawEmbed
+ * @property {{ updateLocalUser(user: unknown): void } | null | undefined} drawioEmbed
+ * @property {{ updateLocalUser(user: unknown): void } | null | undefined} excalidrawEmbed
  * @property {{ show(message: string): void }} toastController
  * @property {() => boolean} isIdentityManagedByAuth
  * @property {() => { name?: string } | null} getCurrentUser
@@ -108,7 +109,9 @@ function handleDisplayNameSubmit() {
 
   this.preferences.setUserName(normalizedName);
   this.lobby.setUserName(normalizedName);
-  this.excalidrawEmbed.updateLocalUser(this.lobby.getLocalUser());
+  const localUser = this.lobby.getLocalUser();
+  this.drawioEmbed?.updateLocalUser(localUser);
+  this.excalidrawEmbed?.updateLocalUser(localUser);
   this.syncCurrentUserName();
   this.renderChat();
   dialog.close();

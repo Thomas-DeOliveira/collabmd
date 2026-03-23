@@ -319,6 +319,10 @@ export class VaultFileStore {
     return this.readContentFile(filePath, 'excalidraw');
   }
 
+  async readDrawioFile(filePath) {
+    return this.readContentFile(filePath, 'drawio');
+  }
+
   async readMermaidFile(filePath) {
     return this.readContentFile(filePath, 'mermaid');
   }
@@ -355,6 +359,10 @@ export class VaultFileStore {
 
   async writeExcalidrawFile(filePath, content, options = {}) {
     return this.writeContentFile(filePath, content, 'excalidraw', options);
+  }
+
+  async writeDrawioFile(filePath, content, options = {}) {
+    return this.writeContentFile(filePath, content, 'drawio', options);
   }
 
   async writeMermaidFile(filePath, content, options = {}) {

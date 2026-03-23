@@ -75,6 +75,7 @@ export function getClientRuntimeConfig() {
       id: '',
       packageVersion: '',
     },
+    drawioBaseUrl: 'https://embed.diagrams.net',
     environment: 'development',
     gitEnabled: true,
     publicWsBaseUrl: '',

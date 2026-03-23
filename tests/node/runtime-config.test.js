@@ -6,6 +6,7 @@ import {
   navigateToGitCommit,
   navigateToGitFileHistory,
   navigateToGitFilePreview,
+  navigateToFile,
 } from '../../src/client/infrastructure/runtime-config.js';
 
 function createWindowStub(hash = '') {
@@ -81,4 +82,22 @@ test('runtime-config builds file history and file preview hashes', (t) => {
     globalThis.window.location.hash,
     'git-commit=abc1234&history=docs%2Fguide.md&path=docs%2Fold-name.md',
   );
+});
+
+test('runtime-config parses and builds drawio text fallback routes', (t) => {
+  const previousWindow = globalThis.window;
+  globalThis.window = createWindowStub('#file=diagrams%2Farchitecture.drawio&drawio=text');
+
+  t.after(() => {
+    globalThis.window = previousWindow;
+  });
+
+  assert.deepEqual(getHashRoute(), {
+    drawioMode: 'text',
+    filePath: 'diagrams/architecture.drawio',
+    type: 'file',
+  });
+
+  navigateToFile('diagrams/architecture.drawio', { drawioMode: 'text' });
+  assert.equal(globalThis.window.location.hash, 'file=diagrams%2Farchitecture.drawio&drawio=text');
 });

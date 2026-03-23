@@ -4,6 +4,7 @@ export class WorkspaceRouteController {
     clearInitialFileBootstrap,
     clearStaticPreviewDocument = null,
     closeSidebarOnMobile,
+    drawioEmbed,
     elements,
     excalidrawEmbed,
     fileHistoryView = null,
@@ -38,6 +39,7 @@ export class WorkspaceRouteController {
     this.clearInitialFileBootstrap = clearInitialFileBootstrap;
     this.clearStaticPreviewDocument = clearStaticPreviewDocument;
     this.closeSidebarOnMobile = closeSidebarOnMobile;
+    this.drawioEmbed = drawioEmbed ?? { setHydrationPaused() {} };
     this.elements = elements;
     this.excalidrawEmbed = excalidrawEmbed;
     this.fileHistoryView = fileHistoryView;
@@ -113,7 +115,7 @@ export class WorkspaceRouteController {
     }
 
     this.setSidebarTab('files');
-    await this.openFile(route.filePath);
+    await this.openFile(route.filePath, { drawioMode: route.drawioMode || null });
   }
 
   showEmptyState() {
@@ -243,14 +245,14 @@ export class WorkspaceRouteController {
     this.backlinksPanel.clear();
   }
 
-  async openFile(filePath) {
+  async openFile(filePath, options = {}) {
     this.imageLightbox?.close?.();
     this.gitPanel.setSelection();
     this.gitDiffView.hide();
     this.fileHistoryView?.hide?.();
     this.clearStaticPreviewDocument?.();
     this.syncMainChrome({ mode: 'editor' });
-    await this.workspaceCoordinator.openFile(filePath);
+    await this.workspaceCoordinator.openFile(filePath, options);
     this.setSession(this.workspaceCoordinator.getSession());
   }
 
@@ -270,6 +272,7 @@ export class WorkspaceRouteController {
   resetPreviewSurface() {
     this.imageLightbox?.close?.();
     this.previewRenderer.setHydrationPaused(false);
+    this.drawioEmbed.setHydrationPaused(false);
     this.excalidrawEmbed.setHydrationPaused(false);
     this.videoEmbed?.detachForCommit();
     this.scrollSyncController.setLargeDocumentMode(false);
