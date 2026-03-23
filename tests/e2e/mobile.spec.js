@@ -73,6 +73,22 @@ test.describe('mobile outline', () => {
   });
 });
 
+test.describe('mobile editor typography', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+  });
+
+  test('uses a more compact editor font size on mobile', async ({ page }) => {
+    await openFile(page, 'README.md', { waitFor: 'preview' });
+    await page.locator('#mobileViewToggle').click();
+    await waitForEditor(page);
+
+    await expect.poll(async () => (
+      page.locator('.editor-container .cm-editor').evaluate((element) => getComputedStyle(element).fontSize)
+    )).toBe('15px');
+  });
+});
+
 test.describe('mobile presence', () => {
   test.use({
     viewport: { width: 390, height: 844 },

@@ -4,9 +4,12 @@
   .input,
   .sidebar-search-input,
   .qs-input,
-  .chat-input,
-  .editor-container .cm-editor {
+  .chat-input {
     font-size: 16px;
+  }
+
+  .editor-container .cm-editor {
+    font-size: 15px;
   }
 
   .sidebar {
