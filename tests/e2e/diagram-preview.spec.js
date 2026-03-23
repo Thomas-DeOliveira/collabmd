@@ -1,4 +1,5 @@
 import {
+  ACTIVE_MAXIMIZED_DRAWIO_SELECTOR,
   ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR,
   ACTIVE_MAXIMIZED_PLANTUML_SELECTOR,
   README_TEST_DOCUMENT,
@@ -254,6 +255,99 @@ test('opens excalidraw files with a direct iframe preview', async ({ page }) => 
   expect(maximizedWidths.embedWidth).toBeGreaterThan(maximizedWidths.containerWidth - 48);
   expect(maximizedWidths.left).toBeGreaterThanOrEqual(0);
   expect(maximizedWidths.right).toBeLessThanOrEqual(maximizedWidths.innerWidth);
+});
+
+test('opens drawio files with a maximizable direct preview', async ({ page }) => {
+  await openHome(page);
+
+  await writeVaultFileAndResetCollab(page, {
+    path: 'sample-drawio.drawio',
+    content: [
+      '<mxfile host="app.diagrams.net" modified="2026-01-01T00:00:00.000Z" agent="CollabMD" version="24.7.17">',
+      '  <diagram id="page-1" name="Page-1">',
+      '    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">',
+      '      <root>',
+      '        <mxCell id="0" />',
+      '        <mxCell id="1" parent="0" />',
+      '      </root>',
+      '    </mxGraphModel>',
+      '  </diagram>',
+      '</mxfile>',
+      '',
+    ].join('\n'),
+  });
+
+  await openFile(page, 'sample-drawio.drawio', { waitFor: 'preview' });
+
+  const iframe = page.locator('#previewContent .drawio-embed-iframe').first();
+  await expect(iframe).toBeVisible();
+  await expect(iframe).toHaveAttribute('src', /file=sample-drawio\.drawio/);
+  await expect(page.locator('#previewContent .drawio-embed-label')).toHaveText('sample-drawio');
+
+  await page.locator('#previewContent .drawio-embed-btn[aria-label="Maximize diagram"]').click();
+  await expect(page.locator(`${ACTIVE_MAXIMIZED_DRAWIO_SELECTOR} .drawio-embed-btn[aria-label="Restore diagram size"]`)).toBeVisible();
+
+  const maximizedBounds = await page.evaluate(() => {
+    const container = document.getElementById('previewContainer');
+    const embed = document.querySelector('[data-drawio-maximized-root="true"] .drawio-embed.is-maximized');
+    if (!container || !embed) {
+      return null;
+    }
+
+    const rect = embed.getBoundingClientRect();
+    return {
+      containerWidth: container.getBoundingClientRect().width,
+      embedHeight: rect.height,
+      embedWidth: rect.width,
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      innerHeight: window.innerHeight,
+      innerWidth: window.innerWidth,
+      position: window.getComputedStyle(embed).position,
+    };
+  });
+
+  expect(maximizedBounds).not.toBeNull();
+  expect(maximizedBounds.position).toBe('fixed');
+  expect(maximizedBounds.embedWidth).toBeGreaterThan(maximizedBounds.containerWidth - 48);
+  expect(maximizedBounds.embedHeight).toBeGreaterThan(maximizedBounds.innerHeight - 220);
+  expect(maximizedBounds.top).toBeGreaterThanOrEqual(0);
+  expect(maximizedBounds.left).toBeGreaterThanOrEqual(0);
+  expect(maximizedBounds.right).toBeLessThanOrEqual(maximizedBounds.innerWidth);
+});
+
+test('embedded drawio uses the shared diagram preview header chrome', async ({ page }) => {
+  await openHome(page);
+  await writeVaultFileAndResetCollab(page, {
+    path: 'sample-drawio.drawio',
+    content: [
+      '<mxfile host="app.diagrams.net" modified="2026-01-01T00:00:00.000Z" agent="CollabMD" version="24.7.17">',
+      '  <diagram id="page-1" name="Page-1">',
+      '    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">',
+      '      <root>',
+      '        <mxCell id="0" />',
+      '        <mxCell id="1" parent="0" />',
+      '      </root>',
+      '    </mxGraphModel>',
+      '  </diagram>',
+      '</mxfile>',
+      '',
+    ].join('\n'),
+  });
+
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, [
+    '# Drawio Embed',
+    '',
+    '![[sample-drawio.drawio]]',
+  ].join('\n'));
+
+  const embed = page.locator('#previewContent .drawio-embed').first();
+  await expect(embed).toBeVisible();
+  await expect(embed.locator('.drawio-embed-header .drawio-embed-icon')).toBeVisible();
+  await expect(embed.locator('.drawio-embed-btn[aria-label="Edit in draw.io"]')).toBeVisible();
+  await expect(embed.locator('.drawio-embed-btn').filter({ hasText: 'Open' })).toHaveCount(0);
 });
 
 test('markdown excalidraw embeds use preview mode with an edit button', async ({ page }) => {

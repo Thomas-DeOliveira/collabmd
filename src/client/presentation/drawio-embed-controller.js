@@ -1,4 +1,5 @@
 import { createDrawioLeaseRoomName } from '../../domain/drawio-room.js';
+import { setDiagramActionButtonIcon } from '../domain/diagram-action-icons.js';
 import { resolveAppUrl } from '../domain/runtime-paths.js';
 import { vaultApiClient } from '../domain/vault-api-client.js';
 
@@ -113,22 +114,31 @@ export class DrawioEmbedController {
     this.hydrationIdleId = null;
     this.hydrationPaused = false;
     this.instanceCounter = 0;
+    this.maximizedEntry = null;
+    this.maximizedRoot = null;
 
     this._onMessage = this._onMessage.bind(this);
+    this._onKeyDown = this._onKeyDown.bind(this);
     this._onPreviewClick = this._onPreviewClick.bind(this);
 
     window.addEventListener('message', this._onMessage);
+    window.addEventListener('keydown', this._onKeyDown);
     this.previewElement?.addEventListener('click', this._onPreviewClick);
   }
 
   destroy() {
     window.removeEventListener('message', this._onMessage);
+    window.removeEventListener('keydown', this._onKeyDown);
     this.previewElement?.removeEventListener('click', this._onPreviewClick);
     cancelIdleRender(this.hydrationIdleId);
     this.hydrationIdleId = null;
     this.hydrationQueue = [];
+    this._exitMaximizedEntry();
+    document.body.classList.remove('drawio-maximized-open');
     this.embedEntries.forEach((entry) => entry.wrapper?.remove());
     this.embedEntries.clear();
+    this.maximizedRoot?.remove();
+    this.maximizedRoot = null;
   }
 
   detachForCommit() {
@@ -148,6 +158,8 @@ export class DrawioEmbedController {
   }
 
   reconcileEmbeds(previewElement) {
+    this._exitMaximizedEntry();
+
     const descriptors = Array.from(previewElement.querySelectorAll('.drawio-embed-placeholder[data-drawio-key]')).map((placeholder) => ({
       filePath: placeholder.dataset.drawioTarget || '',
       key: placeholder.dataset.drawioKey || '',
@@ -246,26 +258,27 @@ export class DrawioEmbedController {
     }
 
     const wrapper = document.createElement('div');
-    wrapper.className = `drawio-embed${entry.mode === 'edit' ? ' is-direct-file' : ''}`;
+    wrapper.className = `drawio-embed diagram-preview-shell${entry.mode === 'edit' ? ' is-direct-file' : ''}`;
     wrapper.dataset.file = entry.filePath;
+    wrapper.dataset.drawioKey = entry.key;
 
     const header = document.createElement('div');
-    header.className = 'drawio-embed-header';
+    header.className = 'drawio-embed-header diagram-preview-toolbar';
+
+    const icon = document.createElement('span');
+    icon.className = 'drawio-embed-icon';
+    icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="6" rx="1"/><rect x="14" y="4" width="7" height="6" rx="1"/><rect x="8.5" y="14" width="7" height="6" rx="1"/><path d="M10 7h4"/><path d="M17.5 10v2.5"/><path d="M6.5 10v2.5"/><path d="M6.5 12.5h11"/></svg>';
 
     const label = document.createElement('span');
     label.className = 'drawio-embed-label';
     label.textContent = entry.label.replace(/\.drawio$/i, '');
-    header.appendChild(label);
+    header.append(icon, label);
 
     if (entry.mode !== 'edit') {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'drawio-embed-btn';
-      button.dataset.action = 'open-file';
-      button.dataset.filePath = entry.filePath;
-      button.textContent = 'Open';
-      header.appendChild(button);
+      header.appendChild(this.createOpenButton(entry));
     }
+
+    header.appendChild(this.createMaximizeButton(entry, wrapper));
 
     const iframe = document.createElement('iframe');
     iframe.className = 'drawio-embed-iframe';
@@ -287,24 +300,23 @@ export class DrawioEmbedController {
     }
 
     const wrapper = document.createElement('div');
-    wrapper.className = 'drawio-embed is-static-preview';
+    wrapper.className = 'drawio-embed diagram-preview-shell is-static-preview';
     wrapper.dataset.file = entry.filePath;
+    wrapper.dataset.drawioKey = entry.key;
 
     const header = document.createElement('div');
-    header.className = 'drawio-embed-header';
+    header.className = 'drawio-embed-header diagram-preview-toolbar';
+
+    const icon = document.createElement('span');
+    icon.className = 'drawio-embed-icon';
+    icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="6" rx="1"/><rect x="14" y="4" width="7" height="6" rx="1"/><rect x="8.5" y="14" width="7" height="6" rx="1"/><path d="M10 7h4"/><path d="M17.5 10v2.5"/><path d="M6.5 10v2.5"/><path d="M6.5 12.5h11"/></svg>';
 
     const label = document.createElement('span');
     label.className = 'drawio-embed-label';
     label.textContent = entry.label.replace(/\.drawio$/i, '');
-    header.appendChild(label);
+    header.append(icon, label);
 
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'drawio-embed-btn';
-    button.dataset.action = 'open-file';
-    button.dataset.filePath = entry.filePath;
-    button.textContent = 'Open';
-    header.appendChild(button);
+    header.append(this.createOpenButton(entry), this.createMaximizeButton(entry, wrapper));
 
     const viewerShell = document.createElement('div');
     viewerShell.className = 'drawio-viewer-shell';
@@ -346,6 +358,18 @@ export class DrawioEmbedController {
     graphElement.setAttribute('role', 'button');
     graphElement.setAttribute('tabindex', '0');
     graphElement.setAttribute('aria-label', `Open ${entry.label.replace(/\.drawio$/i, '')}`);
+    graphElement.addEventListener('click', (event) => {
+      event.preventDefault();
+      this.onOpenFile?.(entry.filePath);
+    });
+    graphElement.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+      }
+
+      event.preventDefault();
+      this.onOpenFile?.(entry.filePath);
+    });
     graphElement.dataset.mxgraph = JSON.stringify({
       'check-visible-state': false,
       center: true,
@@ -411,6 +435,146 @@ export class DrawioEmbedController {
 
   syncLayout() {}
 
+  createOpenButton(entry) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'drawio-embed-btn ui-preview-action ui-preview-action--icon-only';
+    button.dataset.action = 'open-file';
+    button.dataset.filePath = entry.filePath;
+    button.title = 'Edit in draw.io';
+    button.setAttribute('aria-label', 'Edit in draw.io');
+    setDiagramActionButtonIcon(button, 'edit');
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      this.onOpenFile?.(entry.filePath);
+    });
+    return button;
+  }
+
+  createMaximizeButton(entry, wrapper) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'drawio-embed-btn ui-preview-action ui-preview-action--icon-only';
+    button.dataset.action = 'toggle-maximize';
+    button.dataset.filePath = entry.filePath;
+    button.dataset.drawioKey = entry.key;
+
+    const syncState = () => {
+      const isMaximized = this.maximizedEntry?.key === entry.key;
+      setDiagramActionButtonIcon(button, isMaximized ? 'restore' : 'maximize');
+      button.title = isMaximized ? 'Restore diagram size' : 'Maximize diagram';
+      button.setAttribute('aria-label', isMaximized ? 'Restore diagram size' : 'Maximize diagram');
+    };
+
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      if (this.maximizedEntry?.key === entry.key) {
+        this._exitMaximizedEntry();
+      } else {
+        this._enterMaximizedEntry(entry, wrapper);
+      }
+      this._syncMaximizeButtons();
+    });
+
+    syncState();
+    return button;
+  }
+
+  _ensureMaximizedRoot() {
+    if (this.maximizedRoot?.isConnected && this.maximizedRoot.parentElement === document.body) {
+      return this.maximizedRoot;
+    }
+
+    let maximizedRoot = document.body.querySelector('[data-drawio-maximized-root="true"]');
+    if (!maximizedRoot) {
+      maximizedRoot = document.createElement('div');
+      maximizedRoot.dataset.drawioMaximizedRoot = 'true';
+      maximizedRoot.className = 'drawio-maximized-root';
+      document.body.appendChild(maximizedRoot);
+    }
+
+    this.maximizedRoot = maximizedRoot;
+    return maximizedRoot;
+  }
+
+  _enterMaximizedEntry(entry, wrapper = entry?.wrapper) {
+    if (!entry?.wrapper || entry.wrapper !== wrapper) {
+      return;
+    }
+
+    if (this.maximizedEntry?.key === entry.key) {
+      return;
+    }
+
+    this._exitMaximizedEntry();
+
+    const maximizedRoot = this._ensureMaximizedRoot();
+    const parent = entry.wrapper.parentElement;
+    if (!parent) {
+      return;
+    }
+
+    const spacer = document.createElement('div');
+    spacer.className = 'drawio-maximize-spacer';
+    spacer.style.height = `${Math.ceil(entry.wrapper.getBoundingClientRect().height)}px`;
+
+    entry.maximizeSpacer = spacer;
+    entry.restoreParent = parent;
+    entry.restoreNextSibling = entry.wrapper.nextSibling || null;
+    parent.insertBefore(spacer, entry.wrapper);
+
+    maximizedRoot.hidden = false;
+    maximizedRoot.appendChild(entry.wrapper);
+    entry.wrapper.classList.add('is-maximized');
+    document.body.classList.add('drawio-maximized-open');
+    this.maximizedEntry = entry;
+  }
+
+  _exitMaximizedEntry() {
+    const entry = this.maximizedEntry;
+    if (!entry?.wrapper) {
+      this.maximizedEntry = null;
+      document.body.classList.remove('drawio-maximized-open');
+      return;
+    }
+
+    const { maximizeSpacer, restoreNextSibling, restoreParent } = entry;
+    entry.wrapper.classList.remove('is-maximized');
+
+    if (maximizeSpacer?.parentElement) {
+      maximizeSpacer.replaceWith(entry.wrapper);
+    } else if (restoreParent?.isConnected) {
+      if (restoreNextSibling?.parentElement === restoreParent) {
+        restoreParent.insertBefore(entry.wrapper, restoreNextSibling);
+      } else {
+        restoreParent.appendChild(entry.wrapper);
+      }
+    }
+
+    entry.maximizeSpacer = null;
+    entry.restoreParent = null;
+    entry.restoreNextSibling = null;
+    this.maximizedEntry = null;
+    document.body.classList.remove('drawio-maximized-open');
+    if (this.maximizedRoot && this.maximizedRoot.childElementCount === 0) {
+      this.maximizedRoot.hidden = true;
+    }
+  }
+
+  _syncMaximizeButtons() {
+    this.embedEntries.forEach((entry) => {
+      const button = entry.wrapper?.querySelector('.drawio-embed-btn[data-action="toggle-maximize"]');
+      if (!(button instanceof HTMLElement)) {
+        return;
+      }
+
+      const isMaximized = this.maximizedEntry?.key === entry.key;
+      setDiagramActionButtonIcon(button, isMaximized ? 'restore' : 'maximize');
+      button.title = isMaximized ? 'Restore diagram size' : 'Maximize diagram';
+      button.setAttribute('aria-label', isMaximized ? 'Restore diagram size' : 'Maximize diagram');
+    });
+  }
+
   _findEntryByInstanceId(instanceId) {
     for (const entry of this.embedEntries.values()) {
       if (entry.instanceId === instanceId) {
@@ -434,7 +598,7 @@ export class DrawioEmbedController {
 
     if (payload.type === 'fallback-text') {
       if (entry.mode === 'view') {
-        this.renderExportFallback(entry, 'Failed to render draw.io preview');
+        this.renderViewerFallback(entry, 'Failed to render draw.io preview');
         return;
       }
       this.onOpenTextFile?.(entry.filePath);
@@ -467,17 +631,12 @@ export class DrawioEmbedController {
       }
       return;
     }
+  }
 
-    const openButton = event.target.closest('.drawio-embed-btn[data-action="open-file"]');
-    if (openButton) {
-      event.preventDefault();
-      this.onOpenFile?.(openButton.dataset.filePath || '');
-    }
-
-    const viewerFrame = event.target.closest('.drawio-viewer-frame[data-action="open-file"]');
-    if (viewerFrame) {
-      event.preventDefault();
-      this.onOpenFile?.(viewerFrame.dataset.filePath || '');
+  _onKeyDown(event) {
+    if (event.key === 'Escape') {
+      this._exitMaximizedEntry();
+      this._syncMaximizeButtons();
     }
   }
 

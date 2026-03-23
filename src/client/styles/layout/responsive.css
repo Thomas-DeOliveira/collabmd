@@ -367,8 +367,17 @@
     width: auto;
   }
 
+  .drawio-embed.is-maximized {
+    inset: var(--space-3);
+    width: auto;
+  }
+
   .excalidraw-embed.is-maximized .excalidraw-embed-iframe {
     height: auto !important;
+  }
+
+  .drawio-embed.is-maximized .drawio-embed-iframe {
+    height: auto;
   }
 
   .image-lightbox-toolbar {
