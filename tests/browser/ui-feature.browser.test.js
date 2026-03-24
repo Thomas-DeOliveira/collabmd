@@ -366,11 +366,14 @@ describe('uiFeature browser helpers', () => {
     expect(checkbox.checked).toBe(false);
 
     const externalLink = context.elements.previewContent.querySelector('li[data-source-line="8"] a');
-    const externalClick = new MouseEvent('click', { bubbles: true, cancelable: true });
-    externalLink.dispatchEvent(externalClick);
+    const externalClick = {
+      preventDefault: vi.fn(),
+      target: externalLink,
+    };
+    context.handlePreviewContentClick(externalClick);
 
     expect(context.session.toggleTaskListItem).toHaveBeenCalledTimes(1);
-    expect(externalClick.defaultPrevented).toBe(false);
+    expect(externalClick.preventDefault).not.toHaveBeenCalled();
 
     const wikiLink = context.elements.previewContent.querySelector('a.wiki-link');
     wikiLink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
