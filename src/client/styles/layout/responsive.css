@@ -175,7 +175,7 @@
     color: var(--color-primary);
   }
 
-  .sidebar-close-btn {
+  .ui-icon-button.sidebar-close-btn {
     display: inline-flex;
   }
 
