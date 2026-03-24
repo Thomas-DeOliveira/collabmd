@@ -9,6 +9,7 @@ import { resolveApiUrl, resolveAppUrl } from '../infrastructure/runtime-config.j
 const EXPORT_PAGE_SOURCE = 'collabmd-export-page';
 const EXPORT_HOST_SOURCE = 'collabmd-export-host';
 const LIGHT_EXPORT_MERMAID_THEME = Object.freeze({
+  htmlLabels: false,
   flowchart: {
     defaultRenderer: 'dagre-wrapper',
     useMaxWidth: true,

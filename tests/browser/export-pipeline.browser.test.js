@@ -90,6 +90,29 @@ describe('export pipeline browser helpers', () => {
     expect(snapshot.warnings).toHaveLength(0);
   });
 
+  it('renders Mermaid export labels as SVG text instead of foreignObject html labels', async () => {
+    const container = document.createElement('div');
+    container.innerHTML = [
+      '<div class="mermaid-shell" data-mermaid-key="mermaid-1" data-mermaid-label="Mermaid diagram">',
+      '  <pre class="mermaid-source">flowchart LR\nA[Source markdown] --&gt; B[Export snapshot]</pre>',
+      '</div>',
+    ].join('\n');
+    const snapshot = {
+      assets: {},
+      warnings: [],
+    };
+
+    await resolveExportAssets(snapshot, { container });
+
+    const svg = container.querySelector('svg');
+    expect(svg).not.toBeNull();
+    expect(svg?.querySelector('foreignObject')).toBeNull();
+    const textContent = svg?.textContent || '';
+    expect(textContent).toContain('Source markdown');
+    expect(textContent).toContain('Export snapshot');
+    expect(snapshot.warnings).toHaveLength(0);
+  });
+
   it('renders YouTube video posters with a fetched thumbnail and original link', async () => {
     globalThis.fetch = vi.fn(async (url) => {
       if (String(url).includes('i.ytimg.com')) {
