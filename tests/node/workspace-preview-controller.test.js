@@ -53,6 +53,10 @@ test('WorkspacePreviewController wraps Mermaid and PlantUML file content for pre
     controller.getPreviewSource('README.md'),
     'graph TD\nA-->B',
   );
+  assert.equal(
+    controller.getPreviewSource('diagram.drawio', { drawioMode: 'text' }),
+    '```xml\ngraph TD\nA-->B\n```',
+  );
 });
 
 test('WorkspacePreviewController pauses preview hydration during editor scroll activity', () => {
@@ -154,6 +158,31 @@ test('WorkspacePreviewController forces draw.io files into preview without overw
     ['outline-close'],
     ['backlinks-clear'],
   ]);
+});
+
+test('WorkspacePreviewController keeps draw.io text mode in the editor layout', () => {
+  const events = [];
+  const controller = createController({
+    layoutController: {
+      setView(view, options) {
+        events.push(['set-view', view, options]);
+      },
+    },
+    outlineController: {
+      close() {
+        events.push(['outline-close']);
+      },
+    },
+    backlinksPanel: {
+      clear() {
+        events.push(['backlinks-clear']);
+      },
+    },
+  });
+
+  controller.syncFileChrome('diagram.drawio', { drawioMode: 'text' });
+
+  assert.deepEqual(events, []);
 });
 
 test('WorkspacePreviewController forces image attachments into preview without overwriting layout preference', () => {

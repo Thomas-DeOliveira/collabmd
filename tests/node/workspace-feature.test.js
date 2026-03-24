@@ -77,6 +77,7 @@ test('workspaceFeature falls back to live preview source when there is no static
   const app = {
     _staticPreviewDocument: null,
     currentFilePath: null,
+    currentDrawioMode: null,
     getStaticPreviewDocument: workspaceFeature.getStaticPreviewDocument,
     isMermaidFile() {
       return false;
@@ -92,4 +93,137 @@ test('workspaceFeature falls back to live preview source when there is no static
   };
 
   assert.equal(workspaceFeature.getPreviewSource.call(app), 'live-session-content');
+});
+
+test('workspaceFeature passes draw.io text mode into live preview source resolution', () => {
+  const app = {
+    _staticPreviewDocument: null,
+    currentDrawioMode: 'text',
+    currentFilePath: 'diagrams/architecture.drawio',
+    getStaticPreviewDocument: workspaceFeature.getStaticPreviewDocument,
+    isMermaidFile() {
+      return false;
+    },
+    isPlantUmlFile() {
+      return false;
+    },
+    workspacePreviewController: {
+      getPreviewSource(filePath, options) {
+        assert.equal(filePath, 'diagrams/architecture.drawio');
+        assert.deepEqual(options, { drawioMode: 'text' });
+        return '```xml\n<mxfile />\n```';
+      },
+    },
+  };
+
+  assert.equal(workspaceFeature.getPreviewSource.call(app), '```xml\n<mxfile />\n```');
+});
+
+test('workspaceFeature routes draw.io preview editor requests into text mode', () => {
+  const events = [];
+  const app = {
+    currentDrawioMode: null,
+    currentFilePath: 'diagrams/architecture.drawio',
+    isDrawioFile(filePath) {
+      return filePath.endsWith('.drawio');
+    },
+    layoutController: {
+      primeView(view) {
+        events.push(['prime-view', view]);
+      },
+    },
+    navigation: {
+      navigateToFile(filePath, options) {
+        events.push(['navigate', filePath, options]);
+      },
+    },
+  };
+
+  assert.equal(workspaceFeature.handleLayoutViewRequest.call(app, 'editor'), false);
+  assert.deepEqual(events, [
+    ['prime-view', 'editor'],
+    ['navigate', 'diagrams/architecture.drawio', { drawioMode: 'text' }],
+  ]);
+});
+
+test('workspaceFeature routes draw.io text preview requests back into embedded preview mode without changing desktop preference', () => {
+  const events = [];
+  const app = {
+    currentDrawioMode: 'text',
+    currentFilePath: 'diagrams/architecture.drawio',
+    isDrawioFile(filePath) {
+      return filePath.endsWith('.drawio');
+    },
+    layoutController: {
+      isMobileViewport() {
+        return false;
+      },
+      primeView(view) {
+        events.push(['prime-view', view]);
+      },
+    },
+    navigation: {
+      navigateToFile(filePath, options) {
+        events.push(['navigate', filePath, options ?? null]);
+      },
+    },
+  };
+
+  assert.equal(workspaceFeature.handleLayoutViewRequest.call(app, 'preview'), false);
+  assert.deepEqual(events, [
+    ['navigate', 'diagrams/architecture.drawio', null],
+  ]);
+});
+
+test('workspaceFeature primes preview when leaving draw.io text mode on mobile', () => {
+  const events = [];
+  const app = {
+    currentDrawioMode: 'text',
+    currentFilePath: 'diagrams/architecture.drawio',
+    isDrawioFile(filePath) {
+      return filePath.endsWith('.drawio');
+    },
+    layoutController: {
+      isMobileViewport() {
+        return true;
+      },
+      primeView(view) {
+        events.push(['prime-view', view]);
+      },
+    },
+    navigation: {
+      navigateToFile(filePath, options) {
+        events.push(['navigate', filePath, options ?? null]);
+      },
+    },
+  };
+
+  assert.equal(workspaceFeature.handleLayoutViewRequest.call(app, 'preview'), false);
+  assert.deepEqual(events, [
+    ['prime-view', 'preview'],
+    ['navigate', 'diagrams/architecture.drawio', null],
+  ]);
+});
+
+test('workspaceFeature keeps non-preview layout requests local for draw.io text mode', () => {
+  const app = {
+    currentDrawioMode: 'text',
+    currentFilePath: 'diagrams/architecture.drawio',
+    isDrawioFile(filePath) {
+      return filePath.endsWith('.drawio');
+    },
+    layoutController: {
+      primeView() {
+        throw new Error('Should not reroute');
+      },
+    },
+    navigation: {
+      navigateToFile() {
+        throw new Error('Should not reroute');
+      },
+    },
+  };
+
+  assert.equal(workspaceFeature.handleLayoutViewRequest.call(app, 'editor'), true);
+  assert.equal(workspaceFeature.handleLayoutViewRequest.call(app, 'split'), true);
 });

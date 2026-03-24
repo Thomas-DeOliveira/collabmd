@@ -160,13 +160,19 @@ export class WorkspaceCoordinator {
       return;
     }
 
+    const normalizedDrawioMode = drawioMode ?? null;
+    const currentDrawioMode = this.stateStore.get('currentDrawioMode') ?? null;
     const isDrawio = this.isDrawioFile(filePath) && drawioMode !== 'text' && this.shouldUseDrawioPreview(filePath);
     const isExcalidraw = this.isExcalidrawFile(filePath);
     const isImage = this.isImageFile(filePath);
     const isMermaid = this.isMermaidFile(filePath);
     const isPlantUml = this.isPlantUmlFile(filePath);
 
-    if (filePath === this.stateStore.get('currentFilePath') && (this.session || isDrawio || isExcalidraw || isImage)) {
+    if (
+      filePath === this.stateStore.get('currentFilePath')
+      && normalizedDrawioMode === currentDrawioMode
+      && (this.session || isDrawio || isExcalidraw || isImage)
+    ) {
       this.onUpdateActiveFile(filePath);
       this.onUpdateLobbyCurrentFile(filePath);
       return;
@@ -177,6 +183,7 @@ export class WorkspaceCoordinator {
 
     this.cleanupSession();
     const chromeState = this.chromeController.prepareForFileOpen(filePath, {
+      drawioMode: normalizedDrawioMode,
       resetConnectionState: !isDrawio && !isExcalidraw && !isImage,
     });
     this.reportFileOpenMetric('open_started', loadToken, { filePath });

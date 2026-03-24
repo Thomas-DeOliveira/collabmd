@@ -1,7 +1,12 @@
 export class LayoutController {
-  constructor({ mobileBreakpointQuery = window.matchMedia('(max-width: 768px)'), onMeasureEditor }) {
+  constructor({
+    mobileBreakpointQuery = window.matchMedia('(max-width: 768px)'),
+    onMeasureEditor,
+    onViewRequest = null,
+  }) {
     this.mobileBreakpointQuery = mobileBreakpointQuery;
     this.onMeasureEditor = onMeasureEditor;
+    this.onViewRequest = onViewRequest;
     this.preferredView = 'split';
     this.mobileShowsEditor = !this.isMobileViewport();
     this.currentView = this.mobileShowsEditor ? this.preferredView : 'preview';
@@ -19,12 +24,31 @@ export class LayoutController {
 
   initialize() {
     this.viewButtons.forEach((button) => {
-      button.addEventListener('click', () => this.setView(button.dataset.view));
+      button.addEventListener('click', () => {
+        if (this.onViewRequest?.(button.dataset.view) === false) {
+          return;
+        }
+
+        this.setView(button.dataset.view);
+      });
     });
 
     this.mobileToggleButton?.addEventListener('click', () => this.toggleMobileView());
     this.initializeResizer();
     this.restorePreferredView();
+  }
+
+  primeView(view) {
+    if (!view) {
+      return;
+    }
+
+    if (this.isMobileViewport()) {
+      this.mobileShowsEditor = view !== 'preview';
+      return;
+    }
+
+    this.preferredView = view;
   }
 
   reset() {
@@ -73,8 +97,14 @@ export class LayoutController {
   }
 
   toggleMobileView() {
-    this.mobileShowsEditor = !this.mobileShowsEditor;
-    this.applyView(this.mobileShowsEditor ? 'split' : 'preview');
+    const nextShowsEditor = !this.mobileShowsEditor;
+    const nextView = nextShowsEditor ? 'split' : 'preview';
+    if (this.onViewRequest?.(nextView) === false) {
+      return;
+    }
+
+    this.mobileShowsEditor = nextShowsEditor;
+    this.applyView(nextView);
     this.updateMobileToggleButton(this.mobileShowsEditor ? 'Preview' : 'Editor');
 
     if (this.mobileShowsEditor) {

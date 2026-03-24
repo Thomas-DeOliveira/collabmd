@@ -8,6 +8,7 @@ function createStateStore() {
   const state = new Map([
     ['connectionState', null],
     ['connectionHelpShown', false],
+    ['currentDrawioMode', null],
     ['currentFilePath', null],
     ['sessionLoadToken', 0],
   ]);
@@ -271,6 +272,34 @@ test('WorkspaceCoordinator skips creating an editor session for draw.io files', 
   assert.equal(createSessionCalls, 0);
   assert.equal(coordinator.getSession(), null);
   assert.ok(events.includes('open-ready'));
+  assert.ok(events.includes('render-drawio'));
+});
+
+test('WorkspaceCoordinator reopens draw.io files when switching from text mode back to preview mode', async () => {
+  let createSessionCalls = 0;
+  const existingSession = {
+    destroy() {},
+  };
+  const { coordinator, events, stateStore } = createCoordinator({
+    createEditorSession: () => {
+      createSessionCalls += 1;
+      return {
+        destroy() {},
+      };
+    },
+    isDrawioFile: (filePath) => filePath?.endsWith('.drawio'),
+    session: existingSession,
+    shouldUseDrawioPreview: () => true,
+  });
+  coordinator.session = existingSession;
+  stateStore.set('currentFilePath', 'vault/architecture.drawio');
+  stateStore.set('currentDrawioMode', 'text');
+
+  await coordinator.openFile('vault/architecture.drawio');
+
+  assert.equal(createSessionCalls, 0);
+  assert.equal(coordinator.getSession(), null);
+  assert.ok(events.includes('cleanup-session'));
   assert.ok(events.includes('render-drawio'));
 });
 

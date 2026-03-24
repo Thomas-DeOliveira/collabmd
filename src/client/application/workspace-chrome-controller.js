@@ -44,19 +44,21 @@ export class WorkspaceChromeController {
     this.stateStore = stateStore;
   }
 
-  prepareForFileOpen(filePath, { resetConnectionState = true } = {}) {
+  prepareForFileOpen(filePath, { drawioMode = null, resetConnectionState = true } = {}) {
     this.onViewModeReset();
     this.onBeforeFileOpen();
     this.stateStore.set('connectionHelpShown', false);
     if (resetConnectionState) {
       this.stateStore.set('connectionState', { status: 'connecting', unreachable: false });
     }
+    this.stateStore.set('currentDrawioMode', drawioMode ?? null);
     this.stateStore.set('currentFilePath', filePath);
     this.onUpdateCurrentFile(filePath);
     this.onUpdateLobbyCurrentFile(filePath);
     this.onUpdateActiveFile(filePath);
     this.onUpdateVisibleChrome(filePath, {
       displayName: this.getDisplayName(filePath),
+      drawioMode,
       isMarkdown: isMarkdownFilePath(filePath),
     });
     this.showEditorLoading();

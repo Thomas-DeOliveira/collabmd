@@ -48,7 +48,9 @@ export const workspaceFeature = {
       return String(previewDocument.content ?? '');
     }
 
-    return this.workspacePreviewController.getPreviewSource(this.currentFilePath);
+    return this.workspacePreviewController.getPreviewSource(this.currentFilePath, {
+      drawioMode: this.currentDrawioMode ?? null,
+    });
   },
 
   getStaticPreviewDocument() {
@@ -88,8 +90,34 @@ export const workspaceFeature = {
     this.workspacePreviewController.resetPreviewMode();
   },
 
-  syncFileChrome(filePath) {
-    this.workspacePreviewController.syncFileChrome(filePath);
+  syncFileChrome(filePath, options = {}) {
+    this.workspacePreviewController.syncFileChrome(filePath, options);
+  },
+
+  handleLayoutViewRequest(view) {
+    if (!this.currentFilePath || !this.isDrawioFile(this.currentFilePath)) {
+      return true;
+    }
+
+    if (this.currentDrawioMode === 'text') {
+      if (view !== 'preview') {
+        return true;
+      }
+
+      if (this.layoutController.isMobileViewport?.()) {
+        this.layoutController.primeView(view);
+      }
+      this.navigation.navigateToFile(this.currentFilePath);
+      return false;
+    }
+
+    if (view === 'preview') {
+      return true;
+    }
+
+    this.layoutController.primeView(view);
+    this.navigation.navigateToFile(this.currentFilePath, { drawioMode: 'text' });
+    return false;
   },
 
   renderExcalidrawFilePreview(filePath) {

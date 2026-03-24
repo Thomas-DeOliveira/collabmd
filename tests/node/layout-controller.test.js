@@ -156,3 +156,39 @@ test('LayoutController reset preserves the mobile editor toggle after a temporar
     assert.match(mobileToggleButton.innerHTML, /Preview/);
   });
 });
+
+test('LayoutController lets view requests intercept segmented button changes', () => {
+  withDom({ isMobile: false }, ({ editorLayout, viewButtons }) => {
+    const requestedViews = [];
+    const controller = new LayoutController({
+      mobileBreakpointQuery: { matches: false },
+      onMeasureEditor: () => {},
+      onViewRequest(view) {
+        requestedViews.push(view);
+        return false;
+      },
+    });
+
+    controller.initialize();
+    viewButtons.find((button) => button.dataset.view === 'editor')?.click();
+
+    assert.deepEqual(requestedViews, ['editor']);
+    assert.equal(editorLayout.getAttribute('data-view'), 'split');
+  });
+});
+
+test('LayoutController primes preferred view without applying it immediately', () => {
+  withDom({ isMobile: false }, ({ editorLayout }) => {
+    const controller = new LayoutController({
+      mobileBreakpointQuery: { matches: false },
+      onMeasureEditor: () => {},
+    });
+
+    controller.initialize();
+    controller.primeView('editor');
+
+    assert.equal(editorLayout.getAttribute('data-view'), 'split');
+    controller.reset();
+    assert.equal(editorLayout.getAttribute('data-view'), 'editor');
+  });
+});

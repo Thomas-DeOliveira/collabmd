@@ -9,6 +9,7 @@ export class WorkspaceStateStore {
       chatUnreadCount: 0,
       connectionHelpShown: false,
       connectionState: { status: 'disconnected', unreachable: false },
+      currentDrawioMode: null,
       currentFilePath: null,
       fileExplorerReady: false,
       followedCursorSignature: '',

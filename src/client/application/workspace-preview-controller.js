@@ -58,7 +58,7 @@ export class WorkspacePreviewController {
     return `${fence}${language}\n${text}\n${fence}`;
   }
 
-  getPreviewSource(filePath) {
+  getPreviewSource(filePath, { drawioMode = null } = {}) {
     const source = this.getSession()?.getText() ?? '';
     if (this.isMermaidFile(filePath)) {
       return this.createDiagramPreviewDocument('mermaid', source);
@@ -66,6 +66,10 @@ export class WorkspacePreviewController {
 
     if (this.isPlantUmlFile(filePath)) {
       return this.createDiagramPreviewDocument('plantuml', source);
+    }
+
+    if (this.isDrawioFile(filePath) && drawioMode === 'text') {
+      return this.createDiagramPreviewDocument('xml', source);
     }
 
     return source;
@@ -79,7 +83,7 @@ export class WorkspacePreviewController {
     this.elements.previewContent?.classList.remove('is-plantuml-file-preview');
   }
 
-  syncFileChrome(filePath) {
+  syncFileChrome(filePath, { drawioMode = null } = {}) {
     const isDrawio = this.isDrawioFile(filePath);
     const isExcalidraw = this.isExcalidrawFile(filePath);
     const isImage = this.isImageFile(filePath);
@@ -93,7 +97,7 @@ export class WorkspacePreviewController {
     this.elements.previewContent?.classList.toggle('is-mermaid-file-preview', isMermaid);
     this.elements.previewContent?.classList.toggle('is-plantuml-file-preview', isPlantUml);
 
-    if (isDrawio || isExcalidraw || isImage) {
+    if ((isDrawio && drawioMode !== 'text') || isExcalidraw || isImage) {
       this.layoutController.setView('preview', { persist: false });
       this.outlineController.close();
       this.backlinksPanel.clear();

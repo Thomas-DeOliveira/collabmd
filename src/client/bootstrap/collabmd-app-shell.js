@@ -223,6 +223,7 @@ export class CollabMdAppShell {
     this.layoutController = new LayoutController({
       mobileBreakpointQuery: this.mobileBreakpointQuery,
       onMeasureEditor: () => this.session?.requestMeasure(),
+      onViewRequest: (view) => this.handleLayoutViewRequest(view),
     });
     this.scrollSyncController = new ScrollSyncController({
       getEditorLineNumber: () => this.session?.getTopVisibleLineNumber(0.35) ?? 1,
@@ -421,7 +422,7 @@ export class CollabMdAppShell {
       },
       onUpdateLobbyCurrentFile: (filePath) => this.lobby.setCurrentFile(filePath),
       onUpdateVisibleChrome: (filePath, { displayName }) => {
-        this.syncFileChrome(filePath);
+        this.syncFileChrome(filePath, { drawioMode: this.currentDrawioMode });
         this.syncCommentChrome(filePath);
         this.syncFileHistoryButton({ filePath, mode: 'editor' });
         if (this.elements.activeFileName) {
@@ -493,6 +494,8 @@ export class CollabMdAppShell {
   set session(value) { this._session = value; }
   get currentFilePath() { return this.stateStore.get('currentFilePath'); }
   set currentFilePath(value) { this.stateStore.set('currentFilePath', value); }
+  get currentDrawioMode() { return this.stateStore.get('currentDrawioMode'); }
+  set currentDrawioMode(value) { this.stateStore.set('currentDrawioMode', value ?? null); }
   get globalUsers() { return this.stateStore.get('globalUsers'); }
   set globalUsers(value) { this.stateStore.set('globalUsers', value); }
   get connectionState() { return this.stateStore.get('connectionState'); }
