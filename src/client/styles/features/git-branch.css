@@ -94,13 +94,41 @@
   width: 100%;
 }
 
-.git-panel-mode-switch {
+.ui-segmented-control.git-panel-mode-switch {
   display: inline-grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  background: var(--color-surface-offset);
 }
 
-.git-panel-mode-btn {
+.ui-segmented-control--pill.git-panel-mode-switch {
+  padding: 3px;
+  border-radius: var(--radius-full);
+}
+
+.ui-segmented-control.git-panel-mode-switch .git-panel-mode-btn {
   min-width: 0;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+  font-weight: 700;
+  transition:
+    background var(--transition-interactive),
+    color var(--transition-interactive),
+    box-shadow var(--transition-interactive);
+}
+
+.ui-segmented-control.git-panel-mode-switch .git-panel-mode-btn:hover {
+  color: var(--color-text);
+}
+
+.ui-segmented-control.git-panel-mode-switch .git-panel-mode-btn.active,
+.ui-segmented-control.git-panel-mode-switch .git-panel-mode-btn[aria-selected='true'] {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
 }
 
 .git-branch-actions .ui-action-pill {

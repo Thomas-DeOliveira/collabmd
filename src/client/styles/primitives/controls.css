@@ -122,6 +122,12 @@
   border-radius: var(--radius-full);
 }
 
+.ui-button > svg,
+.ui-icon-button > svg,
+.ui-segmented-btn > svg {
+  flex-shrink: 0;
+}
+
 .ui-segmented-control {
   display: inline-flex;
   gap: 2px;
