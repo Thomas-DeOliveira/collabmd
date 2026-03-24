@@ -1,15 +1,16 @@
 /* ===== MOBILE / RESPONSIVE ===== */
 
 @media (max-width: 768px) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  textarea,
+  select,
   .ui-input,
   .sidebar-search-input,
   .qs-input,
-  .chat-input {
+  .chat-input,
+  .editor-container .cm-editor,
+  .editor-container .cm-editor .cm-scroller {
     font-size: 16px;
-  }
-
-  .editor-container .cm-editor {
-    font-size: 15px;
   }
 
   .sidebar {
