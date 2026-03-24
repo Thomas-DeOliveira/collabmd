@@ -161,12 +161,14 @@ function createVideoEmbedPlaceholder({
   kind,
   label,
   mimeType = '',
+  originalUrl = '',
   source,
   url,
 }) {
   const subtitle = kind === 'youtube' ? 'YouTube video' : 'Video file';
   const mimeTypeAttribute = mimeType ? ` data-video-embed-mime-type="${escapeHtml(mimeType)}"` : '';
-  return `<span class="video-embed-placeholder video-embed-shell diagram-preview-shell" data-video-embed-key="${escapeHtml(embedKey)}" data-video-embed-kind="${escapeHtml(kind)}" data-video-embed-label="${escapeHtml(label)}" data-video-embed-source="${escapeHtml(source)}" data-video-embed-url="${escapeHtml(url)}"${mimeTypeAttribute}><span class="video-embed-placeholder-card diagram-preview-placeholder-card"><span class="video-embed-placeholder-copy diagram-preview-placeholder-copy"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(subtitle)}</span></span></span></span>`;
+  const originalUrlAttribute = originalUrl ? ` data-video-embed-original-url="${escapeHtml(originalUrl)}"` : '';
+  return `<span class="video-embed-placeholder video-embed-shell diagram-preview-shell" data-video-embed-key="${escapeHtml(embedKey)}" data-video-embed-kind="${escapeHtml(kind)}" data-video-embed-label="${escapeHtml(label)}" data-video-embed-source="${escapeHtml(source)}" data-video-embed-url="${escapeHtml(url)}"${mimeTypeAttribute}${originalUrlAttribute}><span class="video-embed-placeholder-card diagram-preview-placeholder-card"><span class="video-embed-placeholder-copy diagram-preview-placeholder-copy"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(subtitle)}</span></span></span></span>`;
 }
 
 function renderVideoEmbed(token, videoEmbedCounts) {
@@ -189,6 +191,7 @@ function renderVideoEmbed(token, videoEmbedCounts) {
     kind: classification.type,
     label: title || 'Embedded video',
     mimeType: classification.mimeType,
+    originalUrl: source,
     source: preserveSource,
     url: classification.type === 'youtube' ? classification.embedUrl : classification.sourceUrl,
   });

@@ -194,6 +194,7 @@ test('compilePreviewDocument renders YouTube markdown images as no-cookie embeds
 
   assert.match(html, /class="video-embed-placeholder video-embed-shell diagram-preview-shell"/);
   assert.match(html, /data-video-embed-kind="youtube"/);
+  assert.match(html, /data-video-embed-original-url="https:\/\/www\.youtube\.com\/watch\?v=dQw4w9WgXcQ"/);
   assert.match(html, /data-video-embed-url="https:\/\/www\.youtube-nocookie\.com\/embed\/dQw4w9WgXcQ"/);
   assert.match(html, /data-video-embed-label="Demo video"/);
   assert.doesNotMatch(html, /<img/);
@@ -214,6 +215,7 @@ test('compilePreviewDocument renders direct https mp4 markdown images as native 
   const { html } = compilePreviewDocument({ markdownText: markdown });
 
   assert.match(html, /data-video-embed-kind="direct-video"/);
+  assert.match(html, /data-video-embed-original-url="https:\/\/cdn\.example\.com\/videos\/demo\.mp4"/);
   assert.match(html, /data-video-embed-url="https:\/\/cdn\.example\.com\/videos\/demo\.mp4"/);
   assert.match(html, /data-video-embed-mime-type="video\/mp4"/);
   assert.match(html, /data-video-embed-label="Product demo"/);

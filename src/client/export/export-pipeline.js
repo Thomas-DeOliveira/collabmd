@@ -22,6 +22,8 @@ const LIGHT_EXPORT_MERMAID_THEME = Object.freeze({
 });
 const EXPORT_ASSET_FETCH_TIMEOUT_MS = 10_000;
 const EXPORT_ASSET_MAX_BYTES = 10 * 1024 * 1024;
+const VIDEO_POSTER_CAPTURE_TIMEOUT_MS = 10_000;
+const VIDEO_POSTER_CAPTURE_SEEK_SECONDS = 1;
 
 let mermaidLoaderPromise = null;
 let assetCounter = 0;
@@ -160,6 +162,20 @@ async function svgMarkupToPngDataUrl(svgMarkup) {
   return canvas.toDataURL('image/png');
 }
 
+async function imageDataUrlToPngDataUrl(dataUrl) {
+  const image = await loadImage(dataUrl);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, image.naturalWidth || image.width || 1);
+  canvas.height = Math.max(1, image.naturalHeight || image.height || 1);
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Canvas is unavailable');
+  }
+
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/png');
+}
+
 async function fetchJson(url, init = {}) {
   const response = await fetch(url, {
     headers: {
@@ -230,12 +246,68 @@ function buildWikiLinkHref(target) {
   return baseUrl.toString();
 }
 
-function createVideoPosterElement(element) {
+function extractYouTubeVideoId(source = '') {
+  let url;
+  try {
+    url = new URL(String(source || '').trim());
+  } catch {
+    return '';
+  }
+
+  const host = url.hostname.toLowerCase();
+  if (host === 'youtu.be' || host === 'www.youtu.be') {
+    return url.pathname.split('/').filter(Boolean)[0] || '';
+  }
+
+  if (host.includes('youtube') || host.includes('youtube-nocookie')) {
+    if (url.pathname === '/watch') {
+      return url.searchParams.get('v') || '';
+    }
+
+    if (url.pathname.startsWith('/embed/')) {
+      return url.pathname.split('/').filter(Boolean)[1] || '';
+    }
+  }
+
+  return '';
+}
+
+function createVideoPosterElement(element, {
+  assetId = '',
+  docxPosterDataUrl = '',
+  posterDataUrl = '',
+} = {}) {
   const wrapper = document.createElement('figure');
   wrapper.className = 'export-video-poster';
+  if (assetId) {
+    wrapper.setAttribute('data-export-asset-id', assetId);
+  }
 
   const card = document.createElement('div');
   card.className = 'export-video-poster-card';
+
+  if (posterDataUrl) {
+    const media = document.createElement('div');
+    media.className = 'export-video-poster-media';
+
+    const image = document.createElement('img');
+    image.alt = `${element.dataset.videoEmbedLabel || 'Embedded video'} poster`;
+    image.className = 'export-video-poster-image';
+    image.src = posterDataUrl;
+    image.setAttribute('data-export-docx-src', docxPosterDataUrl || posterDataUrl);
+    media.appendChild(image);
+
+    const badge = document.createElement('span');
+    badge.className = 'export-video-play-badge';
+    badge.setAttribute('aria-hidden', 'true');
+    badge.textContent = 'Play';
+    media.appendChild(badge);
+
+    card.appendChild(media);
+  }
+
+  const copy = document.createElement('div');
+  copy.className = 'export-video-poster-copy';
 
   const title = document.createElement('strong');
   title.textContent = element.dataset.videoEmbedLabel || 'Embedded video';
@@ -244,17 +316,175 @@ function createVideoPosterElement(element) {
   meta.className = 'export-video-poster-meta';
   meta.textContent = element.dataset.videoEmbedKind === 'youtube' ? 'YouTube video' : 'Video link';
 
-  card.append(title, meta);
+  copy.append(title, meta);
+  card.appendChild(copy);
 
   const link = document.createElement('a');
   link.className = 'export-video-link';
-  link.href = element.dataset.videoEmbedSource || element.dataset.videoEmbedUrl || '#';
+  link.href = element.dataset.videoEmbedOriginalUrl || element.dataset.videoEmbedSource || element.dataset.videoEmbedUrl || '#';
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
   link.textContent = link.href;
 
   wrapper.append(card, link);
   return wrapper;
+}
+
+async function captureVideoFrameDataUrl(src) {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'metadata';
+  video.crossOrigin = 'anonymous';
+  video.style.position = 'fixed';
+  video.style.left = '-10000px';
+  video.style.top = '0';
+  video.style.width = '1px';
+  video.style.height = '1px';
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const finish = (callback) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      window.clearTimeout(timeoutId);
+      video.pause?.();
+      video.removeEventListener('error', handleError);
+      video.removeEventListener('loadeddata', handleLoadedData);
+      video.removeEventListener('seeked', handleSeeked);
+      video.remove();
+      callback();
+    };
+
+    const fail = (message) => {
+      finish(() => reject(new Error(message)));
+    };
+
+    const drawFrame = () => {
+      if (video.videoWidth <= 0 || video.videoHeight <= 0) {
+        fail(`Video poster capture returned no frame: ${src}`);
+        return;
+      }
+
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const context = canvas.getContext('2d');
+        if (!context) {
+          fail('Canvas is unavailable');
+          return;
+        }
+
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/png');
+        finish(() => resolve(dataUrl));
+      } catch (error) {
+        fail(error instanceof Error ? error.message : `Failed to capture video poster: ${src}`);
+      }
+    };
+
+    const handleError = () => {
+      fail(`Failed to load video poster: ${src}`);
+    };
+
+    const handleSeeked = () => {
+      drawFrame();
+    };
+
+    const handleLoadedData = () => {
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      const targetTime = duration > 0
+        ? Math.min(VIDEO_POSTER_CAPTURE_SEEK_SECONDS, Math.max(duration * 0.1, 0))
+        : 0;
+
+      if (targetTime > 0.05) {
+        try {
+          video.currentTime = targetTime;
+          return;
+        } catch {
+          // Fall back to the first available frame when seeking is unavailable.
+        }
+      }
+
+      drawFrame();
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      fail(`Timed out while loading video poster: ${src}`);
+    }, VIDEO_POSTER_CAPTURE_TIMEOUT_MS);
+
+    video.addEventListener('error', handleError, { once: true });
+    video.addEventListener('loadeddata', handleLoadedData, { once: true });
+    video.addEventListener('seeked', handleSeeked, { once: true });
+    document.body.appendChild(video);
+    video.src = src;
+    video.load();
+  });
+}
+
+async function resolveVideoPosterDataUrl(element) {
+  const originalUrl = element.dataset.videoEmbedOriginalUrl || element.dataset.videoEmbedSource || '';
+  const embedUrl = element.dataset.videoEmbedUrl || '';
+  const kind = element.dataset.videoEmbedKind || '';
+
+  if (kind === 'youtube') {
+    const videoId = extractYouTubeVideoId(originalUrl) || extractYouTubeVideoId(embedUrl);
+    if (!videoId) {
+      throw new Error('Failed to resolve YouTube video id for export');
+    }
+
+    const thumbnailCandidates = [
+      `https://i.ytimg.com/vi_webp/${videoId}/maxresdefault.webp`,
+      `https://i.ytimg.com/vi_webp/${videoId}/hqdefault.webp`,
+      `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
+      `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    ];
+
+    let lastError = null;
+    for (const candidate of thumbnailCandidates) {
+      try {
+        return await fetchAsDataUrl(candidate, {
+          maxBytes: 3 * 1024 * 1024,
+          timeoutMs: EXPORT_ASSET_FETCH_TIMEOUT_MS,
+        });
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('Failed to fetch YouTube thumbnail');
+  }
+
+  if (!originalUrl) {
+    throw new Error('Missing video source for export poster');
+  }
+
+  return captureVideoFrameDataUrl(originalUrl);
+}
+
+async function resolveVideoPoster(snapshot, shell) {
+  const posterDataUrl = await resolveVideoPosterDataUrl(shell);
+  const docxPosterDataUrl = await imageDataUrlToPngDataUrl(posterDataUrl).catch(() => posterDataUrl);
+  const assetId = registerAsset(snapshot, {
+    dataUrl: posterDataUrl,
+    id: createAssetId('video-poster'),
+    kind: 'video-poster',
+    mimeType: posterDataUrl.startsWith('data:image/webp') ? 'image/webp' : 'image/png',
+    variants: {
+      docx: docxPosterDataUrl,
+    },
+  });
+
+  shell.replaceWith(createVideoPosterElement(shell, {
+    assetId,
+    docxPosterDataUrl,
+    posterDataUrl,
+  }));
 }
 
 function createImageFallbackElement({
@@ -633,9 +863,14 @@ export async function resolveExportAssets(snapshot, {
   rewriteTaskCheckboxes(container);
 
   const videoShells = Array.from(container.querySelectorAll('.video-embed-placeholder[data-video-embed-key]'));
-  videoShells.forEach((shell) => {
-    shell.replaceWith(createVideoPosterElement(shell));
-  });
+  for (const shell of videoShells) {
+    try {
+      await resolveVideoPoster(snapshot, shell);
+    } catch (error) {
+      snapshot.warnings.push(error instanceof Error ? error.message : 'Failed to render video poster');
+      shell.replaceWith(createVideoPosterElement(shell));
+    }
+  }
 
   const mermaidShells = Array.from(container.querySelectorAll('.mermaid-shell[data-mermaid-key]'));
   for (const shell of mermaidShells) {
@@ -734,7 +969,7 @@ export async function prepareExportSnapshot({
   return snapshot;
 }
 
-function buildDocxHtmlDocument(snapshot) {
+export function buildDocxHtmlDocument(snapshot) {
   const template = document.createElement('template');
   template.innerHTML = snapshot.html;
 
@@ -750,6 +985,56 @@ function buildDocxHtmlDocument(snapshot) {
     image.className = 'export-diagram-image';
     image.src = docxSrc;
     figure.replaceChildren(image);
+  });
+
+  Array.from(template.content.querySelectorAll('figure.export-video-poster')).forEach((figure) => {
+    const card = figure.querySelector('.export-video-poster-card');
+    const posterImage = figure.querySelector('.export-video-poster-image');
+    const link = figure.querySelector('.export-video-link');
+    const title = figure.querySelector('.export-video-poster-copy strong');
+    const meta = figure.querySelector('.export-video-poster-meta');
+    const replacement = document.createElement('div');
+    replacement.className = 'export-video-poster-docx';
+
+    if (posterImage instanceof HTMLImageElement) {
+      const image = document.createElement('img');
+      image.alt = posterImage.alt || title?.textContent || 'Embedded video poster';
+      image.className = 'export-video-poster-image';
+      image.src = posterImage.getAttribute('data-export-docx-src') || posterImage.getAttribute('src') || '';
+      replacement.appendChild(image);
+    }
+
+    if (title?.textContent) {
+      const titleParagraph = document.createElement('p');
+      const strong = document.createElement('strong');
+      strong.textContent = title.textContent;
+      titleParagraph.appendChild(strong);
+      replacement.appendChild(titleParagraph);
+    }
+
+    if (meta?.textContent) {
+      const metaParagraph = document.createElement('p');
+      metaParagraph.className = 'export-video-poster-meta';
+      metaParagraph.textContent = meta.textContent;
+      replacement.appendChild(metaParagraph);
+    }
+
+    if (link instanceof HTMLAnchorElement && link.href) {
+      const linkParagraph = document.createElement('p');
+      const anchor = document.createElement('a');
+      anchor.href = link.href;
+      anchor.textContent = link.textContent || link.href;
+      linkParagraph.appendChild(anchor);
+      replacement.appendChild(linkParagraph);
+    }
+
+    if (!replacement.childNodes.length && card?.textContent) {
+      const fallbackParagraph = document.createElement('p');
+      fallbackParagraph.textContent = card.textContent;
+      replacement.appendChild(fallbackParagraph);
+    }
+
+    figure.replaceWith(replacement);
   });
 
   Array.from(template.content.querySelectorAll('[data-export-docx-src]')).forEach((element) => {
@@ -786,7 +1071,9 @@ function buildDocxHtmlDocument(snapshot) {
     th, td { border: 1px solid #d1d5db; padding: 8px 10px; text-align: left; vertical-align: top; }
     th { background: #f3f4f6; }
     img { max-width: 100%; height: auto; }
+    .export-video-poster-docx { margin: 0 0 16px; }
     .export-video-poster-card { padding: 14px 16px; border: 1px solid #d1d5db; background: #f8fafc; }
+    .export-video-poster-image { display: block; margin: 0 0 12px; }
     .export-video-poster-meta { display: block; color: #6b7280; font-size: 12px; margin-top: 4px; }
     .export-video-link { display: block; margin-top: 8px; word-break: break-word; }
     .export-warning { color: #b45309; }

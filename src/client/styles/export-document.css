@@ -109,10 +109,49 @@ body[data-surface='export-document'] {
 }
 
 .export-video-poster-card {
+  overflow: hidden;
   padding: 16px 18px;
   border: 1px solid var(--color-divider);
   border-radius: 14px;
   background: var(--surface-fill-subtle);
+}
+
+.export-video-poster-media {
+  position: relative;
+  margin: -16px -18px 14px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-surface-offset);
+}
+
+.export-video-poster-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 360px;
+  object-fit: cover;
+}
+
+.export-video-play-badge {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 72px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: oklch(from var(--color-surface) l c h / 0.86);
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+}
+
+.export-video-poster-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .export-video-poster-meta {

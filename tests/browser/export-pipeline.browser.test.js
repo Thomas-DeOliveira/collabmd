@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { initializeExportBridge, exportDocument } from '../../src/client/export/export-host.js';
-import { resolveExportAssets } from '../../src/client/export/export-pipeline.js';
+import { buildDocxHtmlDocument, resolveExportAssets } from '../../src/client/export/export-pipeline.js';
 
 describe('export pipeline browser helpers', () => {
   const originalFetch = globalThis.fetch;
@@ -88,6 +88,127 @@ describe('export pipeline browser helpers', () => {
     expect(container.querySelector('script')).toBeNull();
     expect(container.querySelector('foreignObject')).toBeNull();
     expect(snapshot.warnings).toHaveLength(0);
+  });
+
+  it('renders YouTube video posters with a fetched thumbnail and original link', async () => {
+    globalThis.fetch = vi.fn(async (url) => {
+      if (String(url).includes('i.ytimg.com')) {
+        return new Response(
+          new Blob(['jpeg-bytes'], { type: 'image/jpeg' }),
+          {
+            headers: {
+              'Content-Length': '10',
+            },
+            status: 200,
+          },
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const container = document.createElement('div');
+    container.innerHTML = '<span class="video-embed-placeholder" data-video-embed-key="video-1" data-video-embed-kind="youtube" data-video-embed-label="Demo video" data-video-embed-original-url="https://www.youtube.com/watch?v=dQw4w9WgXcQ" data-video-embed-source="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ" data-video-embed-url="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"></span>';
+    const snapshot = {
+      assets: {},
+      warnings: [],
+    };
+
+    await resolveExportAssets(snapshot, { container });
+
+    const image = container.querySelector('.export-video-poster-image');
+    expect(image).not.toBeNull();
+    expect(image?.getAttribute('src')).toMatch(/^data:image\/jpeg;base64,/);
+    expect(container.querySelector('.export-video-link')?.getAttribute('href')).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    expect(Object.keys(snapshot.assets)).toHaveLength(1);
+    expect(snapshot.warnings).toHaveLength(0);
+  });
+
+  it('renders direct video posters from a captured frame when canvas capture succeeds', async () => {
+    const originalCreateElement = document.createElement.bind(document);
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    const originalToDataUrl = HTMLCanvasElement.prototype.toDataURL;
+    const fakeVideo = originalCreateElement('video');
+    let currentTime = 0;
+
+    Object.defineProperty(fakeVideo, 'readyState', { configurable: true, value: 4 });
+    Object.defineProperty(fakeVideo, 'duration', { configurable: true, value: 12 });
+    Object.defineProperty(fakeVideo, 'videoWidth', { configurable: true, value: 1280 });
+    Object.defineProperty(fakeVideo, 'videoHeight', { configurable: true, value: 720 });
+    Object.defineProperty(fakeVideo, 'currentTime', {
+      configurable: true,
+      get() {
+        return currentTime;
+      },
+      set(value) {
+        currentTime = value;
+        window.setTimeout(() => fakeVideo.dispatchEvent(new Event('seeked')), 0);
+      },
+    });
+
+    fakeVideo.load = vi.fn(() => {
+      window.setTimeout(() => fakeVideo.dispatchEvent(new Event('loadeddata')), 0);
+    });
+    fakeVideo.pause = vi.fn();
+
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
+      drawImage: vi.fn(),
+      fillRect: vi.fn(),
+    }));
+    HTMLCanvasElement.prototype.toDataURL = vi.fn(() => 'data:image/png;base64,video-frame');
+    document.createElement = vi.fn((tagName, options) => {
+      if (String(tagName).toLowerCase() === 'video') {
+        return fakeVideo;
+      }
+      return originalCreateElement(tagName, options);
+    });
+
+    const container = document.createElement('div');
+    container.innerHTML = '<span class="video-embed-placeholder" data-video-embed-key="video-2" data-video-embed-kind="direct-video" data-video-embed-label="Public video" data-video-embed-original-url="https://cdn.example.com/demo.mp4" data-video-embed-source="https://cdn.example.com/demo.mp4" data-video-embed-url="https://cdn.example.com/demo.mp4" data-video-embed-mime-type="video/mp4"></span>';
+    const snapshot = {
+      assets: {},
+      warnings: [],
+    };
+
+    try {
+      await resolveExportAssets(snapshot, { container });
+    } finally {
+      document.createElement = originalCreateElement;
+      HTMLCanvasElement.prototype.getContext = originalGetContext;
+      HTMLCanvasElement.prototype.toDataURL = originalToDataUrl;
+    }
+
+    const image = container.querySelector('.export-video-poster-image');
+    expect(image?.getAttribute('src')).toBe('data:image/png;base64,video-frame');
+    expect(container.querySelector('.export-video-link')?.getAttribute('href')).toBe('https://cdn.example.com/demo.mp4');
+    expect(Object.keys(snapshot.assets)).toHaveLength(1);
+    expect(snapshot.warnings).toHaveLength(0);
+  });
+
+  it('flattens video posters into DOCX-friendly markup with image and link preserved', () => {
+    const html = buildDocxHtmlDocument({
+      html: [
+        '<figure class="export-video-poster">',
+        '  <div class="export-video-poster-card">',
+        '    <div class="export-video-poster-media">',
+        '      <img class="export-video-poster-image" src="data:image/webp;base64,preview" data-export-docx-src="data:image/png;base64,docxposter" alt="Demo video poster">',
+        '    </div>',
+        '    <div class="export-video-poster-copy">',
+        '      <strong>Demo video</strong>',
+        '      <span class="export-video-poster-meta">YouTube video</span>',
+        '    </div>',
+        '  </div>',
+        '  <a class="export-video-link" href="https://www.youtube.com/watch?v=dQw4w9WgXcQ">https://www.youtube.com/watch?v=dQw4w9WgXcQ</a>',
+        '</figure>',
+      ].join('\n'),
+      title: 'README',
+    });
+
+    expect(html).toContain('class="export-video-poster-docx"');
+    expect(html).toContain('src="data:image/png;base64,docxposter"');
+    expect(html).toContain('<strong>Demo video</strong>');
+    expect(html).toContain('href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"');
+    expect(html).not.toContain('<figure class="export-video-poster"');
   });
 
   it('cleans up export jobs when the popup closes before completion', async () => {
