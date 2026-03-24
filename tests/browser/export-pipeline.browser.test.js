@@ -234,6 +234,37 @@ describe('export pipeline browser helpers', () => {
     expect(html).not.toContain('<figure class="export-video-poster"');
   });
 
+  it('reshapes DOCX tables, blockquotes, and figures into border-friendly markup', () => {
+    const html = buildDocxHtmlDocument({
+      html: [
+        '<div class="table-wrapper">',
+        '  <table>',
+        '    <thead><tr><th>Surface</th><th>What to show</th></tr></thead>',
+        '    <tbody><tr><td>Editor</td><td>Preview</td></tr></tbody>',
+        '  </table>',
+        '</div>',
+        '<blockquote><p>One local markdown vault becomes a collaborative browser workspace.</p></blockquote>',
+        '<pre><code>{\n  "heroNote": "workspace-tour.md",\n  "linkedNotes": [\n    "README"\n  ]\n}</code></pre>',
+        '<figure><img src="data:image/png;base64,diagram" alt="Diagram"></figure>',
+      ].join('\n'),
+      title: 'README',
+    });
+
+    expect(html).toContain('<table border="1"');
+    expect(html).not.toContain('class="table-wrapper"');
+    expect(html).toContain('border-collapse: collapse');
+    expect(html).not.toContain('border-left: 4px solid');
+    expect((html.match(/background: rgb\(99, 102, 241\)/g) || [])).toHaveLength(1);
+    expect(html).toContain('One local markdown vault becomes a collaborative browser workspace.');
+    expect(html).not.toContain('<blockquote>');
+    expect(html).toContain('JetBrains Mono');
+    expect(html).toContain('&nbsp;&nbsp;"heroNote":');
+    expect(html).toContain('&nbsp;&nbsp;"linkedNotes":&nbsp;[');
+    expect(html).toContain('&nbsp;&nbsp;&nbsp;&nbsp;"README"');
+    expect(html).not.toContain('<pre><code>');
+    expect(html).not.toContain('<figure><img');
+  });
+
   it('cleans up export jobs when the popup closes before completion', async () => {
     vi.useFakeTimers();
 

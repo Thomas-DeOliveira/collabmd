@@ -970,9 +970,180 @@ export async function prepareExportSnapshot({
   return snapshot;
 }
 
+function applyDocxTableStyles(table, {
+  borderColor = '#d1d5db',
+  cellPadding = '8px 10px',
+  headerBackground = '#f3f4f6',
+} = {}) {
+  table.setAttribute('border', '1');
+  table.setAttribute('cellpadding', '0');
+  table.setAttribute('cellspacing', '0');
+  table.style.width = '100%';
+  table.style.borderCollapse = 'collapse';
+  table.style.border = `1px solid ${borderColor}`;
+  table.style.margin = '0 0 16px';
+
+  Array.from(table.querySelectorAll('th')).forEach((cell) => {
+    cell.style.border = `1px solid ${borderColor}`;
+    cell.style.padding = cellPadding;
+    cell.style.background = headerBackground;
+    cell.style.textAlign = 'left';
+    cell.style.verticalAlign = 'top';
+  });
+
+  Array.from(table.querySelectorAll('td')).forEach((cell) => {
+    cell.style.border = `1px solid ${borderColor}`;
+    cell.style.padding = cellPadding;
+    cell.style.textAlign = 'left';
+    cell.style.verticalAlign = 'top';
+  });
+}
+
+function createDocxFramedTable({
+  contentNodes = [],
+  borderColor = '#d1d5db',
+  padding = '12px',
+  shade = '',
+} = {}) {
+  const table = document.createElement('table');
+  table.setAttribute('border', '1');
+  table.setAttribute('cellpadding', '0');
+  table.setAttribute('cellspacing', '0');
+  table.style.width = '100%';
+  table.style.borderCollapse = 'collapse';
+  table.style.border = `1px solid ${borderColor}`;
+  table.style.margin = '0 0 16px';
+
+  const row = document.createElement('tr');
+  const cell = document.createElement('td');
+  cell.style.border = `1px solid ${borderColor}`;
+  cell.style.padding = padding;
+  cell.style.verticalAlign = 'top';
+  if (shade) {
+    cell.style.background = shade;
+  }
+
+  contentNodes.forEach((node) => {
+    if (node) {
+      cell.appendChild(node);
+    }
+  });
+
+  row.appendChild(cell);
+  table.appendChild(row);
+  return table;
+}
+
+function createDocxBlockquoteTable(blockquote) {
+  const table = document.createElement('table');
+  table.setAttribute('role', 'presentation');
+  table.setAttribute('cellpadding', '0');
+  table.setAttribute('cellspacing', '0');
+  table.style.width = '100%';
+  table.style.borderCollapse = 'collapse';
+  table.style.margin = '0 0 16px';
+  table.style.tableLayout = 'fixed';
+
+  const colgroup = document.createElement('colgroup');
+  const accentCol = document.createElement('col');
+  accentCol.style.width = '6px';
+  const contentCol = document.createElement('col');
+  colgroup.append(accentCol, contentCol);
+  table.appendChild(colgroup);
+
+  const row = document.createElement('tr');
+  const accentCell = document.createElement('td');
+  accentCell.style.background = '#6366f1';
+  accentCell.style.width = '6px';
+  accentCell.style.padding = '0';
+  accentCell.style.fontSize = '0';
+  accentCell.style.lineHeight = '0';
+  accentCell.innerHTML = '&nbsp;';
+
+  const contentCell = document.createElement('td');
+  contentCell.style.background = '#f8fafc';
+  contentCell.style.padding = '12px 16px';
+  contentCell.style.verticalAlign = 'top';
+  contentCell.style.color = '#4b5563';
+
+  Array.from(blockquote.childNodes).forEach((child) => {
+    contentCell.appendChild(child.cloneNode(true));
+  });
+
+  const firstParagraph = contentCell.querySelector('p');
+  if (firstParagraph) {
+    firstParagraph.style.marginTop = '0';
+  }
+
+  Array.from(contentCell.querySelectorAll('p')).forEach((paragraph) => {
+    paragraph.style.margin = '0 0 10px';
+  });
+  const lastParagraph = contentCell.querySelector('p:last-of-type');
+  if (lastParagraph) {
+    lastParagraph.style.marginBottom = '0';
+  }
+
+  row.append(accentCell, contentCell);
+  table.appendChild(row);
+  return table;
+}
+
+function createDocxCodeBlockTable(pre) {
+  const codeText = (pre.textContent || '').replace(/\r\n/g, '\n');
+  const lines = codeText.split('\n');
+  const contentNodes = [];
+
+  lines.forEach((line, index) => {
+    const paragraph = document.createElement('p');
+    paragraph.style.margin = '0';
+    if (index < lines.length - 1) {
+      paragraph.style.marginBottom = '2px';
+    }
+    paragraph.style.fontFamily = "'JetBrains Mono', 'Courier New', monospace";
+    paragraph.style.fontSize = '12px';
+    paragraph.style.lineHeight = '1.55';
+    paragraph.style.color = '#111827';
+
+    const text = (line || '').replace(/\t/g, '    ');
+    if (!text) {
+      paragraph.innerHTML = '&nbsp;';
+    } else {
+      paragraph.textContent = text;
+      paragraph.innerHTML = paragraph.innerHTML.replace(/ /g, '&nbsp;');
+    }
+
+    contentNodes.push(paragraph);
+  });
+
+  return createDocxFramedTable({
+    borderColor: '#d1d5db',
+    contentNodes,
+    padding: '12px 14px',
+    shade: '#f8fafc',
+  });
+}
+
 export function buildDocxHtmlDocument(snapshot) {
   const template = document.createElement('template');
   template.innerHTML = snapshot.html;
+
+  Array.from(template.content.querySelectorAll('.table-wrapper')).forEach((wrapper) => {
+    const table = wrapper.querySelector(':scope > table');
+    if (!table) {
+      return;
+    }
+
+    applyDocxTableStyles(table);
+    wrapper.replaceWith(table);
+  });
+
+  Array.from(template.content.querySelectorAll('table')).forEach((table) => {
+    applyDocxTableStyles(table);
+  });
+
+  Array.from(template.content.querySelectorAll('pre')).forEach((pre) => {
+    pre.replaceWith(createDocxCodeBlockTable(pre));
+  });
 
   Array.from(template.content.querySelectorAll('figure.export-diagram[data-export-docx-src]')).forEach((figure) => {
     const docxSrc = figure.getAttribute('data-export-docx-src');
@@ -985,7 +1156,13 @@ export function buildDocxHtmlDocument(snapshot) {
     image.alt = figure.getAttribute('data-export-label') || 'Diagram';
     image.className = 'export-diagram-image';
     image.src = docxSrc;
-    figure.replaceChildren(image);
+    image.style.display = 'block';
+    image.style.width = '100%';
+    image.style.height = 'auto';
+    figure.replaceWith(createDocxFramedTable({
+      contentNodes: [image],
+      padding: '12px',
+    }));
   });
 
   Array.from(template.content.querySelectorAll('figure.export-video-poster')).forEach((figure) => {
@@ -1035,7 +1212,10 @@ export function buildDocxHtmlDocument(snapshot) {
       replacement.appendChild(fallbackParagraph);
     }
 
-    figure.replaceWith(replacement);
+    figure.replaceWith(createDocxFramedTable({
+      contentNodes: [replacement],
+      padding: '12px',
+    }));
   });
 
   Array.from(template.content.querySelectorAll('[data-export-docx-src]')).forEach((element) => {
@@ -1048,6 +1228,30 @@ export function buildDocxHtmlDocument(snapshot) {
       return;
     }
     element.setAttribute('src', docxSrc);
+  });
+
+  Array.from(template.content.querySelectorAll('blockquote')).forEach((blockquote) => {
+    blockquote.replaceWith(createDocxBlockquoteTable(blockquote));
+  });
+
+  Array.from(template.content.querySelectorAll('figure')).forEach((figure) => {
+    if (figure.closest('table')) {
+      return;
+    }
+
+    const image = figure.querySelector('img');
+    if (!(image instanceof HTMLImageElement)) {
+      return;
+    }
+
+    const framedImage = image.cloneNode(true);
+    framedImage.style.display = 'block';
+    framedImage.style.width = '100%';
+    framedImage.style.height = 'auto';
+    figure.replaceWith(createDocxFramedTable({
+      contentNodes: [framedImage],
+      padding: '12px',
+    }));
   });
 
   return `<!DOCTYPE html>
@@ -1068,7 +1272,7 @@ export function buildDocxHtmlDocument(snapshot) {
     code { font-family: 'JetBrains Mono', 'Courier New', monospace; background: #f3f4f6; padding: 2px 4px; }
     pre code { background: transparent; padding: 0; display: block; white-space: pre-wrap; }
     blockquote { padding-left: 14px; border-left: 3px solid #6366f1; color: #4b5563; }
-    table { width: 100%; border-collapse: collapse; }
+    table { width: 100%; border-collapse: collapse; border: 1px solid #d1d5db; }
     th, td { border: 1px solid #d1d5db; padding: 8px 10px; text-align: left; vertical-align: top; }
     th { background: #f3f4f6; }
     img { max-width: 100%; height: auto; }
