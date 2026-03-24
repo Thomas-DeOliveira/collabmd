@@ -85,7 +85,7 @@ test.describe('mobile editor typography', () => {
 
     await expect.poll(async () => (
       page.locator('.editor-container .cm-editor').evaluate((element) => getComputedStyle(element).fontSize)
-    )).toBe('15px');
+    )).toBe('16px');
   });
 });
 

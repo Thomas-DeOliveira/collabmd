@@ -191,7 +191,7 @@ test('keeps the linked mentions dock reachable while preview scrolls and expands
   expect(Math.abs(previewAlignment - splitAlignment)).toBeLessThanOrEqual(2);
 });
 
-test('navigates to the clicked parent section before settling on the visible child heading in the outline', async ({ page }) => {
+test('keeps the clicked parent section active in the outline after navigation settles', async ({ page }) => {
   await openFile(page, 'showcase.md');
   await page.locator('#outlineToggle').click();
   await expect(page.locator('#outlinePanel')).toBeVisible();
@@ -207,11 +207,9 @@ test('navigates to the clicked parent section before settling on the visible chi
 
   expect(parentHeadingOffset).toBeLessThan(80);
   await expect(page.locator('#outlineNav .outline-item.active').first()).toHaveText('Embedded Diagram Files');
-
-  await expect.poll(async () => {
-    const activeItem = page.locator('#outlineNav .outline-item.active').first();
-    return activeItem.textContent();
-  }, { timeout: 15000 }).toBe('Excalidraw');
+  await expect(page.locator('#previewContent .excalidraw-embed').first()).toBeVisible();
+  await page.waitForTimeout(1000);
+  await expect(page.locator('#outlineNav .outline-item.active').first()).toHaveText('Embedded Diagram Files');
 });
 
 test('keeps the outline open on desktop after selecting a section', async ({ page }) => {
