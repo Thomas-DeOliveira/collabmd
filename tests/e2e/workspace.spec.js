@@ -83,6 +83,25 @@ test('indents nested task list items in markdown preview', async ({ page }) => {
   expect(checkboxOffsets[1]).toBeGreaterThan(checkboxOffsets[0] + 12);
 });
 
+test('clicking a preview task list item toggles the markdown checkbox', async ({ page }) => {
+  await openFile(page, 'README.md');
+  await waitForCollaborativeEditor(page);
+
+  await replaceEditorContent(page, '## Todo\n\n- [ ] First todo\n');
+  const previewCheckbox = page.locator('#previewContent .task-list-item input[type="checkbox"]').first();
+  await expect(previewCheckbox).toBeVisible();
+
+  await previewCheckbox.click();
+
+  await expect(page.locator('.cm-content').first()).toContainText('- [x] First todo');
+  await expect(page.locator('#previewContent .task-list-item input[type="checkbox"]').first()).toBeChecked();
+
+  await previewCheckbox.click();
+
+  await expect(page.locator('.cm-content').first()).toContainText('- [ ] First todo');
+  await expect(page.locator('#previewContent .task-list-item input[type="checkbox"]').first()).not.toBeChecked();
+});
+
 test('keeps the overflow trigger hidden on desktop and shows toolbar actions inline', async ({ page }) => {
   await openFile(page, 'README.md', { waitFor: 'preview' });
 

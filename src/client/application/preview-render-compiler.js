@@ -411,7 +411,7 @@ function createMarkdownRenderer(fileList = [], {
     const content = tokens[index].content;
 
     if (content.startsWith('[x] ') || content.startsWith('[X] ')) {
-      return `<input type="checkbox" checked disabled> ${renderInlineWikiText(content.slice(4), {
+      return `<input type="checkbox" checked data-task-checkbox="true"> ${renderInlineWikiText(content.slice(4), {
         drawioEmbedCounts,
         excalidrawEmbedCounts,
         fileList,
@@ -421,7 +421,7 @@ function createMarkdownRenderer(fileList = [], {
     }
 
     if (content.startsWith('[ ] ')) {
-      return `<input type="checkbox" disabled> ${renderInlineWikiText(content.slice(4), {
+      return `<input type="checkbox" data-task-checkbox="true"> ${renderInlineWikiText(content.slice(4), {
         drawioEmbedCounts,
         excalidrawEmbedCounts,
         fileList,

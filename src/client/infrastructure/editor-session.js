@@ -266,6 +266,14 @@ export class EditorSession {
     return this.viewAdapter.insertText(text);
   }
 
+  toggleTaskListItem(lineNumber) {
+    if (!this.collaborationClient.initialSyncComplete) {
+      return false;
+    }
+
+    return this.viewAdapter.toggleTaskListItem(lineNumber);
+  }
+
   flashExternalUpdate(range) {
     return this.viewAdapter.flashRemoteRange(range);
   }

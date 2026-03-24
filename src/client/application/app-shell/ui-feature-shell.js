@@ -220,13 +220,7 @@ function bindEvents() {
   });
 
   this.elements.previewContent?.addEventListener('click', (event) => {
-    const wikiLink = event.target.closest('a.wiki-link[data-wiki-target]');
-    if (!wikiLink) {
-      return;
-    }
-
-    event.preventDefault();
-    this.handleWikiLinkClick(wikiLink.dataset.wikiTarget);
+    this.handlePreviewContentClick?.(event);
   });
 
   this.elements.sidebarToggle?.addEventListener('click', () => {
@@ -287,6 +281,48 @@ function bindEvents() {
       void this.toggleQuickSwitcher();
     }
   });
+}
+
+function isNestedTaskListClickTarget(target, taskItem) {
+  const nestedList = target.closest('ul, ol');
+  return nestedList instanceof Element && nestedList.parentElement === taskItem;
+}
+
+function isInteractiveTaskListDescendant(target) {
+  const taskCheckbox = target.closest('input[data-task-checkbox="true"]');
+  if (taskCheckbox) {
+    return false;
+  }
+
+  return Boolean(target.closest('a, button, input, select, textarea, summary, [contenteditable="true"], [role="button"], [role="link"]'));
+}
+
+/** @this {UiShellContext} */
+function handlePreviewContentClick(event) {
+  if (!(event.target instanceof Element)) {
+    return;
+  }
+
+  const wikiLink = event.target.closest('a.wiki-link[data-wiki-target]');
+  if (wikiLink) {
+    event.preventDefault();
+    this.handleWikiLinkClick(wikiLink.dataset.wikiTarget);
+    return;
+  }
+
+  const taskItem = event.target.closest('.task-list-item[data-source-line]');
+  if (!taskItem || isNestedTaskListClickTarget(event.target, taskItem) || isInteractiveTaskListDescendant(event.target)) {
+    return;
+  }
+
+  event.preventDefault();
+
+  const sourceLine = Number.parseInt(taskItem.getAttribute('data-source-line') || '', 10);
+  if (!Number.isFinite(sourceLine)) {
+    return;
+  }
+
+  this.session?.toggleTaskListItem?.(sourceLine);
 }
 
 /** @this {UiShellContext} */
@@ -429,6 +465,7 @@ export const uiFeatureShellMethods = {
   closeToolbarOverflowMenu,
   getStoredLineWrapping,
   handleConnectionChange,
+  handlePreviewContentClick,
   handleThemeChange,
   hideEditorLoading,
   initialize,

@@ -41,6 +41,7 @@ const remoteUpdateMark = Decoration.mark({ class: 'cm-remoteUpdateFlash' });
 const REMOTE_UPDATE_FLASH_DURATION_MS = 1350;
 const REMOTE_UPDATE_CARET_MAX_LENGTH = 160;
 const RECENT_LOCAL_INPUT_WINDOW_MS = 900;
+const TASK_LIST_MARKER_PATTERN = /^(\s*(?:>\s*)*(?:[-+*]|\d+[.)])\s+\[)( |x|X)(\])(\s.*)?$/;
 
 class RemoteUpdateCaretWidget extends WidgetType {
   toDOM() {
@@ -893,6 +894,39 @@ export class EditorViewAdapter {
       userEvent: 'input',
     });
     this.editorView.focus();
+    return true;
+  }
+
+  toggleTaskListItem(lineNumber) {
+    const state = this.editorView?.state;
+    if (!this.editorView || !state) {
+      return false;
+    }
+
+    const targetLineNumber = Number.parseInt(String(lineNumber ?? ''), 10);
+    if (!Number.isFinite(targetLineNumber)) {
+      return false;
+    }
+
+    const safeLineNumber = Math.min(Math.max(targetLineNumber, 1), state.doc.lines);
+    const line = state.doc.line(safeLineNumber);
+    const markerMatch = TASK_LIST_MARKER_PATTERN.exec(line.text);
+    if (!markerMatch) {
+      return false;
+    }
+
+    const [, prefix, marker] = markerMatch;
+    const markerFrom = line.from + prefix.length;
+    const nextMarker = marker === ' ' ? 'x' : ' ';
+
+    this.editorView.dispatch({
+      changes: {
+        from: markerFrom,
+        insert: nextMarker,
+        to: markerFrom + 1,
+      },
+      userEvent: 'input',
+    });
     return true;
   }
 

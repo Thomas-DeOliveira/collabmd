@@ -93,3 +93,33 @@ test('EditorSession keeps bootstrap content out of Yjs until collaborative view 
   assert.equal(session.bootstrapContent, null);
   assert.deepEqual(contentChanges, ['# Bootstrap\n']);
 });
+
+test('EditorSession only toggles preview task items after collaborative sync', () => {
+  const session = new EditorSession({
+    editorContainer: null,
+    initialTheme: 'light',
+    lineInfoElement: null,
+    localUser: null,
+    onAwarenessChange: () => {},
+    onCommentsChange: () => {},
+    onConnectionChange: () => {},
+    onContentChange: () => {},
+    preferredUserName: 'Tester',
+  });
+
+  const toggledLines = [];
+  session.viewAdapter.toggleTaskListItem = (lineNumber) => {
+    toggledLines.push(lineNumber);
+    return true;
+  };
+
+  session.collaborationClient.initialSyncComplete = false;
+  assert.equal(session.toggleTaskListItem(3), false);
+  assert.deepEqual(toggledLines, []);
+
+  session.collaborationClient.initialSyncComplete = true;
+  assert.equal(session.toggleTaskListItem(3), true);
+  assert.deepEqual(toggledLines, [3]);
+
+  session.destroy();
+});

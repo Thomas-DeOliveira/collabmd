@@ -327,4 +327,55 @@ describe('uiFeature browser helpers', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, key: 'k' }));
     expect(context.toggleQuickSwitcher).toHaveBeenCalledTimes(1);
   });
+
+  it('toggles preview task items from preview clicks without hijacking wiki links', () => {
+    document.body.innerHTML = `
+      <div id="preview-content">
+        <ul>
+          <li class="task-list-item" data-source-line="7">
+            <input type="checkbox" data-task-checkbox="true">
+            First todo
+          </li>
+          <li class="task-list-item" data-source-line="8">
+            <input type="checkbox" data-task-checkbox="true">
+            Read <a href="https://example.com/docs">docs</a>
+          </li>
+        </ul>
+        <a class="wiki-link" data-wiki-target="README" href="#README">README</a>
+      </div>
+    `;
+
+    const context = {
+      elements: {
+        previewContent: document.getElementById('preview-content'),
+      },
+      handlePreviewContentClick: uiFeatureShellMethods.handlePreviewContentClick,
+      handleWikiLinkClick: vi.fn(),
+      session: {
+        toggleTaskListItem: vi.fn(() => true),
+      },
+    };
+
+    Object.assign(context, uiFeatureShellMethods);
+    context.bindEvents();
+
+    const checkbox = context.elements.previewContent.querySelector('input[type="checkbox"]');
+    checkbox.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(context.session.toggleTaskListItem).toHaveBeenCalledWith(7);
+    expect(checkbox.checked).toBe(false);
+
+    const externalLink = context.elements.previewContent.querySelector('li[data-source-line="8"] a');
+    const externalClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    externalLink.dispatchEvent(externalClick);
+
+    expect(context.session.toggleTaskListItem).toHaveBeenCalledTimes(1);
+    expect(externalClick.defaultPrevented).toBe(false);
+
+    const wikiLink = context.elements.previewContent.querySelector('a.wiki-link');
+    wikiLink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(context.handleWikiLinkClick).toHaveBeenCalledWith('README');
+    expect(context.session.toggleTaskListItem).toHaveBeenCalledTimes(1);
+  });
 });

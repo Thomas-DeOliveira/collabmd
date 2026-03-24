@@ -101,6 +101,7 @@
 .preview-content .task-list-item input[type='checkbox'] {
   margin-right: var(--space-2);
   accent-color: var(--color-primary);
+  cursor: pointer;
   vertical-align: middle;
 }
 
