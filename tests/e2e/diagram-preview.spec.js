@@ -793,7 +793,8 @@ test('opens .puml files with side-by-side PlantUML preview', async ({ page }) =>
   await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
   await expect(page.locator('#previewContent .plantuml-zoom-label')).toHaveText('110%');
   await expect(page.locator('#outlineToggle')).toHaveClass(/hidden/);
-  await expect(page.locator('#backlinksPanel')).toHaveClass(/hidden/);
+  await expect(page.locator('#backlinksPanel')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#backlinksPanel .backlinks-count')).toHaveText('1');
 });
 
 test('refits standalone PlantUML diagrams on maximize, resize, and restore', async ({ page }) => {

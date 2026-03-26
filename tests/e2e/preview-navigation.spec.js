@@ -205,8 +205,28 @@ test('keeps the linked mentions dock reachable while preview scrolls and expands
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
   await expect(dock).toBeVisible();
 
-  const previewAlignment = await measureDockAlignment();
-  expect(Math.abs(previewAlignment - splitAlignment)).toBeLessThanOrEqual(2);
+  const previewModeMetrics = await page.evaluate(() => {
+    const dockElement = document.querySelector('#backlinksPanel .backlinks-panel-dock');
+    const previewBody = document.querySelector('.preview-body');
+    const dockRect = dockElement.getBoundingClientRect();
+    const previewBodyRect = previewBody.getBoundingClientRect();
+    const rootStyles = getComputedStyle(document.documentElement);
+    const rootFontSize = Number.parseFloat(rootStyles.fontSize) || 16;
+    const rawInset = rootStyles.getPropertyValue('--space-6').trim();
+    let expectedInset = Number.parseFloat(rawInset) || 24;
+    if (rawInset.endsWith('rem')) {
+      expectedInset *= rootFontSize;
+    }
+
+    return {
+      bottomOffset: Math.round(previewBodyRect.bottom - dockRect.bottom),
+      leftOffset: Math.round(dockRect.left - previewBodyRect.left),
+      expectedInset,
+    };
+  });
+
+  expect(Math.abs(previewModeMetrics.leftOffset - previewModeMetrics.expectedInset)).toBeLessThanOrEqual(2);
+  expect(Math.abs(previewModeMetrics.bottomOffset - previewModeMetrics.expectedInset)).toBeLessThanOrEqual(2);
 });
 
 test('keeps the clicked parent section active in the outline after navigation settles', async ({ page }) => {
