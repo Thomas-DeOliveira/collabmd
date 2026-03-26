@@ -11,8 +11,10 @@
  */
 
 import { createWikiTargetIndex, resolveWikiTargetWithIndex } from '../../domain/wiki-link-resolver.js';
+import { mapWithConcurrency } from '../shared/async-utils.js';
 
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+const BACKLINK_BUILD_CONCURRENCY = 8;
 
 function createDeferred() {
   let resolve;
@@ -58,13 +60,15 @@ export class BacklinkIndex {
    * Build the full index by scanning every markdown file in the vault.
    * Called once at server startup.
    */
-  async build() {
+  async build({ workspaceState = null } = {}) {
     this._requestedBuildVersion += 1;
+    this._latestRequestedWorkspaceState = workspaceState;
     return this.flushScheduledBuild();
   }
 
   scheduleBuild({ delayMs = this.rebuildDelayMs } = {}) {
     this._requestedBuildVersion += 1;
+    this._latestRequestedWorkspaceState = null;
     if (!this._scheduledBuildDeferred) {
       this._scheduledBuildDeferred = createDeferred();
     }
@@ -116,8 +120,9 @@ export class BacklinkIndex {
     }
 
     const targetVersion = this._requestedBuildVersion;
+    const workspaceState = this._latestRequestedWorkspaceState;
     this._buildPromise = (async () => {
-      await this._performBuild();
+      await this._performBuild(workspaceState);
       this._completedBuildVersion = Math.max(this._completedBuildVersion, targetVersion);
     })().finally(() => {
       this._buildPromise = null;
@@ -126,18 +131,26 @@ export class BacklinkIndex {
     return this._buildPromise;
   }
 
-  async _performBuild() {
+  async _performBuild(workspaceState = null) {
     this.forward.clear();
     this.reverse.clear();
     this.contextsBySource.clear();
 
-    const tree = await this.vaultFileStore.tree();
-    this._fileList = flattenTree(tree);
+    const snapshot = workspaceState ?? await this._resolveWorkspaceState();
+    this._fileList = Array.from(snapshot?.markdownPaths ?? []);
     this._fileSet = new Set(this._fileList);
     this._refreshWikiTargetIndex();
 
-    for (const filePath of this._fileList) {
-      const content = await this.vaultFileStore.readMarkdownFile(filePath);
+    const fileContents = await mapWithConcurrency(
+      this._fileList,
+      BACKLINK_BUILD_CONCURRENCY,
+      async (filePath) => ({
+        content: await this.vaultFileStore.readMarkdownFile(filePath),
+        filePath,
+      }),
+    );
+
+    for (const { content, filePath } of fileContents) {
       if (content !== null) {
         this._indexFile(filePath, content);
       }
@@ -145,6 +158,17 @@ export class BacklinkIndex {
 
     this._built = true;
     console.log(`[backlinks] Index built: ${this._fileList.length} files, ${this.reverse.size} targets with backlinks`);
+  }
+
+  async _resolveWorkspaceState() {
+    if (typeof this.vaultFileStore.scanWorkspaceState === 'function') {
+      return this.vaultFileStore.scanWorkspaceState();
+    }
+
+    const tree = await this.vaultFileStore.tree();
+    return {
+      markdownPaths: flattenTree(tree),
+    };
   }
 
   /**

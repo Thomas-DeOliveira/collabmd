@@ -8,6 +8,7 @@ import { MSG_AWARENESS, MSG_SYNC } from './protocol.js';
 import { CollaborationDocumentStore } from './collaboration-document-store.js';
 import { RoomClientStateStore } from './room-client-state-store.js';
 import { RoomPersistenceController } from './room-persistence-controller.js';
+import { logPerfEvent } from '../../config/perf-logging.js';
 import { populateCommentThreads, serializeCommentThreads } from '../../../domain/comment-threads.js';
 import {
   isExcalidrawRoomDocStructured,
@@ -131,6 +132,7 @@ export class CollaborationRoom {
     name,
     idleGraceMs = 0,
     maxBufferedAmountBytes,
+    perfLoggingEnabled = false,
     vaultFileStore,
     backlinkIndex,
     onEmpty,
@@ -138,6 +140,7 @@ export class CollaborationRoom {
     this.name = name;
     this.idleGraceMs = idleGraceMs;
     this.maxBufferedAmountBytes = maxBufferedAmountBytes;
+    this.perfLoggingEnabled = perfLoggingEnabled;
     this.documentStore = documentStore ?? new CollaborationDocumentStore({
       backlinkIndex,
       name,
@@ -187,6 +190,8 @@ export class CollaborationRoom {
         let snapshotExists = false;
         let snapshotValid = false;
         let commentThreadCount = 0;
+        let snapshotReadDurationMs = 0;
+        let contentFallbackDurationMs = 0;
         const hydrateDelayMs = Math.max(0, Number(this.getHydrateDelayMs?.() || 0));
 
         try {
@@ -195,7 +200,9 @@ export class CollaborationRoom {
           }
 
           if (this.documentStore?.hasPersistence()) {
+            const snapshotReadStartedAt = Date.now();
             const snapshot = await this.documentStore.readSnapshot();
+            snapshotReadDurationMs = Date.now() - snapshotReadStartedAt;
             if (snapshot) {
               snapshotExists = true;
               try {
@@ -227,10 +234,12 @@ export class CollaborationRoom {
               }
             }
 
+            const fallbackStartedAt = Date.now();
             const [content, commentThreads] = await Promise.all([
               this.documentStore.readContent(),
               this.documentStore.readCommentThreads(),
             ]);
+            contentFallbackDurationMs = Date.now() - fallbackStartedAt;
             commentThreadCount = commentThreads.length;
             if (content !== null || commentThreads.length > 0) {
               hydrateSource = 'content';
@@ -262,14 +271,23 @@ export class CollaborationRoom {
             this.debugMetrics.hydrateCount += 1;
             this.debugMetrics.lastHydrate = {
               commentThreadCount,
+              contentFallbackDurationMs,
               durationMs: Date.now() - startedAt,
+              snapshotReadDurationMs,
               snapshotExists,
               snapshotValid,
               source: hydrateSource,
             };
-            console.info(
-              `[perf][room:${this.name}] hydrate durationMs=${this.debugMetrics.lastHydrate.durationMs} source=${this.debugMetrics.lastHydrate.source} snapshotExists=${this.debugMetrics.lastHydrate.snapshotExists} snapshotValid=${this.debugMetrics.lastHydrate.snapshotValid} commentThreads=${this.debugMetrics.lastHydrate.commentThreadCount}`,
-            );
+            logPerfEvent(this.perfLoggingEnabled, `room:${this.name}`, {
+              commentThreads: this.debugMetrics.lastHydrate.commentThreadCount,
+              contentFallbackDurationMs: this.debugMetrics.lastHydrate.contentFallbackDurationMs,
+              durationMs: this.debugMetrics.lastHydrate.durationMs,
+              event: 'hydrate',
+              snapshotExists: this.debugMetrics.lastHydrate.snapshotExists,
+              snapshotReadDurationMs: this.debugMetrics.lastHydrate.snapshotReadDurationMs,
+              snapshotValid: this.debugMetrics.lastHydrate.snapshotValid,
+              source: this.debugMetrics.lastHydrate.source,
+            });
           }
         }
       })().catch((error) => {
@@ -522,8 +540,13 @@ export class CollaborationRoom {
   sendInitialSync(ws) {
     this.debugMetrics.initialSyncCount += 1;
     this.debugMetrics.lastInitialSyncAt = Date.now();
-    console.info(`[perf][room:${this.name}] send-initial-sync count=${this.debugMetrics.initialSyncCount}`);
-    return sendMessage.call(this, ws, this.getInitialSyncMessage(), this);
+    const initialSyncMessage = this.getInitialSyncMessage();
+    logPerfEvent(this.perfLoggingEnabled, `room:${this.name}`, {
+      bytes: initialSyncMessage.byteLength,
+      count: this.debugMetrics.initialSyncCount,
+      event: 'initial-sync',
+    });
+    return sendMessage.call(this, ws, initialSyncMessage, this);
   }
 
   async addClient(ws, { sendInitialSync: shouldSendInitialSync = true } = {}) {

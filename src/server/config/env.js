@@ -10,6 +10,7 @@ import {
   createRandomSessionSecret,
 } from '../auth/create-auth-service.js';
 import { loadBuildInfo } from './build-info.js';
+import { isPerfLoggingEnabled } from './perf-logging.js';
 
 function parsePositiveInt(rawValue, fallbackValue) {
   const parsed = Number.parseInt(rawValue ?? '', 10);
@@ -321,6 +322,7 @@ export function loadConfig(overrides = {}) {
     httpRequestTimeoutMs: parsePositiveInt(process.env.HTTP_REQUEST_TIMEOUT_MS, 30_000),
     git,
     gitEnabled: git.enabled,
+    perfLoggingEnabled: overrides.perfLoggingEnabled ?? isPerfLoggingEnabled(process.env.COLLABMD_PERF_LOGGING),
     port: parsePort(process.env.PORT, 1234),
     nodeEnv,
     plantumlServerUrl: process.env.PLANTUML_SERVER_URL || 'https://www.plantuml.com/plantuml',

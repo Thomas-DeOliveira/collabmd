@@ -106,3 +106,49 @@ test('FileSystemSyncService falls back to a full workspace rescan for rename eve
     newPath: 'docs/README.md',
   }]);
 });
+
+test('FileSystemSyncService emits gated perf logs for full-scan fallback reasons', async (t) => {
+  const { cleanup, store, vaultDir } = await createVault();
+  t.after(cleanup);
+
+  const perfLogs = [];
+  const originalConsoleInfo = console.info;
+  console.info = (...args) => {
+    perfLogs.push(args.join(' '));
+  };
+  t.after(() => {
+    console.info = originalConsoleInfo;
+  });
+
+  const baselineState = await store.scanWorkspaceState();
+  const mutationCoordinator = {
+    filterManagedWorkspaceChange(workspaceChange) {
+      return workspaceChange;
+    },
+    async apply(payload) {
+      return payload;
+    },
+    getWorkspaceRoom() {
+      return null;
+    },
+    workspaceState: baselineState,
+  };
+
+  const service = new FileSystemSyncService({
+    mutationCoordinator,
+    perfLoggingEnabled: true,
+    vaultFileStore: store,
+  });
+  service.lastState = baselineState;
+  service.pendingEventTypesByPath.set('README.md', new Set(['rename']));
+  service.forceFullScan = true;
+
+  await rename(join(vaultDir, 'README.md'), join(vaultDir, 'docs', 'README.md'));
+  await service.flush();
+
+  assert.ok(perfLogs.some((line) => (
+    line.includes('[perf][filesystem-sync]')
+    && line.includes('mode=full-scan')
+    && line.includes('fallbackReason=forced-full-scan')
+  )));
+});

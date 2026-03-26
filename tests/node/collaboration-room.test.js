@@ -292,6 +292,46 @@ test('CollaborationRoom reuses cached initial sync payload until the document ch
   assert.notEqual(socketA.sent[0], socketC.sent[0]);
 });
 
+test('CollaborationRoom emits perf logs for hydrate and initial sync when enabled', async (t) => {
+  const perfLogs = [];
+  const originalConsoleInfo = console.info;
+  console.info = (...args) => {
+    perfLogs.push(args.join(' '));
+  };
+  t.after(() => {
+    console.info = originalConsoleInfo;
+  });
+
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'perf-room.md',
+    onEmpty: () => {},
+    perfLoggingEnabled: true,
+    vaultFileStore: {
+      async readCollaborationSnapshot() {
+        return null;
+      },
+      async readCommentThreads() {
+        return [];
+      },
+      async readMarkdownFile() {
+        return '# Perf\n';
+      },
+      async writeCollaborationSnapshot() {
+        return { ok: true };
+      },
+      async writeMarkdownFile() {},
+    },
+  });
+
+  await room.addClient(createSocket());
+  await Promise.resolve();
+
+  const roomPerfLogs = perfLogs.filter((line) => line.includes('[perf][room:perf-room.md]'));
+  assert.ok(roomPerfLogs.some((line) => line.includes('event=hydrate')));
+  assert.ok(roomPerfLogs.some((line) => line.includes('event=initial-sync') && line.includes('bytes=')));
+});
+
 test('CollaborationRoom hydrates and persists markdown comment threads', async () => {
   const writes = [];
   const commentWrites = [];

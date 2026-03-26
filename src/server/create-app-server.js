@@ -2,6 +2,7 @@ import { createServer } from 'http';
 
 import { loadConfig } from './config/env.js';
 import { createAuthService } from './auth/create-auth-service.js';
+import { logPerfEvent } from './config/perf-logging.js';
 import { BacklinkIndex } from './domain/backlink-index.js';
 import { CollaborationDocumentStore } from './domain/collaboration/collaboration-document-store.js';
 import { CollaborationRoom } from './domain/collaboration/collaboration-room.js';
@@ -38,6 +39,36 @@ function closeHttpServer(httpServer) {
   });
 }
 
+function workspaceStateMetadataEqual(left = null, right = null) {
+  const leftMetadata = left?.metadata;
+  const rightMetadata = right?.metadata;
+  if (!(leftMetadata instanceof Map) || !(rightMetadata instanceof Map)) {
+    return false;
+  }
+
+  if (leftMetadata.size !== rightMetadata.size) {
+    return false;
+  }
+
+  for (const [pathValue, leftEntry] of leftMetadata.entries()) {
+    const rightEntry = rightMetadata.get(pathValue);
+    if (!rightEntry) {
+      return false;
+    }
+
+    if (
+      leftEntry.type !== rightEntry.type
+      || leftEntry.size !== rightEntry.size
+      || leftEntry.inode !== rightEntry.inode
+      || leftEntry.mtimeMs !== rightEntry.mtimeMs
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 export function createAppServer(config = loadConfig()) {
   const authService = createAuthService(config);
   const vaultFileStore = new VaultFileStore({ vaultDir: config.vaultDir });
@@ -69,6 +100,7 @@ export function createAppServer(config = loadConfig()) {
         maxBufferedAmountBytes: config.wsMaxBufferedAmountBytes,
         name,
         onEmpty,
+        perfLoggingEnabled: config.perfLoggingEnabled,
       });
 
       if (name === WORKSPACE_ROOM_NAME && workspaceMutationCoordinator?.workspaceState) {
@@ -88,6 +120,7 @@ export function createAppServer(config = loadConfig()) {
   vaultFileStore.setManagedWriteTracker(workspaceMutationCoordinator);
   const fileSystemSyncService = new FileSystemSyncService({
     mutationCoordinator: workspaceMutationCoordinator,
+    perfLoggingEnabled: config.perfLoggingEnabled,
     vaultFileStore,
   });
   const requestHandler = createRequestHandler(
@@ -129,21 +162,84 @@ export function createAppServer(config = loadConfig()) {
   let vaultFileCount = 0;
 
   async function listen() {
-    vaultFileCount = await vaultFileStore.countVaultFiles();
-    await backlinkIndex.build();
-    await workspaceMutationCoordinator.initialize();
-    await fileSystemSyncService.start();
+    const startupStartedAt = Date.now();
+
+    const initialWorkspaceScanStartedAt = Date.now();
+    const initialWorkspaceSnapshot = await vaultFileStore.scanWorkspaceState();
+    vaultFileCount = initialWorkspaceSnapshot.vaultFileCount ?? 0;
+    logPerfEvent(config.perfLoggingEnabled, 'startup', {
+      durationMs: Date.now() - initialWorkspaceScanStartedAt,
+      phase: 'workspace-scan',
+      vaultFileCount,
+    });
+
+    const backlinkBuildStartedAt = Date.now();
+    await backlinkIndex.build({ workspaceState: initialWorkspaceSnapshot });
+    logPerfEvent(config.perfLoggingEnabled, 'startup', {
+      durationMs: Date.now() - backlinkBuildStartedAt,
+      markdownFileCount: initialWorkspaceSnapshot.markdownPaths?.length ?? 0,
+      phase: 'backlink-build',
+    });
+
+    const liveWorkspaceScanStartedAt = Date.now();
+    const liveWorkspaceSnapshot = await vaultFileStore.scanWorkspaceState();
+    const workspaceChangedDuringStartup = !workspaceStateMetadataEqual(initialWorkspaceSnapshot, liveWorkspaceSnapshot);
+    vaultFileCount = liveWorkspaceSnapshot.vaultFileCount ?? vaultFileCount;
+    logPerfEvent(config.perfLoggingEnabled, 'startup', {
+      changedDuringStartup: workspaceChangedDuringStartup,
+      durationMs: Date.now() - liveWorkspaceScanStartedAt,
+      phase: 'workspace-rescan',
+      vaultFileCount,
+    });
+
+    if (workspaceChangedDuringStartup) {
+      const backlinkRebuildStartedAt = Date.now();
+      await backlinkIndex.build({ workspaceState: liveWorkspaceSnapshot });
+      logPerfEvent(config.perfLoggingEnabled, 'startup', {
+        durationMs: Date.now() - backlinkRebuildStartedAt,
+        markdownFileCount: liveWorkspaceSnapshot.markdownPaths?.length ?? 0,
+        phase: 'backlink-rebuild',
+      });
+    }
+
+    const workspaceInitStartedAt = Date.now();
+    await workspaceMutationCoordinator.initialize({ snapshot: liveWorkspaceSnapshot });
+    logPerfEvent(config.perfLoggingEnabled, 'startup', {
+      durationMs: Date.now() - workspaceInitStartedAt,
+      phase: 'workspace-init',
+    });
+
+    const watcherStartStartedAt = Date.now();
+    await fileSystemSyncService.start({ snapshot: liveWorkspaceSnapshot });
+    logPerfEvent(config.perfLoggingEnabled, 'startup', {
+      durationMs: Date.now() - watcherStartStartedAt,
+      phase: 'watcher-start',
+    });
 
     return new Promise((resolve, reject) => {
+      const listenStartedAt = Date.now();
       httpServer.once('error', reject);
       httpServer.listen(config.port, config.host, () => {
         httpServer.off('error', reject);
         const address = httpServer.address();
-        resolve({
+        const result = {
           address,
           host: getDisplayHost(config.host),
           port: typeof address === 'object' && address ? address.port : config.port,
           wsPath: `${config.basePath || ''}${config.wsBasePath}/:file`,
+        };
+        logPerfEvent(config.perfLoggingEnabled, 'startup', {
+          durationMs: Date.now() - listenStartedAt,
+          phase: 'listen',
+          port: result.port,
+        });
+        logPerfEvent(config.perfLoggingEnabled, 'startup-total', {
+          durationMs: Date.now() - startupStartedAt,
+          markdownFileCount: liveWorkspaceSnapshot.markdownPaths?.length ?? 0,
+          vaultFileCount,
+        });
+        resolve({
+          ...result,
         });
       });
     });
@@ -176,6 +272,7 @@ export function createAppServer(config = loadConfig()) {
     roomRegistry,
     workspaceMutationCoordinator,
     authService,
+    backlinkIndex,
     fileSystemSyncService,
     gitService,
     setTestHydrateDelayMs(delayMs = 0) {

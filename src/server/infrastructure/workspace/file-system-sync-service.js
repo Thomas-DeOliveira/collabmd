@@ -4,6 +4,7 @@ import { basename, dirname, join } from 'path';
 
 import { createWorkspaceChange } from '../../../domain/workspace-change.js';
 import { getVaultTreeNodeType, isVaultFilePath } from '../../../domain/file-kind.js';
+import { logPerfEvent } from '../../config/perf-logging.js';
 import {
   isIgnoredVaultEntry,
   sanitizeVaultPath,
@@ -194,10 +195,12 @@ export class FileSystemSyncService {
   constructor({
     debounceMs = 180,
     mutationCoordinator,
+    perfLoggingEnabled = false,
     vaultFileStore,
   }) {
     this.debounceMs = debounceMs;
     this.mutationCoordinator = mutationCoordinator;
+    this.perfLoggingEnabled = perfLoggingEnabled;
     this.vaultFileStore = vaultFileStore;
     this.watcher = null;
     this.debounceTimer = null;
@@ -208,8 +211,8 @@ export class FileSystemSyncService {
     this.suspendWatchEventsUntil = 0;
   }
 
-  async start() {
-    this.lastState = this.mutationCoordinator.workspaceState ?? await this.vaultFileStore.scanWorkspaceState();
+  async start({ snapshot = null } = {}) {
+    this.lastState = snapshot ?? this.mutationCoordinator.workspaceState ?? await this.vaultFileStore.scanWorkspaceState();
     this.watcher = watch(this.vaultFileStore.vaultDir, { recursive: true }, (eventType, filename) => {
       this.handleWatchEvent(eventType, filename);
     });
@@ -253,7 +256,7 @@ export class FileSystemSyncService {
     this.debounceTimer.unref?.();
   }
 
-  async resetForExternalStateChange() {
+  async resetForExternalStateChange({ snapshot = null } = {}) {
     this.suspendWatchEventsUntil = Math.max(this.suspendWatchEventsUntil, Date.now() + 750);
     clearTimeout(this.debounceTimer);
     this.debounceTimer = null;
@@ -268,7 +271,7 @@ export class FileSystemSyncService {
 
     this.pendingEventTypesByPath.clear();
     this.forceFullScan = false;
-    this.lastState = this.mutationCoordinator.workspaceState ?? await this.vaultFileStore.scanWorkspaceState();
+    this.lastState = snapshot ?? this.mutationCoordinator.workspaceState ?? await this.vaultFileStore.scanWorkspaceState();
   }
 
   async readWorkspacePathSnapshot(pathValue) {
@@ -382,15 +385,23 @@ export class FileSystemSyncService {
   }
 
   async buildIncrementalResult() {
-    if (this.forceFullScan || this.pendingEventTypesByPath.size === 0 || !this.lastState) {
-      return null;
+    if (this.forceFullScan) {
+      return { fallbackReason: 'forced-full-scan', incrementalResult: null };
+    }
+
+    if (this.pendingEventTypesByPath.size === 0) {
+      return { fallbackReason: 'no-pending-paths', incrementalResult: null };
+    }
+
+    if (!this.lastState) {
+      return { fallbackReason: 'missing-last-state', incrementalResult: null };
     }
 
     const pendingPaths = Array.from(this.pendingEventTypesByPath.keys())
       .filter(Boolean)
       .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
     if (pendingPaths.length === 0 || pendingPaths.length > MAX_INCREMENTAL_PENDING_PATHS) {
-      return null;
+      return { fallbackReason: 'too-many-pending-paths', incrementalResult: null };
     }
 
     const nextEntries = new Map(this.lastState.entries);
@@ -411,12 +422,12 @@ export class FileSystemSyncService {
 
       const snapshot = await this.readWorkspacePathSnapshot(pathValue);
       if (!snapshot) {
-        return null;
+        return { fallbackReason: 'snapshot-unavailable', incrementalResult: null };
       }
 
       if (snapshot.entries.size > 0) {
         if (!(await this.ensureAncestorDirectories(nextEntries, nextMetadata, pathValue))) {
-          return null;
+          return { fallbackReason: 'ancestor-missing', incrementalResult: null };
         }
       }
 
@@ -436,8 +447,11 @@ export class FileSystemSyncService {
     const workspaceChange = detectWorkspaceChange(this.lastState, nextState);
 
     return {
-      nextState,
-      workspaceChange,
+      fallbackReason: '',
+      incrementalResult: {
+        nextState,
+        workspaceChange,
+      },
     };
   }
 
@@ -449,7 +463,9 @@ export class FileSystemSyncService {
   }
 
   async flush() {
-    const incrementalResult = await this.buildIncrementalResult();
+    const startedAt = Date.now();
+    const pendingPathCount = this.pendingEventTypesByPath.size;
+    const { fallbackReason, incrementalResult } = await this.buildIncrementalResult();
     this.consumePendingEvents();
 
     const previousWorkspaceState = this.mutationCoordinator.workspaceState;
@@ -463,6 +479,15 @@ export class FileSystemSyncService {
         previousState: previousWorkspaceState,
       });
       this.mutationCoordinator.replaceWorkspaceState(nextState);
+      logPerfEvent(this.perfLoggingEnabled, 'filesystem-sync', {
+        changedPathCount: workspaceChange.changedPaths?.length ?? 0,
+        deletedPathCount: workspaceChange.deletedPaths?.length ?? 0,
+        durationMs: Date.now() - startedAt,
+        fallbackReason,
+        mode: incrementalResult ? 'incremental' : 'full-scan',
+        pendingPathCount,
+        renamedPathCount: workspaceChange.renamedPaths?.length ?? 0,
+      });
       return;
     }
 
@@ -471,6 +496,15 @@ export class FileSystemSyncService {
       origin: 'filesystem',
       nextState,
       workspaceChange: filteredChange,
+    });
+    logPerfEvent(this.perfLoggingEnabled, 'filesystem-sync', {
+      changedPathCount: filteredChange.changedPaths?.length ?? 0,
+      deletedPathCount: filteredChange.deletedPaths?.length ?? 0,
+      durationMs: Date.now() - startedAt,
+      fallbackReason,
+      mode: incrementalResult ? 'incremental' : 'full-scan',
+      pendingPathCount,
+      renamedPathCount: filteredChange.renamedPaths?.length ?? 0,
     });
   }
 

@@ -26,6 +26,31 @@ function countWorkspacePaths(workspaceChange = {}) {
   );
 }
 
+function countBacklinkAffectedPaths(workspaceChange = {}) {
+  const affectedPaths = new Set();
+
+  (workspaceChange.changedPaths ?? []).forEach((pathValue) => {
+    if (supportsBacklinksForFilePath(pathValue)) {
+      affectedPaths.add(pathValue);
+    }
+  });
+  (workspaceChange.deletedPaths ?? []).forEach((pathValue) => {
+    if (supportsBacklinksForFilePath(pathValue)) {
+      affectedPaths.add(pathValue);
+    }
+  });
+  (workspaceChange.renamedPaths ?? []).forEach((entry) => {
+    if (supportsBacklinksForFilePath(entry?.oldPath)) {
+      affectedPaths.add(entry.oldPath);
+    }
+    if (supportsBacklinksForFilePath(entry?.newPath)) {
+      affectedPaths.add(entry.newPath);
+    }
+  });
+
+  return affectedPaths.size;
+}
+
 function normalizePaths(paths = []) {
   return Array.from(new Set((paths ?? []).filter(Boolean)));
 }
@@ -386,13 +411,13 @@ export class WorkspaceMutationCoordinator {
     });
   }
 
-  async initialize() {
-    const snapshot = await this.vaultFileStore.scanWorkspaceState();
-    this.replaceWorkspaceState(snapshot);
-    this.getWorkspaceRoom()?.replaceWorkspaceEntries(snapshot.entries, {
-      generatedAt: snapshot.scannedAt,
+  async initialize({ snapshot = null } = {}) {
+    const effectiveSnapshot = snapshot ?? await this.vaultFileStore.scanWorkspaceState();
+    this.replaceWorkspaceState(effectiveSnapshot);
+    this.getWorkspaceRoom()?.replaceWorkspaceEntries(effectiveSnapshot.entries, {
+      generatedAt: effectiveSnapshot.scannedAt,
     });
-    return snapshot;
+    return effectiveSnapshot;
   }
 
   markManagedPaths(paths = [], { durationMs = this.managedWriteWindowMs } = {}) {
@@ -532,7 +557,7 @@ export class WorkspaceMutationCoordinator {
     const previousEntries = this.workspaceState?.entries ?? new Map();
     if (
       forceRebuild
-      || countWorkspacePaths(workspaceChange) > 25
+      || countBacklinkAffectedPaths(workspaceChange) > 25
     ) {
       this.backlinkIndex.scheduleBuild?.();
       return;

@@ -7,6 +7,7 @@ import {
   isMarkdownFilePath,
   isVaultFilePath,
 } from '../../../domain/file-kind.js';
+import { mapWithConcurrency } from '../../shared/async-utils.js';
 import { getVaultContentAdapter } from './vault-content-adapter.js';
 import {
   INVALID_VAULT_FILE_PATH_ERROR,
@@ -36,6 +37,7 @@ const MIME_TYPE_TO_IMAGE_EXTENSION = Object.freeze({
   'image/svg+xml': '.svg',
   'image/webp': '.webp',
 });
+const WORKSPACE_SCAN_CONCURRENCY = 8;
 
 function createTransactionalPath(targetPath, label) {
   return `${targetPath}.collabmd-${label}-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
@@ -74,6 +76,16 @@ function createWorkspaceEntry(relativePath, type) {
   };
 }
 
+function createWorkspaceMetadata(pathValue, type, info) {
+  return {
+    inode: Number(info.ino || 0),
+    mtimeMs: Number(info.mtimeMs || 0),
+    path: pathValue,
+    size: type === 'directory' ? 0 : Number(info.size || 0),
+    type,
+  };
+}
+
 function replacePathPrefix(pathValue, oldPrefix, newPrefix) {
   if (pathValue === oldPrefix) {
     return newPrefix;
@@ -91,6 +103,14 @@ function sortWorkspacePaths(paths = [], direction = 'asc') {
     }
 
     return left.localeCompare(right, undefined, { sensitivity: 'base' }) * factor;
+  });
+}
+
+function sortDirectoryEntries(entries = []) {
+  return [...entries].sort((left, right) => {
+    if (left.isDirectory() && !right.isDirectory()) return -1;
+    if (!left.isDirectory() && right.isDirectory()) return 1;
+    return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
   });
 }
 
@@ -765,7 +785,8 @@ export class VaultFileStore {
   }
 
   async countVaultFiles() {
-    return this.countFilesInDir(this.vaultDir);
+    const snapshot = await this.scanWorkspaceState();
+    return snapshot.vaultFileCount;
   }
 
   async reconcileSidecars({
@@ -838,6 +859,8 @@ export class VaultFileStore {
   async scanWorkspaceState() {
     const entries = new Map();
     const metadata = new Map();
+    const markdownPaths = [];
+    let vaultFileCount = 0;
 
     const visitDirectory = async (dirPath) => {
       let dirEntries;
@@ -847,64 +870,84 @@ export class VaultFileStore {
         return;
       }
 
-      const sorted = dirEntries.sort((left, right) => {
-        if (left.isDirectory() && !right.isDirectory()) return -1;
-        if (!left.isDirectory() && right.isDirectory()) return 1;
-        return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
-      });
+      const sorted = sortDirectoryEntries(dirEntries);
 
-      for (const entry of sorted) {
+      await mapWithConcurrency(sorted, WORKSPACE_SCAN_CONCURRENCY, async (entry) => {
         if (isIgnoredVaultEntry(entry.name)) {
-          continue;
+          return;
         }
 
         const fullPath = join(dirPath, entry.name);
         const relativePath = toVaultRelativePath(this.vaultDir, fullPath).replace(/\\/g, '/');
+        const direntKind = entry.isDirectory()
+          ? 'directory'
+          : (entry.isFile() ? 'file' : null);
 
-        if (entry.isDirectory()) {
+        if (direntKind === 'directory') {
           entries.set(relativePath, createWorkspaceEntry(relativePath, 'directory'));
           try {
             const info = await stat(fullPath);
-            metadata.set(relativePath, {
-              inode: Number(info.ino || 0),
-              mtimeMs: Number(info.mtimeMs || 0),
-              path: relativePath,
-              size: 0,
-              type: 'directory',
-            });
+            metadata.set(relativePath, createWorkspaceMetadata(relativePath, 'directory', info));
           } catch {
             // Ignore transient directories that disappear during scans.
           }
           await visitDirectory(fullPath);
-          continue;
+          return;
         }
 
-        if (!isVaultFilePath(entry.name)) {
-          continue;
+        if (direntKind === 'file') {
+          if (!isVaultFilePath(entry.name)) {
+            return;
+          }
+
+          entries.set(relativePath, createWorkspaceEntry(relativePath, 'file'));
+          vaultFileCount += 1;
+          if (isMarkdownFilePath(relativePath)) {
+            markdownPaths.push(relativePath);
+          }
+          try {
+            const info = await stat(fullPath);
+            metadata.set(relativePath, createWorkspaceMetadata(relativePath, 'file', info));
+          } catch {
+            // Ignore transient files that disappear during scans.
+          }
+          return;
         }
 
-        entries.set(relativePath, createWorkspaceEntry(relativePath, 'file'));
         try {
           const info = await stat(fullPath);
-          metadata.set(relativePath, {
-            inode: Number(info.ino || 0),
-            mtimeMs: Number(info.mtimeMs || 0),
-            path: relativePath,
-            size: Number(info.size || 0),
-            type: 'file',
-          });
+          if (info.isDirectory()) {
+            entries.set(relativePath, createWorkspaceEntry(relativePath, 'directory'));
+            metadata.set(relativePath, createWorkspaceMetadata(relativePath, 'directory', info));
+            await visitDirectory(fullPath);
+            return;
+          }
+
+          if (!info.isFile() || !isVaultFilePath(entry.name)) {
+            return;
+          }
+
+          entries.set(relativePath, createWorkspaceEntry(relativePath, 'file'));
+          metadata.set(relativePath, createWorkspaceMetadata(relativePath, 'file', info));
+          vaultFileCount += 1;
+          if (isMarkdownFilePath(relativePath)) {
+            markdownPaths.push(relativePath);
+          }
         } catch {
-          // Ignore transient files that disappear during scans.
+          // Ignore transient entries that disappear during scans.
         }
-      }
+      });
     };
 
     await visitDirectory(this.vaultDir);
+    markdownPaths.sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
 
     return {
       entries,
       metadata,
+      markdownPaths,
       scannedAt: Date.now(),
+      vaultFileCount,
     };
   }
 }
