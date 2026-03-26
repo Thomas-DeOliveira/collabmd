@@ -11,6 +11,7 @@
  */
 
 import { createWikiTargetIndex, resolveWikiTargetWithIndex } from '../../domain/wiki-link-resolver.js';
+import { isMarkdownFilePath } from '../../domain/file-kind.js';
 import { mapWithConcurrency } from '../shared/async-utils.js';
 
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
@@ -43,8 +44,10 @@ export class BacklinkIndex {
     this.reverse = new Map();
     /** @type {Map<string, Map<string, string[]>>} sourcePath → targetPath → contexts[] */
     this.contextsBySource = new Map();
-    /** @type {string[]} cached flat file list for link resolution */
+    /** @type {string[]} cached flat target file list for link resolution */
     this._fileList = [];
+    /** @type {string[]} cached markdown source file list for content scans */
+    this._sourceFileList = [];
     /** @type {Set<string>} file path membership set */
     this._fileSet = new Set();
     this._wikiTargetIndex = createWikiTargetIndex(this._fileList);
@@ -139,12 +142,15 @@ export class BacklinkIndex {
     this.contextsBySource.clear();
 
     const snapshot = workspaceState ?? await this._resolveWorkspaceState();
-    this._fileList = Array.from(snapshot?.markdownPaths ?? []);
+    this._fileList = Array.from(snapshot?.filePaths ?? snapshot?.markdownPaths ?? []);
+    this._sourceFileList = Array.from(
+      snapshot?.markdownPaths ?? this._fileList.filter((filePath) => isMarkdownFilePath(filePath)),
+    ).filter((filePath) => this._fileList.includes(filePath));
     this._fileSet = new Set(this._fileList);
     this._refreshWikiTargetIndex();
 
     const fileContents = await mapWithConcurrency(
-      this._fileList,
+      this._sourceFileList,
       BACKLINK_BUILD_CONCURRENCY,
       async (filePath) => ({
         content: await this.vaultFileStore.readMarkdownFile(filePath),
@@ -159,7 +165,7 @@ export class BacklinkIndex {
     }
 
     this._built = true;
-    console.log(`[backlinks] Index built: ${this._fileList.length} files, ${this.reverse.size} targets with backlinks`);
+    console.log(`[backlinks] Index built: ${this._sourceFileList.length} markdown sources, ${this._fileList.length} targets, ${this.reverse.size} targets with backlinks`);
   }
 
   async _resolveWorkspaceState() {
@@ -168,8 +174,10 @@ export class BacklinkIndex {
     }
 
     const tree = await this.vaultFileStore.tree();
+    const filePaths = flattenTree(tree);
     return {
-      markdownPaths: flattenTree(tree),
+      filePaths,
+      markdownPaths: filePaths.filter((filePath) => isMarkdownFilePath(filePath)),
     };
   }
 
@@ -187,6 +195,10 @@ export class BacklinkIndex {
       if (refreshIndex) {
         this._refreshWikiTargetIndex();
       }
+    }
+
+    if (!isMarkdownFilePath(filePath)) {
+      return;
     }
 
     // Re-index with new content
@@ -207,7 +219,7 @@ export class BacklinkIndex {
       }
     }
 
-    if (content) {
+    if (content && isMarkdownFilePath(filePath)) {
       this._indexFile(filePath, content);
     }
 
@@ -325,6 +337,13 @@ export class BacklinkIndex {
       if (!existsNow) {
         if (existedBefore) {
           refreshIndex = this.onFileDeleted(pathValue, { refreshIndex: false }) || refreshIndex;
+        }
+        continue;
+      }
+
+      if (!isMarkdownFilePath(pathValue)) {
+        if (!existedBefore) {
+          refreshIndex = this.onFileCreated(pathValue, '', { refreshIndex: false }) || refreshIndex;
         }
         continue;
       }
@@ -465,7 +484,7 @@ export class BacklinkIndex {
 function flattenTree(nodes) {
   const files = [];
   for (const node of nodes) {
-    if (node.type === 'file') {
+    if (node.type && node.type !== 'directory') {
       files.push(node.path);
     } else if (node.children) {
       files.push(...flattenTree(node.children));

@@ -1,10 +1,11 @@
-import { isMarkdownFilePath } from '../../domain/file-kind.js';
+import { isMarkdownFilePath, isVaultFilePath } from '../../domain/file-kind.js';
 
 function compareWorkspacePaths(left = '', right = '') {
   return String(left).localeCompare(String(right), undefined, { sensitivity: 'base' });
 }
 
 export function collectWorkspaceStateStats(entries = new Map(), metadata = new Map()) {
+  const filePaths = [];
   const markdownPaths = [];
   let vaultFileCount = 0;
 
@@ -15,14 +16,19 @@ export function collectWorkspaceStateStats(entries = new Map(), metadata = new M
     }
 
     vaultFileCount += 1;
+    if (isVaultFilePath(pathValue)) {
+      filePaths.push(pathValue);
+    }
     if (isMarkdownFilePath(pathValue)) {
       markdownPaths.push(pathValue);
     }
   });
 
+  filePaths.sort(compareWorkspacePaths);
   markdownPaths.sort(compareWorkspacePaths);
 
   return {
+    filePaths,
     markdownPaths,
     vaultFileCount,
   };
@@ -37,6 +43,7 @@ export function createWorkspaceStateSnapshot(entries = new Map(), metadata = new
 
   return {
     entries: normalizedEntries,
+    filePaths: stats.filePaths,
     markdownPaths: stats.markdownPaths,
     metadata: normalizedMetadata,
     scannedAt,

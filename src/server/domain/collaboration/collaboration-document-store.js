@@ -2,9 +2,9 @@ import {
   isBaseFilePath,
   isDrawioFilePath,
   isExcalidrawFilePath,
+  isMarkdownFilePath,
   isMermaidFilePath,
   isPlantUmlFilePath,
-  supportsBacklinksForFilePath,
 } from '../../../domain/file-kind.js';
 
 function assertWriteSucceeded(result, operation, filePath) {
@@ -104,7 +104,7 @@ export class CollaborationDocumentStore {
       await this.writeSnapshot(snapshot);
     }
 
-    if (this.backlinkIndex && supportsBacklinksForFilePath(this.name)) {
+    if (this.backlinkIndex && isMarkdownFilePath(this.name)) {
       this.backlinkIndex.updateFile(this.name, content);
     }
   }

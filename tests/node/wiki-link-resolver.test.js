@@ -29,6 +29,24 @@ test('resolveWikiTargetPath prefers root-level exact matches over nested suffix 
   assert.equal(resolveWikiTargetPath('showcase.md', files), 'showcase.md');
 });
 
+test('resolveWikiTargetPath resolves exact non-markdown vault targets without coercing them to markdown', () => {
+  const files = [
+    'boards/tasks.base',
+    'diagrams/architecture.drawio',
+    'diagrams/flow.mmd',
+    'images/cover.png',
+    'scenes/sketch.excalidraw',
+    'uml/system.plantuml',
+  ];
+
+  assert.equal(resolveWikiTargetPath('boards/tasks.base', files), 'boards/tasks.base');
+  assert.equal(resolveWikiTargetPath('architecture.drawio', files), 'diagrams/architecture.drawio');
+  assert.equal(resolveWikiTargetPath('flow.mmd', files), 'diagrams/flow.mmd');
+  assert.equal(resolveWikiTargetPath('cover.png', files), 'images/cover.png');
+  assert.equal(resolveWikiTargetPath('sketch.excalidraw', files), 'scenes/sketch.excalidraw');
+  assert.equal(resolveWikiTargetPath('system.plantuml', files), 'uml/system.plantuml');
+});
+
 test('resolveWikiTargetPath returns null for empty or missing targets', () => {
   const files = ['README.md'];
 
@@ -58,4 +76,23 @@ test('resolveWikiTargetWithIndex prefers root-level exact matches over nested su
 
   assert.equal(resolveWikiTargetWithIndex('showcase', index), 'showcase.md');
   assert.equal(resolveWikiTargetWithIndex('showcase.md', index), 'showcase.md');
+});
+
+test('resolveWikiTargetWithIndex resolves exact non-markdown vault targets without markdown fallback', () => {
+  const files = [
+    'boards/tasks.base',
+    'diagrams/architecture.drawio',
+    'diagrams/flow.mmd',
+    'images/cover.png',
+    'scenes/sketch.excalidraw',
+    'uml/system.plantuml',
+  ];
+  const index = createWikiTargetIndex(files);
+
+  assert.equal(resolveWikiTargetWithIndex('boards/tasks.base', index), 'boards/tasks.base');
+  assert.equal(resolveWikiTargetWithIndex('architecture.drawio', index), 'diagrams/architecture.drawio');
+  assert.equal(resolveWikiTargetWithIndex('flow.mmd', index), 'diagrams/flow.mmd');
+  assert.equal(resolveWikiTargetWithIndex('cover.png', index), 'images/cover.png');
+  assert.equal(resolveWikiTargetWithIndex('sketch.excalidraw', index), 'scenes/sketch.excalidraw');
+  assert.equal(resolveWikiTargetWithIndex('system.plantuml', index), 'uml/system.plantuml');
 });

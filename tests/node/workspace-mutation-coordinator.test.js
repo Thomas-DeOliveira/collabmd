@@ -11,6 +11,7 @@ import { WorkspaceMutationCoordinator } from '../../src/server/infrastructure/wo
 function createState(paths = []) {
   return {
     entries: new Map(paths.map((pathValue) => [pathValue, { path: pathValue, type: 'file' }])),
+    filePaths: [...paths],
     markdownPaths: paths.filter((pathValue) => pathValue.endsWith('.md')),
     metadata: new Map(),
     scannedAt: Date.now(),

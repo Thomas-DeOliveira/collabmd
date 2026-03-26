@@ -867,6 +867,7 @@ export class VaultFileStore {
 
   async scanWorkspaceState() {
     const entries = new Map();
+    const filePaths = [];
     const metadata = new Map();
     const markdownPaths = [];
     let vaultFileCount = 0;
@@ -910,6 +911,7 @@ export class VaultFileStore {
           }
 
           entries.set(relativePath, createWorkspaceEntry(relativePath, 'file'));
+          filePaths.push(relativePath);
           vaultFileCount += 1;
           if (isMarkdownFilePath(relativePath)) {
             markdownPaths.push(relativePath);
@@ -938,6 +940,7 @@ export class VaultFileStore {
 
           entries.set(relativePath, createWorkspaceEntry(relativePath, 'file'));
           metadata.set(relativePath, createWorkspaceMetadata(relativePath, 'file', info));
+          filePaths.push(relativePath);
           vaultFileCount += 1;
           if (isMarkdownFilePath(relativePath)) {
             markdownPaths.push(relativePath);
@@ -949,10 +952,12 @@ export class VaultFileStore {
     };
 
     await visitDirectory(this.vaultDir);
+    filePaths.sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
     markdownPaths.sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
 
     return {
       entries,
+      filePaths,
       metadata,
       markdownPaths,
       scannedAt: Date.now(),

@@ -3,7 +3,12 @@ import { basename, dirname, extname } from 'node:path';
 import yaml from 'js-yaml';
 
 import { createWikiTargetIndex, resolveWikiTargetWithIndex } from '../../../domain/wiki-link-resolver.js';
-import { isImageAttachmentFilePath, isMarkdownFilePath, stripVaultFileExtension } from '../../../domain/file-kind.js';
+import {
+  getVaultFileExtension,
+  isImageAttachmentFilePath,
+  isMarkdownFilePath,
+  stripVaultFileExtension,
+} from '../../../domain/file-kind.js';
 import { extractYamlFrontmatter } from '../../../domain/yaml-frontmatter.js';
 import { mapWithConcurrency } from '../../shared/async-utils.js';
 
@@ -167,6 +172,10 @@ function isWorkspaceFileEntry(entry = {}) {
 }
 
 function listWorkspaceFilePaths(workspaceState = {}) {
+  if (Array.isArray(workspaceState?.filePaths)) {
+    return [...workspaceState.filePaths].sort(compareVaultPaths);
+  }
+
   return Array.from(workspaceState?.entries?.values?.() ?? [])
     .filter((entry) => isWorkspaceFileEntry(entry))
     .map((entry) => entry.path)
@@ -179,12 +188,14 @@ function normalizeWikiTargetKey(target = '') {
     return '';
   }
 
-  return normalizedTarget.endsWith('.md') ? normalizedTarget : `${normalizedTarget}.md`;
+  return getVaultFileExtension(normalizedTarget)
+    ? normalizedTarget
+    : `${normalizedTarget}.md`;
 }
 
 function collectWikiTargetKeysForFilePath(filePath = '') {
   const normalizedPath = String(filePath ?? '').trim();
-  if (!normalizedPath || !normalizedPath.endsWith('.md')) {
+  if (!normalizedPath) {
     return [];
   }
 
@@ -194,7 +205,14 @@ function collectWikiTargetKeysForFilePath(filePath = '') {
     keys.push(segments.slice(index).join('/'));
   }
 
-  return keys;
+  if (isMarkdownFilePath(normalizedPath)) {
+    const rawSegments = normalizedPath.replace(/\.md$/i, '').split('/').filter(Boolean);
+    for (let index = 0; index < rawSegments.length; index += 1) {
+      keys.push(rawSegments.slice(index).join('/'));
+    }
+  }
+
+  return [...new Set(keys)];
 }
 
 function normalizeBaseDefinition(source = '') {

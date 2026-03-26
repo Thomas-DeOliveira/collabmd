@@ -1,15 +1,16 @@
+import { getVaultFileExtension, isMarkdownFilePath } from './file-kind.js';
+
 function normalizeWikiTarget(target) {
   const trimmed = String(target ?? '').trim();
   if (!trimmed) {
     return null;
   }
 
-  return trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
+  return trimmed;
 }
 
 export function createWikiTargetIndex(files = []) {
   const exactPaths = new Set();
-  const pathWithoutMd = new Map();
   const suffixMatch = new Map();
 
   for (const filePath of files) {
@@ -18,11 +19,6 @@ export function createWikiTargetIndex(files = []) {
     }
 
     exactPaths.add(filePath);
-
-    const rawPath = filePath.replace(/\.md$/i, '');
-    if (!pathWithoutMd.has(rawPath)) {
-      pathWithoutMd.set(rawPath, filePath);
-    }
 
     const segments = filePath.split('/');
     for (let index = 0; index < segments.length; index += 1) {
@@ -35,52 +31,74 @@ export function createWikiTargetIndex(files = []) {
 
   return {
     exactPaths,
-    pathWithoutMd,
     suffixMatch,
   };
 }
 
 export function resolveWikiTargetWithIndex(target, index) {
-  const normalizedTarget = normalizeWikiTarget(target);
-  if (!normalizedTarget || !index) {
+  const rawTarget = normalizeWikiTarget(target);
+  if (!rawTarget || !index) {
     return null;
   }
 
-  if (index.exactPaths?.has(normalizedTarget)) {
-    return normalizedTarget;
+  if (index.exactPaths?.has(rawTarget)) {
+    return rawTarget;
   }
 
-  const suffixMatch = index.suffixMatch?.get(normalizedTarget);
+  const suffixMatch = index.suffixMatch?.get(rawTarget);
   if (suffixMatch) {
     return suffixMatch;
   }
 
-  const rawTarget = String(target ?? '').trim();
-  return index.pathWithoutMd?.get(rawTarget) ?? null;
-}
-
-export function resolveWikiTargetPath(target, files) {
-  const normalizedTarget = normalizeWikiTarget(target);
-  if (!normalizedTarget || !Array.isArray(files) || files.length === 0) {
+  if (getVaultFileExtension(rawTarget)) {
     return null;
   }
 
-  const rawTarget = String(target ?? '').trim();
+  const markdownTarget = `${rawTarget}.md`;
+  if (index.exactPaths?.has(markdownTarget)) {
+    return markdownTarget;
+  }
+
+  return index.suffixMatch?.get(markdownTarget) ?? null;
+}
+
+export function resolveWikiTargetPath(target, files) {
+  const rawTarget = normalizeWikiTarget(target);
+  if (!rawTarget || !Array.isArray(files) || files.length === 0) {
+    return null;
+  }
+
   let fallbackSuffixMatch = null;
 
   for (const filePath of files) {
-    if (filePath === normalizedTarget) {
+    if (filePath === rawTarget) {
       return filePath;
     }
 
-    if (filePath.replace(/\.md$/i, '') === rawTarget) {
-      return filePath;
-    }
-
-    if (!fallbackSuffixMatch && filePath.endsWith(`/${normalizedTarget}`)) {
+    if (!fallbackSuffixMatch && filePath.endsWith(`/${rawTarget}`)) {
       fallbackSuffixMatch = filePath;
     }
   }
 
-  return fallbackSuffixMatch;
+  if (fallbackSuffixMatch || getVaultFileExtension(rawTarget)) {
+    return fallbackSuffixMatch;
+  }
+
+  const markdownTarget = `${rawTarget}.md`;
+  let markdownSuffixMatch = null;
+  for (const filePath of files) {
+    if (!isMarkdownFilePath(filePath)) {
+      continue;
+    }
+
+    if (filePath === markdownTarget) {
+      return filePath;
+    }
+
+    if (!markdownSuffixMatch && filePath.endsWith(`/${markdownTarget}`)) {
+      markdownSuffixMatch = filePath;
+    }
+  }
+
+  return markdownSuffixMatch;
 }

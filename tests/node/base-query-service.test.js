@@ -316,16 +316,19 @@ test('BaseQueryService exposes file embeds and backlinks', async (t) => {
     '[[notes/target.md|Target]]',
     '',
     '![[assets/cover.png]]',
+    '',
+    '![[diagrams/flow.mmd]]',
   ].join('\n'));
   await writeVaultFile('notes/target.md', '# Target\n');
   await writeVaultFile('assets/cover.png', 'png-bytes');
+  await writeVaultFile('diagrams/flow.mmd', 'flowchart TD\n  A --> B\n');
   await writeVaultFile('views/references.base', [
     'views:',
     '  - type: table',
     '    name: References',
     '    filters:',
     '      and:',
-    '        - file.name == "source.md" || file.name == "target.md"',
+    '        - file.name == "source.md" || file.name == "target.md" || file.name == "flow.mmd"',
     '    order:',
     '      - file.name',
       '      - file.embeds',
@@ -338,11 +341,16 @@ test('BaseQueryService exposes file embeds and backlinks', async (t) => {
   });
 
   const sourceRow = result.rows.find((row) => row.path === 'notes/source.md');
+  const diagramRow = result.rows.find((row) => row.path === 'diagrams/flow.mmd');
   const targetRow = result.rows.find((row) => row.path === 'notes/target.md');
 
   assert.deepEqual(
     sourceRow.cells['file.embeds'].items.map((item) => item.path),
-    ['assets/cover.png'],
+    ['assets/cover.png', 'diagrams/flow.mmd'],
+  );
+  assert.deepEqual(
+    diagramRow.cells['file.backlinks'].items.map((item) => item.path),
+    ['notes/source.md'],
   );
   assert.deepEqual(
     targetRow.cells['file.backlinks'].items.map((item) => item.path),

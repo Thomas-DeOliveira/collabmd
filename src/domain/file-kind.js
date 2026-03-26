@@ -137,7 +137,7 @@ export function supportsCommentsForFilePath(filePath) {
 }
 
 export function supportsBacklinksForFilePath(filePath) {
-  return isMarkdownFilePath(filePath);
+  return isVaultFilePath(filePath);
 }
 
 export function stripVaultFileExtension(name) {

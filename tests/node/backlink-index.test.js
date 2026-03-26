@@ -24,10 +24,11 @@ class StubVaultStore {
 
   async scanWorkspaceState() {
     this.scanCount += 1;
+    const filePaths = [...this.files.keys()]
+      .sort((left, right) => left.localeCompare(right));
     return {
-      markdownPaths: [...this.files.keys()]
-        .filter((pathValue) => pathValue.endsWith('.md'))
-        .sort((left, right) => left.localeCompare(right)),
+      filePaths,
+      markdownPaths: filePaths.filter((pathValue) => pathValue.endsWith('.md')),
     };
   }
 
@@ -131,6 +132,75 @@ test('BacklinkIndex full builds source file lists from scanWorkspaceState instea
       file: 'source.md',
     },
   ]);
+});
+
+test('BacklinkIndex resolves markdown embeds that target non-markdown vault files', async () => {
+  const vaultFileStore = new StubVaultStore([
+    ['notes/source.md', '# Source\n\n![[diagrams/flow.mmd]]'],
+    ['diagrams/flow.mmd', 'flowchart TD\n  A --> B\n'],
+  ]);
+  const index = new BacklinkIndex({ vaultFileStore });
+
+  await index.build();
+
+  assert.equal(vaultFileStore.readCount, 1);
+  assert.deepEqual(await index.getBacklinks('diagrams/flow.mmd'), [
+    {
+      contexts: ['![[diagrams/flow.mmd]]'],
+      file: 'notes/source.md',
+    },
+  ]);
+});
+
+test('BacklinkIndex remaps backlinks when a non-markdown target file is renamed', async () => {
+  const vaultFileStore = new StubVaultStore([
+    ['notes/source.md', '![[diagrams/flow.mmd]]'],
+    ['diagrams/flow.mmd', 'flowchart TD\n  A --> B\n'],
+  ]);
+  const index = new BacklinkIndex({ vaultFileStore });
+
+  await index.build();
+  index.onFileRenamed('diagrams/flow.mmd', 'diagrams/flowchart.mmd');
+
+  assert.deepEqual(await index.getBacklinks('diagrams/flow.mmd'), []);
+  assert.deepEqual(await index.getBacklinks('diagrams/flowchart.mmd'), [
+    {
+      contexts: ['![[diagrams/flow.mmd]]'],
+      file: 'notes/source.md',
+    },
+  ]);
+});
+
+test('BacklinkIndex applies non-markdown target membership changes without reading non-markdown content', async () => {
+  const vaultFileStore = new StubVaultStore([
+    ['notes/source.md', '![[diagrams/flow.mmd]]'],
+  ]);
+  const index = new BacklinkIndex({ vaultFileStore });
+
+  await index.build();
+  const readsAfterBuild = vaultFileStore.readCount;
+  vaultFileStore.files.set('diagrams/flow.mmd', 'flowchart TD\n  A --> B\n');
+
+  await index.applyWorkspaceChange({
+    changedPaths: ['diagrams/flow.mmd'],
+    deletedPaths: [],
+    renamedPaths: [],
+  }, {
+    previousState: {
+      entries: new Map([
+        ['notes/source.md', { path: 'notes/source.md', type: 'file' }],
+      ]),
+    },
+    nextState: {
+      entries: new Map([
+        ['diagrams/flow.mmd', { path: 'diagrams/flow.mmd', type: 'file' }],
+        ['notes/source.md', { path: 'notes/source.md', type: 'file' }],
+      ]),
+    },
+  });
+
+  assert.equal(vaultFileStore.readCount, readsAfterBuild);
+  assert.deepEqual(await index.getBacklinks('diagrams/flow.mmd'), []);
 });
 
 test('BacklinkIndex batches workspace changes behind a single wiki-target refresh', async () => {
