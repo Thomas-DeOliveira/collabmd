@@ -277,3 +277,31 @@ test('BaseQueryService resolves relative image paths against the source note', a
   assert.equal(result.rows[0].cells['note.cover'].type, 'image');
   assert.equal(result.rows[0].cells['note.cover'].path, 'notes/images/cover.png');
 });
+
+test('BaseQueryService compares file dates against quoted date strings in filters', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/a.md', '# A\n');
+  await writeVaultFile('notes/b.md', '# B\n');
+  await writeVaultFile('views/recent.base', [
+    'views:',
+    '  - type: table',
+    '    name: Recent',
+    '    filters:',
+    '      and:',
+    '        - file.ctime > "2000-01-01"',
+    '    order: [file.name]',
+  ].join('\n'));
+
+  const result = await service.query({
+    basePath: 'views/recent.base',
+    view: 'Recent',
+  });
+
+  assert.deepEqual(result.rows.map((row) => row.path), [
+    'notes/a.md',
+    'notes/b.md',
+    'views/recent.base',
+  ]);
+});

@@ -683,6 +683,48 @@ function parseDateValue(value) {
   return Number.isFinite(date.getTime()) ? date : null;
 }
 
+function isDateLikeString(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /^\d{8}(?:\d{4})?$/u.test(normalized)
+    || /^\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?)?$/u.test(normalized)
+  );
+}
+
+function coerceDateComparable(value) {
+  if (!isDateLikeString(value)) {
+    return value;
+  }
+
+  return parseDateValue(value) ?? value;
+}
+
+function normalizeComparablePair(left, right) {
+  if (left instanceof Date || right instanceof Date) {
+    return [
+      left instanceof Date ? left : coerceDateComparable(left),
+      right instanceof Date ? right : coerceDateComparable(right),
+    ];
+  }
+
+  if (typeof left === 'string' && typeof right === 'string' && isDateLikeString(left) && isDateLikeString(right)) {
+    return [
+      parseDateValue(left) ?? left,
+      parseDateValue(right) ?? right,
+    ];
+  }
+
+  return [left, right];
+}
+
 function formatDateValue(value, format = 'YYYY-MM-DD') {
   const date = parseDateValue(value);
   if (!date) {
@@ -739,6 +781,11 @@ function toDisplayText(value) {
 }
 
 function valuesEqual(left, right) {
+  const [normalizedLeft, normalizedRight] = normalizeComparablePair(left, right);
+
+  left = normalizedLeft;
+  right = normalizedRight;
+
   if (left?.__baseType === 'file' && right?.__baseType === 'file') {
     return left.path === right.path;
   }
@@ -851,6 +898,10 @@ function serializeBaseValue(value, options = {}) {
 }
 
 function compareValues(left, right) {
+  const [normalizedLeft, normalizedRight] = normalizeComparablePair(left, right);
+  left = normalizedLeft;
+  right = normalizedRight;
+
   const comparableLeft = toComparableValue(left);
   const comparableRight = toComparableValue(right);
   if (comparableLeft == null && comparableRight == null) return 0;
