@@ -1,5 +1,14 @@
 import { autocompletion, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentLess,
+  indentMore,
+  indentWithTab,
+  redo,
+  undo,
+} from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import {
   bracketMatching,
@@ -10,7 +19,7 @@ import {
   syntaxHighlighting,
 } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
-import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
+import { highlightSelectionMatches, openSearchPanel, searchKeymap } from '@codemirror/search';
 import { Compartment, EditorSelection, EditorState, Prec, StateEffect, StateField } from '@codemirror/state';
 import { oneDark } from '@codemirror/theme-one-dark';
 import {
@@ -42,6 +51,13 @@ const REMOTE_UPDATE_FLASH_DURATION_MS = 1350;
 const REMOTE_UPDATE_CARET_MAX_LENGTH = 160;
 const RECENT_LOCAL_INPUT_WINDOW_MS = 900;
 const TASK_LIST_MARKER_PATTERN = /^(\s*(?:>\s*)*(?:[-+*]|\d+[.)])\s+\[)( |x|X)(\])(\s.*)?$/;
+const EDITOR_COMMANDS = Object.freeze({
+  indentLess,
+  indentMore,
+  openSearch: openSearchPanel,
+  redo,
+  undo,
+});
 
 class RemoteUpdateCaretWidget extends WidgetType {
   toDOM() {
@@ -555,6 +571,24 @@ export class EditorViewAdapter {
 
   requestMeasure() {
     this.editorView?.requestMeasure();
+  }
+
+  runEditorCommand(commandId) {
+    if (!this.editorView) {
+      return false;
+    }
+
+    const command = EDITOR_COMMANDS[String(commandId ?? '')];
+    if (typeof command !== 'function') {
+      return false;
+    }
+
+    const applied = command(this.editorView);
+    if (applied && commandId !== 'openSearch') {
+      this.editorView.focus();
+    }
+
+    return applied;
   }
 
   flashRemoteRange({ from = 0, to = 0 } = {}, durationMs = REMOTE_UPDATE_FLASH_DURATION_MS) {

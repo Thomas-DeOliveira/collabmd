@@ -123,3 +123,29 @@ test('EditorSession only toggles preview task items after collaborative sync', (
 
   session.destroy();
 });
+
+test('EditorSession delegates editor commands to the view adapter', () => {
+  const session = new EditorSession({
+    editorContainer: null,
+    initialTheme: 'light',
+    lineInfoElement: null,
+    localUser: null,
+    onAwarenessChange: () => {},
+    onCommentsChange: () => {},
+    onConnectionChange: () => {},
+    onContentChange: () => {},
+    preferredUserName: 'Tester',
+  });
+
+  const commands = [];
+  session.viewAdapter.runEditorCommand = (commandId) => {
+    commands.push(commandId);
+    return commandId === 'undo';
+  };
+
+  assert.equal(session.runEditorCommand('undo'), true);
+  assert.equal(session.runEditorCommand('redo'), false);
+  assert.deepEqual(commands, ['undo', 'redo']);
+
+  session.destroy();
+});

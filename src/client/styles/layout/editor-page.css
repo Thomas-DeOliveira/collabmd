@@ -316,6 +316,12 @@
   border-left: 1px solid var(--color-divider);
 }
 
+.markdown-toolbar .markdown-toolbar-group--mobile-only,
+.pane-header-actions .mobile-editor-find-btn,
+.toolbar-overflow-menu .toolbar-search-files-btn {
+  display: none !important;
+}
+
 .markdown-toolbar-block-trigger {
   display: inline-flex;
   align-items: center;

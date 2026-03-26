@@ -32,6 +32,7 @@ const VERSION_RELOAD_TOAST_DURATION_MS = 0;
 function initialize() {
   this.initializeExportBridge?.();
   this.renderMarkdownToolbar?.();
+  this.initializeVisualViewportBinding?.();
   this.themeController.initialize();
   this.previewRenderer.applyTheme(this.themeController.getTheme());
   this.previewRenderer.scheduleWorkerPrewarm();
@@ -78,6 +79,40 @@ function initialize() {
 /** @this {UiShellContext} */
 function initializeVersionMonitoring() {
   this.versionMonitor?.start();
+}
+
+/** @this {UiShellContext} */
+function syncVisualViewportBounds() {
+  const root = document.documentElement;
+  const viewport = window.visualViewport;
+
+  if (!root) {
+    return;
+  }
+
+  if (!viewport) {
+    root.style.setProperty('--app-viewport-height', '100dvh');
+    root.style.setProperty('--app-viewport-offset-top', '0px');
+    return;
+  }
+
+  root.style.setProperty('--app-viewport-height', `${Math.round(viewport.height)}px`);
+  root.style.setProperty('--app-viewport-offset-top', `${Math.round(viewport.offsetTop)}px`);
+}
+
+/** @this {UiShellContext} */
+function initializeVisualViewportBinding() {
+  this.syncVisualViewportBounds?.();
+
+  const viewport = window.visualViewport;
+  if (!viewport) {
+    return;
+  }
+
+  const handler = () => this.syncVisualViewportBounds?.();
+  viewport.addEventListener('resize', handler, { passive: true });
+  viewport.addEventListener('scroll', handler, { passive: true });
+  window.addEventListener('orientationchange', handler);
 }
 
 /** @this {UiShellContext} */
@@ -128,6 +163,11 @@ function bindEvents() {
 
   this.elements.shareButton?.addEventListener('click', () => {
     void this.copyCurrentLink();
+    this.closeToolbarOverflowMenu?.();
+  });
+
+  this.elements.searchFilesButton?.addEventListener('click', () => {
+    void this.toggleQuickSwitcher();
     this.closeToolbarOverflowMenu?.();
   });
 
@@ -217,6 +257,10 @@ function bindEvents() {
 
   this.elements.toggleWrapButton?.addEventListener('click', () => {
     this.toggleLineWrapping();
+  });
+
+  this.elements.editorFindButton?.addEventListener('click', () => {
+    this.runEditorCommand?.('openSearch');
   });
 
   this.elements.toolbarOverflowToggle?.addEventListener('click', (event) => {
@@ -481,12 +525,14 @@ export const uiFeatureShellMethods = {
   handleThemeChange,
   hideEditorLoading,
   initialize,
+  initializeVisualViewportBinding,
   initializeVersionMonitoring,
-  setToolbarOverflowOpen,
   promptForVersionReload,
   scheduleBacklinkRefresh,
+  setToolbarOverflowOpen,
   showEditorLoadError,
   showEditorLoading,
+  syncVisualViewportBounds,
   syncToolbarOverflowVisibility,
   syncWrapToggle,
   toggleToolbarOverflowMenu,

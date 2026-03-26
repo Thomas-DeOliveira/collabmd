@@ -242,6 +242,14 @@ export function appShellTemplate() {
                 <span class="ui-toolbar-button-label">Share</span>
               </button>
 
+              <button class=${buttonClassNames({ variant: 'ghost', toolbar: true, extra: 'toolbar-search-files-btn' })} id="searchFilesBtn" aria-label="Search files" title="Search files">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <span class="ui-toolbar-button-label">Search files</span>
+              </button>
+
               <details class="toolbar-overflow-group hidden" id="exportMenuGroup">
                 <summary class=${buttonClassNames({ variant: 'ghost', toolbar: true, extra: 'toolbar-overflow-group-toggle' })} aria-label="Export options" title="Export">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -327,6 +335,13 @@ export function appShellTemplate() {
                   <span class="pane-label-meta" id="lineInfo">Ln 1, Col 1</span>
                 </div>
                 <div class="pane-header-actions">
+                  <button class=${buttonClassNames({ variant: 'ghost', size: 'compact', toggle: true, extra: 'mobile-editor-find-btn' })} id="editorFindBtn" aria-label="Find in file" title="Find in file">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                      <circle cx="11" cy="11" r="7"></circle>
+                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    <span class="ui-action-label">Find</span>
+                  </button>
                   <button class=${buttonClassNames({ variant: 'ghost', size: 'compact', toggle: true, extra: 'hidden' })} id="commentSelectionBtn" aria-label="Comment current line or selection" title="Comment current line or selection">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>

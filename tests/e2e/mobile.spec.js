@@ -5,6 +5,7 @@ import {
   openFile,
   openHome,
   replaceEditorContent,
+  setEditorSelection,
   test,
   waitForEditor,
   waitForPreview,
@@ -42,6 +43,92 @@ async function longPress(locator, {
     pointerId,
     pointerType: 'touch',
   });
+}
+
+async function readEditorText(page) {
+  return page.evaluate(() => {
+    const findView = (root) => {
+      const seen = new Set();
+      const queue = [root];
+
+      while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current || typeof current !== 'object' || seen.has(current)) {
+          continue;
+        }
+        seen.add(current);
+
+        if (current.state?.doc && typeof current.dispatch === 'function') {
+          return current;
+        }
+
+        for (const key of Object.getOwnPropertyNames(current)) {
+          try {
+            const value = current[key];
+            if (!value || typeof value !== 'object' || seen.has(value)) {
+              continue;
+            }
+            queue.push(value);
+          } catch {
+            // Ignore inaccessible DOM properties while probing for the editor view.
+          }
+        }
+      }
+
+      return null;
+    };
+
+    const view = findView(document.querySelector('.cm-editor')) || findView(document.querySelector('.cm-content'));
+    if (!view) {
+      throw new Error('Missing CodeMirror editor view');
+    }
+
+    return view.state.doc.toString();
+  });
+}
+
+async function getLineIndent(page, targetText) {
+  return page.evaluate((target) => {
+    const findView = (root) => {
+      const seen = new Set();
+      const queue = [root];
+
+      while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current || typeof current !== 'object' || seen.has(current)) {
+          continue;
+        }
+        seen.add(current);
+
+        if (current.state?.doc && typeof current.dispatch === 'function') {
+          return current;
+        }
+
+        for (const key of Object.getOwnPropertyNames(current)) {
+          try {
+            const value = current[key];
+            if (!value || typeof value !== 'object' || seen.has(value)) {
+              continue;
+            }
+            queue.push(value);
+          } catch {
+            // Ignore inaccessible DOM properties while probing for the editor view.
+          }
+        }
+      }
+
+      return null;
+    };
+
+    const view = findView(document.querySelector('.cm-editor')) || findView(document.querySelector('.cm-content'));
+    if (!view) {
+      throw new Error('Missing CodeMirror editor view');
+    }
+
+    const source = view.state.doc.toString();
+    const targetLine = source.split('\n').find((line) => line.trimStart() === target);
+    return targetLine ? targetLine.length - targetLine.trimStart().length : -1;
+  }, targetText);
 }
 
 test.describe('mobile outline', () => {
@@ -86,6 +173,99 @@ test.describe('mobile editor typography', () => {
     await expect.poll(async () => (
       page.locator('.editor-container .cm-editor').evaluate((element) => getComputedStyle(element).fontSize)
     )).toBe('16px');
+  });
+});
+
+test.describe('mobile editor commands', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+  });
+
+  test('surfaces undo and redo as mobile toolbar actions', async ({ page }) => {
+    await openFile(page, 'README.md', { waitFor: 'preview' });
+    await page.locator('#mobileViewToggle').click();
+    await waitForEditor(page);
+
+    await expect(page.locator('[data-editor-command="undo"]').first()).toBeVisible();
+    await expect(page.locator('[data-editor-command="redo"]').first()).toBeVisible();
+
+    await replaceEditorContent(page, '# Mobile Undo\n\nChanged from mobile.\n');
+    await expect.poll(async () => readEditorText(page)).toContain('Changed from mobile.');
+
+    await page.locator('[data-editor-command="undo"]').first().click();
+    await expect.poll(async () => readEditorText(page)).toContain('# My Vault');
+
+    await page.locator('[data-editor-command="redo"]').first().click();
+    await expect.poll(async () => readEditorText(page)).toContain('# Mobile Undo');
+  });
+
+  test('indents and outdents the current line from mobile toolbar actions', async ({ page }) => {
+    await openFile(page, 'README.md', { waitFor: 'preview' });
+    await page.locator('#mobileViewToggle').click();
+    await waitForEditor(page);
+
+    await replaceEditorContent(page, '- parent\n- child\n');
+    await setEditorSelection(page, '- child', { collapse: true });
+
+    await page.locator('[data-editor-command="indentMore"]').first().click();
+    await expect.poll(async () => getLineIndent(page, '- child')).toBeGreaterThan(0);
+    await expect.poll(async () => getLineIndent(page, '- parent')).toBe(0);
+
+    await page.locator('[data-editor-command="indentLess"]').first().click();
+    await expect.poll(async () => getLineIndent(page, '- child')).toBe(0);
+  });
+
+  test('indents and outdents a selected list range from mobile toolbar actions', async ({ page }) => {
+    await openFile(page, 'README.md', { waitFor: 'preview' });
+    await page.locator('#mobileViewToggle').click();
+    await waitForEditor(page);
+
+    await replaceEditorContent(page, '- alpha\n- beta\n');
+    await setEditorSelection(page, '- alpha\n- beta');
+
+    await page.locator('[data-editor-command="indentMore"]').first().click();
+    await expect.poll(async () => getLineIndent(page, '- alpha')).toBeGreaterThan(0);
+    await expect.poll(async () => getLineIndent(page, '- beta')).toBeGreaterThan(0);
+
+    await page.locator('[data-editor-command="indentLess"]').first().click();
+    await expect.poll(async () => getLineIndent(page, '- alpha')).toBe(0);
+    await expect.poll(async () => getLineIndent(page, '- beta')).toBe(0);
+  });
+
+  test('opens find in file from the mobile editor header', async ({ page }) => {
+    await openFile(page, 'README.md', { waitFor: 'preview' });
+    await page.locator('#mobileViewToggle').click();
+    await waitForEditor(page);
+
+    await expect(page.locator('#editorFindBtn')).toBeVisible();
+    await page.locator('#editorFindBtn').click();
+
+    await expect(page.locator('.cm-search')).toBeVisible();
+    await expect(page.locator('.cm-search .cm-textfield').first()).toBeVisible();
+    await expect.poll(async () => (
+      page.evaluate(() => document.activeElement?.classList?.contains('cm-textfield') ?? false)
+    )).toBe(true);
+  });
+
+  test('keeps the markdown toolbar pinned while the mobile editor scrolls', async ({ page }) => {
+    await openFile(page, 'README.md', { waitFor: 'preview' });
+    await page.locator('#mobileViewToggle').click();
+    await waitForEditor(page);
+
+    await replaceEditorContent(page, Array.from(
+      { length: 80 },
+      (_, index) => `Line ${index + 1}: ${'mobile toolbar sticky '.repeat(6)}`,
+    ).join('\n\n'));
+
+    const initialTop = await page.locator('#markdownToolbar').evaluate((element) => element.getBoundingClientRect().top);
+
+    await page.locator('.editor-container .cm-scroller').evaluate((element) => {
+      element.scrollTop = 1200;
+    });
+
+    await expect.poll(async () => (
+      page.locator('#markdownToolbar').evaluate((element) => Math.round(element.getBoundingClientRect().top))
+    )).toBe(Math.round(initialTop));
   });
 });
 
@@ -401,6 +581,7 @@ test.describe('mobile comments and header chrome', () => {
 
     await page.locator('#toolbarOverflowToggle').click();
 
+    await expect(page.locator('#searchFilesBtn')).toBeVisible();
     await expect(page.locator('#editNameBtn')).toBeVisible();
     await expect(page.locator('#shareBtn')).toBeVisible();
     await expect(page.locator('#exportMenuGroup')).toBeVisible();
@@ -413,5 +594,17 @@ test.describe('mobile comments and header chrome', () => {
     const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
     await themeButton.click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', nextTheme);
+  });
+
+  test('opens quick switcher from the mobile overflow search files action', async ({ page }) => {
+    await openFile(page, 'README.md', { waitFor: 'preview' });
+
+    await page.locator('#toolbarOverflowToggle').click();
+    await expect(page.locator('#searchFilesBtn')).toBeVisible();
+
+    await page.locator('#searchFilesBtn').click();
+
+    await expect(page.locator('#quickSwitcher')).toHaveClass(/visible/);
+    await expect(page.locator('#quickSwitcherInput')).toBeVisible();
   });
 });

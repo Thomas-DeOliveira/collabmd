@@ -92,6 +92,7 @@ export class WorkspacePreviewController {
     const isPlantUml = this.isPlantUmlFile(filePath);
     const isDiagramFile = isDiagramFilePath(filePath);
 
+    this.elements.editorFindButton?.classList.toggle('hidden', !isMarkdown);
     this.elements.markdownToolbar?.classList.toggle('hidden', !isMarkdown);
     this.elements.exportMenuGroup?.classList.toggle('hidden', !isMarkdown);
     this.elements.outlineToggle?.classList.toggle('hidden', isDiagramFile || isImage);

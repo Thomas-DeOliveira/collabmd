@@ -59,6 +59,34 @@ const ICONS = Object.freeze({
       <path d="M9 16h6"/>
     </svg>
   `,
+  indent: `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 6h16"/>
+      <path d="M10 12h10"/>
+      <path d="M10 18h10"/>
+      <path d="m4 9 4 3-4 3"/>
+    </svg>
+  `,
+  outdent: `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 6h16"/>
+      <path d="M10 12h10"/>
+      <path d="M10 18h10"/>
+      <path d="m8 9-4 3 4 3"/>
+    </svg>
+  `,
+  redo: `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 7v6h-6"/>
+      <path d="M20 13a8 8 0 0 0-14-3"/>
+    </svg>
+  `,
+  undo: `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M3 7v6h6"/>
+      <path d="M4 13a8 8 0 0 1 14-3"/>
+    </svg>
+  `,
   chevronDown: `
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="m6 9 6 6 6-6"/>
@@ -148,6 +176,13 @@ const INLINE_ACTIONS = Object.freeze([
   { action: 'code', label: 'Inline code', title: 'Inline code', icon: ICONS.code },
 ]);
 
+const MOBILE_EDIT_COMMANDS = Object.freeze([
+  { commandId: 'undo', label: 'Undo', title: 'Undo', icon: ICONS.undo },
+  { commandId: 'redo', label: 'Redo', title: 'Redo', icon: ICONS.redo },
+  { commandId: 'indentMore', label: 'Indent', title: 'Indent', icon: ICONS.indent },
+  { commandId: 'indentLess', label: 'Outdent', title: 'Outdent', icon: ICONS.outdent },
+]);
+
 const MEDIA_ACTIONS = Object.freeze([
   { action: 'link', label: 'Insert link', title: 'Insert link', icon: ICONS.link },
   { action: 'image', label: 'Insert image', title: 'Insert image', icon: ICONS.image },
@@ -160,6 +195,7 @@ const INSERT_ACTIONS = Object.freeze([
 ]);
 
 export const markdownToolbarLayout = Object.freeze([
+  { kind: 'buttons', groupLabel: 'Edit', actions: MOBILE_EDIT_COMMANDS, mobileOnly: true },
   { kind: 'block-menu', actions: BLOCK_MENU_ACTIONS },
   { kind: 'buttons', groupLabel: 'Inline formatting', actions: INLINE_ACTIONS },
   { kind: 'buttons', groupLabel: 'Media and links', actions: MEDIA_ACTIONS },

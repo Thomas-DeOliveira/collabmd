@@ -258,6 +258,10 @@ export class EditorSession {
     this.viewAdapter.requestMeasure();
   }
 
+  runEditorCommand(commandId) {
+    return this.viewAdapter.runEditorCommand(commandId);
+  }
+
   applyMarkdownToolbarAction(action) {
     return this.viewAdapter.applyMarkdownToolbarAction(action);
   }

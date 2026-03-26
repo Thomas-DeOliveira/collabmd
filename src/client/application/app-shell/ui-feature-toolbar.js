@@ -29,7 +29,9 @@ function normalizeToolbarAction(action) {
 
 function renderToolbarButtons(actions) {
   return actions.map((item) => (
-    `<button type="button" class="ui-icon-button ui-icon-button--toolbar ui-toolbar-action" data-markdown-action="${escapeHtml(item.action)}" aria-label="${escapeHtml(item.label)}" title="${escapeHtml(item.title)}">${item.icon}</button>`
+    `<button type="button" class="ui-icon-button ui-icon-button--toolbar ui-toolbar-action" ${item.commandId
+      ? `data-editor-command="${escapeHtml(item.commandId)}"`
+      : `data-markdown-action="${escapeHtml(item.action)}"`} aria-label="${escapeHtml(item.label)}" title="${escapeHtml(item.title)}">${item.icon}</button>`
   )).join('');
 }
 
@@ -80,7 +82,7 @@ function renderMarkdownToolbarMarkup(activeAction) {
     }
 
     return `
-      <div class="markdown-toolbar-group" role="group" aria-label="${escapeHtml(group.groupLabel)}">
+      <div class="markdown-toolbar-group${group.mobileOnly ? ' markdown-toolbar-group--mobile-only' : ''}" role="group" aria-label="${escapeHtml(group.groupLabel)}">
         ${renderToolbarButtons(group.actions)}
       </div>
     `;
@@ -95,7 +97,7 @@ function renderMarkdownToolbarMarkup(activeAction) {
  * @property {{ refresh(): Promise<void> }} fileExplorer
  * @property {{ show(message: string): void }} toastController
  * @property {{ uploadImageAttachment(payload: { file: File, fileName: string, sourcePath: string }): Promise<{ markdown?: string, path?: string }>} } vaultApiClient
- * @property {{ applyMarkdownToolbarAction(action: string): boolean, insertText(text: string): void } | null} session
+ * @property {{ applyMarkdownToolbarAction(action: string): boolean, insertText(text: string): void, runEditorCommand?(commandId: string): boolean } | null} session
  * @property {() => Promise<File | null>} pickImageFile
  * @property {(file: File) => Promise<boolean>} handleEditorImageInsert
  * @property {() => Promise<void>} handleToolbarImageInsert
@@ -273,6 +275,14 @@ function handleMarkdownToolbarClick(event) {
     return;
   }
 
+  const editorCommandButton = target.closest('[data-editor-command]');
+  const editorCommandId = editorCommandButton?.getAttribute('data-editor-command');
+  if (editorCommandId) {
+    event.preventDefault();
+    this.runEditorCommand(editorCommandId);
+    return;
+  }
+
   const blockMenuToggle = target.closest('[data-markdown-block-menu-toggle]');
   if (blockMenuToggle) {
     event.preventDefault();
@@ -377,6 +387,17 @@ function applyMarkdownToolbarAction(action) {
   if (isMarkdownBlockAction(normalizedAction)) {
     this.setActiveMarkdownBlockAction(normalizedAction);
   }
+}
+
+/** @this {UiToolbarContext} */
+function runEditorCommand(commandId) {
+  const ran = this.session?.runEditorCommand?.(commandId);
+  if (!ran) {
+    this.toastController.show('Editor action is unavailable');
+    return false;
+  }
+
+  return true;
 }
 
 /** @this {UiToolbarContext} */
@@ -514,6 +535,7 @@ export const uiFeatureToolbarMethods = {
   renderMarkdownBlockMenuPopover,
   pickImageFile,
   renderMarkdownToolbar,
+  runEditorCommand,
   setActiveMarkdownBlockAction,
   syncMarkdownToolbarBlockUi,
   toggleMarkdownBlockMenu,

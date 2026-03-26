@@ -107,6 +107,9 @@ test('keeps desktop secondary actions behind the toolbar overflow menu', async (
 
   await expect(page.locator('#toolbarOverflowToggle')).toBeVisible();
   await expect(page.locator('#chatToggleBtn')).toBeVisible();
+  await expect(page.locator('#editorFindBtn')).toBeHidden();
+  await expect(page.locator('#searchFilesBtn')).toBeHidden();
+  await expect(page.locator('[data-editor-command="undo"]').first()).toBeHidden();
   await expect(page.locator('#editNameBtn')).toBeHidden();
   await expect(page.locator('#shareBtn')).toBeHidden();
   await expect(page.locator('#themeToggleBtn')).toBeHidden();

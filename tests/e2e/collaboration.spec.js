@@ -793,6 +793,9 @@ test('renaming in the app updates the mounted Excalidraw iframe user name', asyn
     frame.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getLocalUserName())
   )).toBe('Before Name');
 
+  await expect(page.locator('#toolbarOverflowToggle')).toBeVisible();
+  await page.locator('#toolbarOverflowToggle').click();
+  await expect(page.locator('#editNameBtn')).toBeVisible();
   await page.locator('#editNameBtn').click();
   await expect(page.locator('#displayNameDialog')).toBeVisible();
   await page.locator('#displayNameInput').fill('After Name');

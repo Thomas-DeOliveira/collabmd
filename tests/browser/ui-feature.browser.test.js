@@ -150,6 +150,7 @@ describe('uiFeature browser helpers', () => {
       session: {
         applyMarkdownToolbarAction: vi.fn(() => true),
         insertText: vi.fn(),
+        runEditorCommand: vi.fn(() => true),
       },
       toastController: { show: vi.fn() },
       vaultApiClient: {
@@ -162,9 +163,15 @@ describe('uiFeature browser helpers', () => {
 
     expect(document.querySelector('.markdown-toolbar-popover [data-markdown-block-action="paragraph"]')).not.toBeNull();
     expect(document.querySelector('.markdown-toolbar-popover [data-markdown-block-action="heading-6"]')).not.toBeNull();
+    expect(document.querySelector('[data-editor-command="undo"]')).not.toBeNull();
+    expect(document.querySelector('[data-editor-command="indentMore"]')).not.toBeNull();
 
     context.applyMarkdownToolbarAction('bold');
     expect(context.session.applyMarkdownToolbarAction).toHaveBeenCalledWith('bold');
+
+    const undoButton = context.elements.markdownToolbar.querySelector('[data-editor-command="undo"]');
+    context.handleMarkdownToolbarClick({ preventDefault() {}, target: undoButton });
+    expect(context.session.runEditorCommand).toHaveBeenCalledWith('undo');
 
     const inserted = await context.handleEditorImageInsert(new File(['x'], 'image.png', { type: 'image/png' }));
     expect(inserted).toBe(true);
@@ -230,6 +237,73 @@ describe('uiFeature browser helpers', () => {
     context.closeToolbarOverflowMenu();
     expect(context.toolbarOverflowOpen).toBe(false);
     expect(context.elements.toolbarOverflowToggle.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('opens quick switcher from the mobile overflow search files action', () => {
+    document.body.innerHTML = '<button id="search-files"></button>';
+
+    const context = {
+      elements: {
+        searchFilesButton: document.getElementById('search-files'),
+      },
+      toggleQuickSwitcher: vi.fn(async () => {}),
+    };
+
+    Object.assign(context, uiFeatureShellMethods);
+    context.closeToolbarOverflowMenu = vi.fn();
+    context.bindEvents();
+
+    context.elements.searchFilesButton.click();
+
+    expect(context.toggleQuickSwitcher).toHaveBeenCalledTimes(1);
+    expect(context.closeToolbarOverflowMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens editor search from the mobile find button', () => {
+    document.body.innerHTML = '<button id="editor-find"></button>';
+
+    const context = {
+      elements: {
+        editorFindButton: document.getElementById('editor-find'),
+      },
+      runEditorCommand: vi.fn(),
+      toggleQuickSwitcher: vi.fn(async () => {}),
+    };
+
+    Object.assign(context, uiFeatureShellMethods);
+    context.bindEvents();
+
+    context.elements.editorFindButton.click();
+
+    expect(context.runEditorCommand).toHaveBeenCalledWith('openSearch');
+  });
+
+  it('syncs app shell viewport css vars from visualViewport metrics', () => {
+    const context = {};
+
+    Object.assign(context, uiFeatureShellMethods);
+
+    const originalVisualViewport = window.visualViewport;
+    Object.defineProperty(window, 'visualViewport', {
+      configurable: true,
+      value: {
+        height: 512,
+        offsetTop: 24,
+      },
+    });
+
+    try {
+      context.syncVisualViewportBounds();
+      expect(document.documentElement.style.getPropertyValue('--app-viewport-height')).toBe('512px');
+      expect(document.documentElement.style.getPropertyValue('--app-viewport-offset-top')).toBe('24px');
+    } finally {
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: originalVisualViewport,
+      });
+      document.documentElement.style.removeProperty('--app-viewport-height');
+      document.documentElement.style.removeProperty('--app-viewport-offset-top');
+    }
   });
 
   it('binds global handlers for chat dismissal and keyboard shortcuts', () => {
