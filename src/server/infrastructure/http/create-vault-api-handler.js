@@ -3,6 +3,7 @@ import { createVaultApiCommandHandler } from './create-vault-api-command-handler
 import { createVaultApiQueryHandler } from './create-vault-api-query-handler.js';
 
 export function createVaultApiHandler({
+  baseQueryService = null,
   backlinkIndex,
   docxExporter = null,
   plantUmlRenderer = null,
@@ -11,6 +12,7 @@ export function createVaultApiHandler({
   workspaceMutationCoordinator = null,
 }) {
   const handleVaultApiQuery = createVaultApiQueryHandler({
+    baseQueryService,
     backlinkIndex,
     vaultFileStore,
     workspaceMutationCoordinator,

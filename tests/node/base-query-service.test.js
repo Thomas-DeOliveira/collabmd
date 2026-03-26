@@ -1,0 +1,279 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+import { serializeBaseDefinition, BaseQueryService } from '../../src/server/domain/bases/base-query-service.js';
+import { VaultFileStore } from '../../src/server/infrastructure/persistence/vault-file-store.js';
+
+async function createBaseWorkspace() {
+  const vaultDir = await mkdtemp(join(tmpdir(), 'collabmd-base-test-'));
+  const writeVaultFile = async (relativePath, content) => {
+    await mkdir(join(vaultDir, dirname(relativePath)), { recursive: true });
+    await writeFile(join(vaultDir, relativePath), content, 'utf8');
+  };
+
+  return {
+    cleanup: () => rm(vaultDir, { force: true, recursive: true }),
+    service: new BaseQueryService({
+      vaultFileStore: new VaultFileStore({ vaultDir }),
+    }),
+    vaultDir,
+    writeVaultFile,
+  };
+}
+
+test('BaseQueryService evaluates base filters, formulas, groups, summaries, and csv output', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/task-a.md', [
+    '---',
+    'status: open',
+    'points: 2',
+    '---',
+    '',
+    '# Task A',
+    '',
+    '#task',
+  ].join('\n'));
+  await writeVaultFile('notes/task-b.md', [
+    '---',
+    'status: done',
+    'points: 5',
+    '---',
+    '',
+    '# Task B',
+    '',
+    '#task',
+  ].join('\n'));
+  await writeVaultFile('notes/reference.md', [
+    '---',
+    'status: ignored',
+    'points: 99',
+    '---',
+    '',
+    '# Reference',
+  ].join('\n'));
+  await writeVaultFile('views/tasks.base', [
+    'filters: file.ext == "md" && file.hasTag("task")',
+    'properties:',
+    '  note.status: {}',
+    '  note.points: {}',
+    '  formula.bucket:',
+    '    displayName: Bucket',
+    '    formula: if(note.status == "done", "Closed", "Open")',
+    'views:',
+    '  - type: table',
+    '    name: Board',
+    '    groupBy: formula.bucket',
+    '    order: [file.name, note.status, formula.bucket, note.points]',
+    '    sort:',
+    '      - property: note.points',
+    '        direction: desc',
+    '    summaries:',
+    '      note.points:',
+    '        - type: sum',
+    '        - type: custom',
+    '          name: Double sum',
+    '          formula: values.reduce(acc + value, 0) * 2',
+  ].join('\n'));
+
+  const result = await service.query({
+    basePath: 'views/tasks.base',
+    view: 'Board',
+  });
+
+  assert.equal(result.totalRows, 2);
+  assert.deepEqual(result.columns.map((column) => column.id), [
+    'file.name',
+    'note.status',
+    'formula.bucket',
+    'note.points',
+  ]);
+  assert.deepEqual(result.rows.map((row) => row.path), ['notes/task-b.md', 'notes/task-a.md']);
+  assert.equal(result.rows[0].cells['formula.bucket'].value, 'Closed');
+  assert.equal(result.rows[1].cells['formula.bucket'].value, 'Open');
+  assert.deepEqual(result.groups.map((group) => group.label), ['Closed', 'Open']);
+  assert.deepEqual(
+    result.summaries.map((summary) => [summary.label, summary.value.value]),
+    [['Sum', 7], ['Double sum', 14]],
+  );
+  assert.match(result.csv, /^name,status,Bucket,points\n/);
+  assert.match(result.csv, /task-b\.md,done,Closed,5/);
+  assert.equal(result.view.name, 'Board');
+  assert.equal(result.view.supported, true);
+});
+
+test('BaseQueryService resolves this from the embedding source file and preserves unsupported views', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/daily.md', [
+    '---',
+    'team: red',
+    '---',
+    '',
+    '# Daily',
+  ].join('\n'));
+  await writeVaultFile('notes/red.md', [
+    '---',
+    'team: red',
+    '---',
+    '',
+    '# Red',
+  ].join('\n'));
+  await writeVaultFile('notes/blue.md', [
+    '---',
+    'team: blue',
+    '---',
+    '',
+    '# Blue',
+  ].join('\n'));
+
+  const source = [
+    'filters: file.ext == "md" && note.team == this.properties.team',
+    'properties:',
+    '  note.team: {}',
+    'views:',
+    '  - type: list',
+    '    name: Team',
+    '    order: [file.name, note.team]',
+    '  - type: map',
+    '    name: Places',
+    '    lat: note.lat',
+    '    lng: note.lng',
+    '  - type: kanban-plugin',
+    '    name: Plugin Board',
+    '    pluginConfig:',
+    '      color: ocean',
+  ].join('\n');
+
+  const result = await service.query({
+    source,
+    sourcePath: 'notes/daily.md',
+    view: 'Team',
+  });
+
+  assert.equal(result.totalRows, 2);
+  assert.deepEqual(result.rows.map((row) => row.path), ['notes/daily.md', 'notes/red.md']);
+  assert.equal(result.thisFile.path, 'notes/daily.md');
+  assert.deepEqual(
+    result.views.map((view) => [view.name, view.type, view.supported]),
+    [
+      ['Team', 'list', true],
+      ['Places', 'map', false],
+      ['Plugin Board', 'kanban-plugin', false],
+    ],
+  );
+
+  const serialized = serializeBaseDefinition(result.definition);
+  assert.match(serialized, /type: map/);
+  assert.match(serialized, /type: kanban-plugin/);
+  assert.match(serialized, /color: ocean/);
+});
+
+test('BaseQueryService resolves this to the base file when querying a standalone .base file', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('projects/red/task.md', '# Task\n');
+  await writeVaultFile('projects/red/notes.md', '# Notes\n');
+  await writeVaultFile('projects/blue/task.md', '# Wrong folder\n');
+  await writeVaultFile('projects/red/board.base', [
+    'filters: file.ext == "md" && file.inFolder(this.folder)',
+    'views:',
+    '  - type: table',
+    '    order: [file.path]',
+  ].join('\n'));
+
+  const result = await service.query({
+    basePath: 'projects/red/board.base',
+  });
+
+  assert.equal(result.thisFile.path, 'projects/red/board.base');
+  assert.deepEqual(result.rows.map((row) => row.path), [
+    'projects/red/notes.md',
+    'projects/red/task.md',
+  ]);
+});
+
+test('BaseQueryService supports grouping and summaries for properties omitted from visible columns', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/a.md', [
+    '---',
+    'status: open',
+    'points: 1',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('notes/b.md', [
+    '---',
+    'status: done',
+    'points: 3',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('views/hidden.base', [
+    'filters: file.ext == "md"',
+    'properties:',
+    '  note.status: {}',
+    '  note.points: {}',
+    'views:',
+    '  - type: table',
+    '    name: Hidden refs',
+    '    order: [file.name]',
+    '    groupBy: note.status',
+    '    summaries:',
+    '      note.points:',
+    '        - type: sum',
+  ].join('\n'));
+
+  const result = await service.query({
+    basePath: 'views/hidden.base',
+    view: 'Hidden refs',
+  });
+
+  assert.deepEqual(result.columns.map((column) => column.id), ['file.name']);
+  assert.deepEqual(
+    result.groups.map((group) => [group.label, group.rows.map((row) => row.path)]),
+    [
+      ['open', ['notes/a.md']],
+      ['done', ['notes/b.md']],
+    ],
+  );
+  assert.deepEqual(
+    result.groups.map((group) => group.summaries[0]?.value?.value),
+    [1, 3],
+  );
+});
+
+test('BaseQueryService resolves relative image paths against the source note', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/gallery.md', [
+    '---',
+    'cover: images/cover.png',
+    '---',
+    '',
+    '# Gallery',
+  ].join('\n'));
+  await writeVaultFile('notes/images/cover.png', 'png-bytes');
+  await writeVaultFile('views/gallery.base', [
+    'filters: file.ext == "md"',
+    'properties:',
+    '  note.cover: {}',
+    'views:',
+    '  - type: table',
+    '    order: [note.cover]',
+  ].join('\n'));
+
+  const result = await service.query({
+    basePath: 'views/gallery.base',
+  });
+
+  assert.equal(result.rows[0].cells['note.cover'].type, 'image');
+  assert.equal(result.rows[0].cells['note.cover'].path, 'notes/images/cover.png');
+});

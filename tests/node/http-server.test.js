@@ -193,6 +193,74 @@ test('HTTP server compresses large JSON API responses without changing payloads'
   assert.equal(payload.content, largeContent);
 });
 
+test('HTTP server queries and exports Obsidian base results', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  await writeFile(join(app.vaultDir, 'notes.md'), [
+    '---',
+    'status: open',
+    'points: 3',
+    '---',
+    '',
+    '# Note',
+    '',
+    '#task',
+  ].join('\n'), 'utf8');
+  await writeFile(join(app.vaultDir, 'done.md'), [
+    '---',
+    'status: done',
+    'points: 5',
+    '---',
+    '',
+    '# Done',
+    '',
+    '#task',
+  ].join('\n'), 'utf8');
+  await writeFile(join(app.vaultDir, 'tasks.base'), [
+    'filters: file.ext == "md" && file.hasTag("task")',
+    'properties:',
+    '  note.status: {}',
+    '  note.points: {}',
+    'views:',
+    '  - type: table',
+    '    name: Board',
+    '    order: [file.name, note.status, note.points]',
+    '    sort:',
+    '      - property: note.points',
+    '        direction: desc',
+  ].join('\n'), 'utf8');
+
+  const queryResponse = await httpRequest(`${app.baseUrl}/api/base/query`, {
+    body: JSON.stringify({ path: 'tasks.base', view: 'Board' }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+
+  assert.equal(queryResponse.statusCode, 200);
+  const queryPayload = JSON.parse(queryResponse.body);
+  assert.equal(queryPayload.ok, true);
+  assert.equal(queryPayload.result.totalRows, 2);
+  assert.deepEqual(queryPayload.result.rows.map((row) => row.path), ['done.md', 'notes.md']);
+  assert.equal(queryPayload.result.view.name, 'Board');
+
+  const exportResponse = await httpRequest(`${app.baseUrl}/api/base/export`, {
+    body: JSON.stringify({ path: 'tasks.base', view: 'Board' }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+
+  assert.equal(exportResponse.statusCode, 200);
+  assert.equal(exportResponse.headers['content-type'], 'text/csv; charset=utf-8');
+  assert.match(String(exportResponse.headers['content-disposition']), /filename="tasks\.csv"/);
+  assert.match(exportResponse.body, /^name,status,points\n/);
+  assert.match(exportResponse.body, /done\.md,done,5/);
+});
+
 test('HTTP server serves /api/files from the cached workspace tree', async (t) => {
   const app = await startTestServer();
   t.after(() => app.close());

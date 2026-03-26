@@ -36,6 +36,60 @@ export class VaultApiClient {
     return parseApiResponse(response, 'Failed to read file');
   }
 
+  async queryBase({
+    activeFilePath = '',
+    path = '',
+    search = '',
+    source = null,
+    sourcePath = '',
+    view = '',
+  } = {}) {
+    const response = await fetch(resolveApiUrl('/base/query'), {
+      body: JSON.stringify({
+        activeFilePath,
+        path,
+        search,
+        source,
+        sourcePath,
+        view,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    return parseApiResponse(response, 'Failed to query base');
+  }
+
+  async exportBaseCsv({
+    activeFilePath = '',
+    path = '',
+    search = '',
+    source = null,
+    sourcePath = '',
+    view = '',
+  } = {}) {
+    const response = await fetch(resolveApiUrl('/base/export'), {
+      body: JSON.stringify({
+        activeFilePath,
+        path,
+        search,
+        source,
+        sourcePath,
+        view,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || 'Failed to export base CSV');
+    }
+
+    return {
+      blob: await response.blob(),
+      contentDisposition: response.headers.get('content-disposition') || '',
+    };
+  }
+
   async createFile({ content, path, requestId = null }) {
     const response = await fetch(resolveApiUrl('/file'), {
       body: JSON.stringify({ content, path }),

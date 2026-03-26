@@ -1,12 +1,14 @@
 import { basename } from 'node:path';
 
 import {
+  isBaseFilePath,
   isDrawioFilePath,
   isExcalidrawFilePath,
   isImageAttachmentFilePath,
   isMermaidFilePath,
   isPlantUmlFilePath,
 } from '../../../domain/file-kind.js';
+import { parseJsonBody } from './request-body.js';
 import { jsonResponse, sendResponse } from './http-response.js';
 
 const SVG_MIME_TYPE = 'image/svg+xml';
@@ -46,6 +48,10 @@ function selectReadOperation(vaultFileStore, filePath) {
     return vaultFileStore.readExcalidrawFile(filePath);
   }
 
+  if (isBaseFilePath(filePath)) {
+    return vaultFileStore.readBaseFile(filePath);
+  }
+
   if (isDrawioFilePath(filePath)) {
     return vaultFileStore.readDrawioFile(filePath);
   }
@@ -62,11 +68,71 @@ function selectReadOperation(vaultFileStore, filePath) {
 }
 
 export function createVaultApiQueryHandler({
+  baseQueryService = null,
   backlinkIndex,
   vaultFileStore,
   workspaceMutationCoordinator = null,
 }) {
   return async function handleVaultApiQuery(req, res, requestUrl) {
+    if (requestUrl.pathname === '/api/base/query' && req.method === 'POST') {
+      try {
+        if (!baseQueryService?.query) {
+          jsonResponse(req, res, 503, { error: 'Bases query service is unavailable' });
+          return true;
+        }
+
+        const body = await parseJsonBody(req);
+        const result = await baseQueryService.query({
+          activeFilePath: body?.activeFilePath ?? '',
+          basePath: body?.path ?? '',
+          search: body?.search ?? '',
+          source: typeof body?.source === 'string' ? body.source : null,
+          sourcePath: body?.sourcePath ?? '',
+          view: body?.view ?? '',
+        });
+
+        jsonResponse(req, res, 200, { ok: true, result });
+      } catch (error) {
+        console.error('[api] Failed to query base:', error.message);
+        jsonResponse(req, res, 400, { error: error.message || 'Failed to query base' });
+      }
+      return true;
+    }
+
+    if (requestUrl.pathname === '/api/base/export' && req.method === 'POST') {
+      try {
+        if (!baseQueryService?.query) {
+          jsonResponse(req, res, 503, { error: 'Bases query service is unavailable' });
+          return true;
+        }
+
+        const body = await parseJsonBody(req);
+        const result = await baseQueryService.query({
+          activeFilePath: body?.activeFilePath ?? '',
+          basePath: body?.path ?? '',
+          search: body?.search ?? '',
+          source: typeof body?.source === 'string' ? body.source : null,
+          sourcePath: body?.sourcePath ?? '',
+          view: body?.view ?? '',
+        });
+        const fileName = basename(String(body?.path || body?.sourcePath || 'base')).replace(/\.[^.]+$/u, '') || 'base';
+        sendResponse(req, res, {
+          body: result.csv,
+          headers: {
+            'Cache-Control': 'no-store',
+            'Content-Disposition': `attachment; filename="${createSafeAsciiFilename(`${fileName}.csv`)}"; filename*=UTF-8''${encodeContentDispositionFilename(`${fileName}.csv`)}`,
+            'Content-Type': 'text/csv; charset=utf-8',
+            'X-Content-Type-Options': 'nosniff',
+          },
+          statusCode: 200,
+        });
+      } catch (error) {
+        console.error('[api] Failed to export base CSV:', error.message);
+        jsonResponse(req, res, 400, { error: error.message || 'Failed to export base CSV' });
+      }
+      return true;
+    }
+
     if (requestUrl.pathname === '/api/files' && req.method === 'GET') {
       try {
         const tree = workspaceMutationCoordinator?.getWorkspaceTree?.() ?? await vaultFileStore.tree();
