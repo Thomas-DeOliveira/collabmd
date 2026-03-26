@@ -7,7 +7,7 @@ import { isImageAttachmentFilePath, stripVaultFileExtension } from '../../../dom
 import { extractYamlFrontmatter } from '../../../domain/yaml-frontmatter.js';
 import { mapWithConcurrency } from '../../shared/async-utils.js';
 
-const INTERNAL_LINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
+const INTERNAL_LINK_RE = /(!)?\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
 const INLINE_TAG_RE = /(^|[\s(])#([A-Za-z0-9/_-]+)/g;
 const SUPPORTED_VIEW_TYPES = new Set(['cards', 'list', 'table']);
 const INDEX_READ_CONCURRENCY = 8;
@@ -91,22 +91,42 @@ function extractInlineTags(markdownText = '') {
   return [...tags];
 }
 
-function extractLinks(markdownText = '', wikiTargetIndex) {
+function extractReferences(markdownText = '', wikiTargetIndex) {
   const links = [];
+  const embeds = [];
   let match;
   while ((match = INTERNAL_LINK_RE.exec(String(markdownText ?? ''))) !== null) {
-    const rawTarget = String(match[1] ?? '').trim();
+    const isEmbed = Boolean(match[1]);
+    const rawTarget = String(match[2] ?? '').trim();
     if (!rawTarget) {
       continue;
     }
 
     const resolvedPath = resolveWikiTargetWithIndex(rawTarget, wikiTargetIndex);
-    links.push(createLinkValue(resolvedPath || rawTarget, {
+    const linkValue = createLinkValue(resolvedPath || rawTarget, {
       exists: Boolean(resolvedPath),
       rawTarget,
-    }));
+    });
+    links.push(linkValue);
+    if (isEmbed) {
+      embeds.push(linkValue);
+    }
   }
-  return links;
+  return { embeds, links };
+}
+
+function dedupeLinkValues(values = []) {
+  const seen = new Set();
+  return values.filter((value) => {
+    const key = value?.external
+      ? `external:${value.url || value.rawTarget || value.display || ''}`
+      : `path:${value.path || value.rawTarget || value.display || ''}`;
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 function createLinkValue(target, {
@@ -1599,6 +1619,7 @@ export class BaseQueryService {
       const frontmatter = markdownContent ? extractYamlFrontmatter(markdownContent) : null;
       const noteProperties = isPlainObject(frontmatter?.data) ? frontmatter.data : {};
       const bodyMarkdown = frontmatter?.bodyMarkdown ?? markdownContent ?? '';
+      const references = extractReferences(bodyMarkdown, wikiTargetIndex);
       const tags = [...new Set([
         ...normalizeTags(noteProperties.tags),
         ...extractInlineTags(bodyMarkdown),
@@ -1606,10 +1627,12 @@ export class BaseQueryService {
       const fileValue = {
         __baseType: 'file',
         basename: stripVaultFileExtension(basename(filePath)),
+        backlinks: [],
         ctime: Number.isFinite(metadata?.ctimeMs) ? new Date(metadata.ctimeMs) : null,
+        embeds: references.embeds,
         ext: extname(filePath).replace(/^\./u, ''),
         folder: dirname(filePath) === '.' ? '' : dirname(filePath).replace(/\\/g, '/'),
-        links: extractLinks(bodyMarkdown, wikiTargetIndex),
+        links: references.links,
         mtime: Number.isFinite(metadata?.mtimeMs) ? new Date(metadata.mtimeMs) : null,
         name: basename(filePath),
         path: filePath,
@@ -1622,6 +1645,23 @@ export class BaseQueryService {
         noteProperties,
         path: filePath,
       });
+    });
+
+    const backlinksByTarget = new Map(fileEntries.map((filePath) => [filePath, []]));
+    rowsByPath.forEach((row) => {
+      row.file.links.forEach((link) => {
+        if (!link?.path || !backlinksByTarget.has(link.path) || link.path === row.file.path) {
+          return;
+        }
+
+        backlinksByTarget.get(link.path).push(createLinkValue(row.file.path, {
+          display: basename(row.file.path),
+          exists: true,
+        }));
+      });
+    });
+    rowsByPath.forEach((row, filePath) => {
+      row.file.backlinks = dedupeLinkValues(backlinksByTarget.get(filePath) ?? []);
     });
 
     return {

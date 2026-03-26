@@ -305,3 +305,47 @@ test('BaseQueryService compares file dates against quoted date strings in filter
     'views/recent.base',
   ]);
 });
+
+test('BaseQueryService exposes file embeds and backlinks', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/source.md', [
+    '# Source',
+    '',
+    '[[notes/target.md|Target]]',
+    '',
+    '![[assets/cover.png]]',
+  ].join('\n'));
+  await writeVaultFile('notes/target.md', '# Target\n');
+  await writeVaultFile('assets/cover.png', 'png-bytes');
+  await writeVaultFile('views/references.base', [
+    'views:',
+    '  - type: table',
+    '    name: References',
+    '    filters:',
+    '      and:',
+    '        - file.name == "source.md" || file.name == "target.md"',
+    '    order:',
+    '      - file.name',
+      '      - file.embeds',
+      '      - file.backlinks',
+  ].join('\n'));
+
+  const result = await service.query({
+    basePath: 'views/references.base',
+    view: 'References',
+  });
+
+  const sourceRow = result.rows.find((row) => row.path === 'notes/source.md');
+  const targetRow = result.rows.find((row) => row.path === 'notes/target.md');
+
+  assert.deepEqual(
+    sourceRow.cells['file.embeds'].items.map((item) => item.path),
+    ['assets/cover.png'],
+  );
+  assert.deepEqual(
+    targetRow.cells['file.backlinks'].items.map((item) => item.path),
+    ['notes/source.md'],
+  );
+});
