@@ -157,3 +157,69 @@ test('BasesPreviewController renders typed image cells through the attachment en
     globalThis.window = originalWindow;
   }
 });
+
+test('BasesPreviewController renders file name cells as open-file buttons', async () => {
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return {
+          result: {
+            columns: [{ id: 'file.name', label: 'Name' }],
+            groups: [{
+              key: 'All',
+              label: 'All',
+              rows: [{
+                cells: {
+                  'file.name': {
+                    text: 'alpha.md',
+                    type: 'string',
+                    value: 'alpha.md',
+                  },
+                },
+                path: 'notes/alpha.md',
+              }],
+              summaries: [],
+              value: { text: '', type: 'empty', value: null },
+            }],
+            rows: [],
+            summaries: [],
+            totalRows: 1,
+            view: {
+              id: 'view-0',
+              name: 'Table',
+              supported: true,
+              type: 'table',
+            },
+            views: [{
+              id: 'view-0',
+              name: 'Table',
+              supported: true,
+              type: 'table',
+            }],
+          },
+        };
+      },
+    },
+  });
+  const placeholder = createPlaceholder();
+  const entry = {
+    key: 'filename-entry',
+    payload: {
+      path: 'views/files.base',
+      search: '',
+      source: null,
+      sourcePath: '',
+      view: '',
+    },
+    placeholder,
+    requestVersion: 0,
+    result: null,
+    search: '',
+  };
+
+  await controller.renderEntry(entry);
+
+  assert.match(placeholder.innerHTML, /data-base-open-file="notes\/alpha\.md"/);
+  assert.match(placeholder.innerHTML, /bases-link-button/);
+  assert.match(placeholder.innerHTML, />alpha\.md</);
+});

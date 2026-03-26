@@ -84,6 +84,20 @@ function renderValue(cell = {}) {
   return `<span class="bases-value">${escapeHtml(text)}</span>`;
 }
 
+function renderRowValue(column, row) {
+  const cell = row?.cells?.[column.id] ?? null;
+  if (
+    row?.path
+    && cell
+    && cell.type !== 'empty'
+    && (column.id === 'file.name' || column.id === 'file.basename')
+  ) {
+    return `<button type="button" class="bases-link bases-link-button" data-base-open-file="${escapeHtml(row.path)}">${escapeHtml(formatCellText(cell))}</button>`;
+  }
+
+  return renderValue(cell);
+}
+
 function renderSummaryBar(summaries = []) {
   if (!Array.isArray(summaries) || summaries.length === 0) {
     return '';
@@ -95,7 +109,7 @@ function renderSummaryBar(summaries = []) {
 
 function renderTable(columns, groups) {
   return groups.map((group) => (
-    `<section class="bases-group"><header class="bases-group-header"><h3>${escapeHtml(group.label)}</h3>${renderSummaryBar(group.summaries)}</header><div class="bases-table-shell"><table class="bases-table"><thead><tr>${columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${(group.rows ?? []).map((row) => `<tr>${columns.map((column) => `<td>${renderValue(row.cells[column.id])}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`
+    `<section class="bases-group"><header class="bases-group-header"><h3>${escapeHtml(group.label)}</h3>${renderSummaryBar(group.summaries)}</header><div class="bases-table-shell"><table class="bases-table"><thead><tr>${columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${(group.rows ?? []).map((row) => `<tr>${columns.map((column) => `<td>${renderRowValue(column, row)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`
   )).join('');
 }
 
@@ -107,7 +121,7 @@ function renderList(columns, groups) {
         if (!cell || cell.type === 'empty') {
           return '';
         }
-        return `<span class="bases-list-field"><strong>${escapeHtml(column.label)}:</strong> ${renderValue(cell)}</span>`;
+        return `<span class="bases-list-field"><strong>${escapeHtml(column.label)}:</strong> ${renderRowValue(column, row)}</span>`;
       }).join('')}</li>`
     )).join('')}</ul></section>`
   )).join('');
@@ -133,7 +147,7 @@ function renderCards(columns, groups, view) {
         if (!cell || cell.type === 'empty') {
           return '';
         }
-        return `<div class="bases-card-field"><div class="bases-card-label">${escapeHtml(column.label)}</div><div class="bases-card-value">${renderValue(cell)}</div></div>`;
+        return `<div class="bases-card-field"><div class="bases-card-label">${escapeHtml(column.label)}</div><div class="bases-card-value">${renderRowValue(column, row)}</div></div>`;
       }).join('')}</div></article>`;
     }).join('')}</div></section>`
   )).join('');
