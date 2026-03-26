@@ -1,4 +1,5 @@
 import {
+  isBaseFilePath,
   isMarkdownFilePath,
   supportsBacklinksForFilePath,
 } from '../../domain/file-kind.js';
@@ -12,6 +13,7 @@ export class WorkspaceChromeController {
     onRenderDrawioPreview,
     onFileOpenError,
     onFileOpenReady,
+    onRenderBasePreview,
     onRenderExcalidrawPreview,
     onRenderImagePreview,
     onSyncWrapToggle,
@@ -24,23 +26,24 @@ export class WorkspaceChromeController {
     showEditorLoading,
     stateStore,
   }) {
-    this.beginDocumentLoad = beginDocumentLoad;
-    this.getDisplayName = getDisplayName;
-    this.loadBacklinks = loadBacklinks;
-    this.onBeforeFileOpen = onBeforeFileOpen;
-    this.onRenderDrawioPreview = onRenderDrawioPreview;
-    this.onFileOpenError = onFileOpenError;
-    this.onFileOpenReady = onFileOpenReady;
-    this.onRenderExcalidrawPreview = onRenderExcalidrawPreview;
-    this.onRenderImagePreview = onRenderImagePreview;
-    this.onSyncWrapToggle = onSyncWrapToggle;
-    this.onUpdateActiveFile = onUpdateActiveFile;
-    this.onUpdateCurrentFile = onUpdateCurrentFile;
-    this.onUpdateLobbyCurrentFile = onUpdateLobbyCurrentFile;
-    this.onUpdateVisibleChrome = onUpdateVisibleChrome;
-    this.onViewModeReset = onViewModeReset;
-    this.renderPresence = renderPresence;
-    this.showEditorLoading = showEditorLoading;
+    this.beginDocumentLoad = beginDocumentLoad ?? (() => {});
+    this.getDisplayName = getDisplayName ?? ((filePath) => filePath);
+    this.loadBacklinks = loadBacklinks ?? (() => {});
+    this.onBeforeFileOpen = onBeforeFileOpen ?? (() => {});
+    this.onRenderDrawioPreview = onRenderDrawioPreview ?? (() => {});
+    this.onFileOpenError = onFileOpenError ?? (() => {});
+    this.onFileOpenReady = onFileOpenReady ?? (() => {});
+    this.onRenderBasePreview = onRenderBasePreview ?? (() => {});
+    this.onRenderExcalidrawPreview = onRenderExcalidrawPreview ?? (() => {});
+    this.onRenderImagePreview = onRenderImagePreview ?? (() => {});
+    this.onSyncWrapToggle = onSyncWrapToggle ?? (() => {});
+    this.onUpdateActiveFile = onUpdateActiveFile ?? (() => {});
+    this.onUpdateCurrentFile = onUpdateCurrentFile ?? (() => {});
+    this.onUpdateLobbyCurrentFile = onUpdateLobbyCurrentFile ?? (() => {});
+    this.onUpdateVisibleChrome = onUpdateVisibleChrome ?? (() => {});
+    this.onViewModeReset = onViewModeReset ?? (() => {});
+    this.renderPresence = renderPresence ?? (() => {});
+    this.showEditorLoading = showEditorLoading ?? (() => {});
     this.stateStore = stateStore;
   }
 
@@ -75,6 +78,7 @@ export class WorkspaceChromeController {
   }
 
   finalizeFileOpen({
+    isBase = false,
     isDrawio = false,
     filePath,
     isExcalidraw = false,
@@ -84,6 +88,9 @@ export class WorkspaceChromeController {
   }) {
     if (isExcalidraw) {
       this.onRenderExcalidrawPreview(filePath);
+    }
+    if (isBase || isBaseFilePath(filePath)) {
+      this.onRenderBasePreview(filePath);
     }
     if (isDrawio) {
       this.onRenderDrawioPreview(filePath);

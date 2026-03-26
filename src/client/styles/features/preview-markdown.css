@@ -167,10 +167,219 @@
 }
 
 .preview-content p:has(> .excalidraw-embed-placeholder:only-child),
+.preview-content p:has(> .bases-embed-placeholder:only-child),
 .preview-content p:has(> .video-embed-placeholder:only-child),
 .preview-content p:has(> .plantuml-shell:only-child) {
   max-width: none;
   margin-bottom: 0;
+}
+
+.preview-content .bases-shell {
+  width: 100%;
+  margin: 0 0 var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--color-surface-offset) 65%, var(--color-surface));
+  overflow: hidden;
+}
+
+.preview-content .bases-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.preview-content .bases-toolbar-main,
+.preview-content .bases-toolbar-actions,
+.preview-content .bases-tabs,
+.preview-content .bases-summaries,
+.preview-content .bases-value-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.preview-content .bases-view-tab,
+.preview-content .bases-export-btn,
+.preview-content .bases-link-button {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.preview-content .bases-view-tab,
+.preview-content .bases-export-btn {
+  min-height: 34px;
+  padding: 0 var(--space-3);
+}
+
+.preview-content .bases-view-tab.is-active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.preview-content .bases-search-input {
+  min-width: 200px;
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.preview-content .bases-meta,
+.preview-content .bases-summary-label,
+.preview-content .bases-card-label {
+  color: var(--color-text-muted);
+  font-size: var(--text-ui-sm);
+}
+
+.preview-content .bases-summaries {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.preview-content .bases-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: 0 var(--space-3);
+  border-radius: 999px;
+  background: var(--color-surface);
+}
+
+.preview-content .bases-content {
+  padding: var(--space-4);
+}
+
+.preview-content .bases-group + .bases-group {
+  margin-top: var(--space-5);
+}
+
+.preview-content .bases-group-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.preview-content .bases-group-header h3 {
+  margin: 0;
+}
+
+.preview-content .bases-table-shell {
+  overflow-x: auto;
+}
+
+.preview-content .bases-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.preview-content .bases-table th,
+.preview-content .bases-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+  text-align: left;
+  vertical-align: top;
+}
+
+.preview-content .bases-list,
+.preview-content .bases-cards {
+  margin: 0;
+  padding: 0;
+  max-width: none;
+}
+
+.preview-content .bases-list {
+  list-style: none;
+}
+
+.preview-content .bases-list-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.preview-content .bases-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.preview-content .bases-card {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.preview-content .bases-card-media {
+  display: block;
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  background: color-mix(in oklab, var(--color-surface-offset) 50%, var(--color-surface));
+}
+
+.preview-content .bases-card-media-color {
+  background: var(--bases-card-swatch);
+}
+
+.preview-content .bases-card-body {
+  padding: var(--space-3);
+}
+
+.preview-content .bases-card-field + .bases-card-field {
+  margin-top: var(--space-3);
+}
+
+.preview-content .bases-link-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+}
+
+.preview-content .bases-value-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  font-size: var(--text-ui-sm);
+}
+
+.preview-content .bases-inline-image {
+  display: block;
+  max-width: 120px;
+  max-height: 80px;
+  border-radius: var(--radius-md);
+}
+
+.preview-content .bases-unsupported {
+  padding: var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
 }
 
 .preview-content a {

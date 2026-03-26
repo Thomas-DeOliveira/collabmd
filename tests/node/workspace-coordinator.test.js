@@ -107,6 +107,9 @@ function createCoordinator(overrides = {}) {
     onImagePaste: () => {
       events.push('image-paste');
     },
+    onRenderBasePreview: () => {
+      events.push('render-base');
+    },
     onRenderDrawioPreview: () => {
       events.push('render-drawio');
     },
@@ -321,6 +324,26 @@ test('WorkspaceCoordinator skips creating an editor session for image attachment
   assert.equal(coordinator.getSession(), null);
   assert.ok(events.includes('open-ready'));
   assert.ok(events.includes('render-image'));
+});
+
+test('WorkspaceCoordinator skips creating an editor session for base files and renders the base preview', async () => {
+  let createSessionCalls = 0;
+  const { coordinator, events } = createCoordinator({
+    createEditorSession: () => {
+      createSessionCalls += 1;
+      return {
+        destroy() {},
+      };
+    },
+    isBaseFile: (filePath) => filePath?.endsWith('.base'),
+  });
+
+  await coordinator.openFile('views/board.base');
+
+  assert.equal(createSessionCalls, 0);
+  assert.equal(coordinator.getSession(), null);
+  assert.ok(events.includes('open-ready'));
+  assert.ok(events.includes('render-base'));
 });
 
 test('WorkspaceCoordinator shows bootstrap content before live sync completes', async () => {

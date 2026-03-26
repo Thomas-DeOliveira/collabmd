@@ -9,13 +9,32 @@ function createController(overrides = {}) {
 
   return new WorkspacePreviewController({
     backlinksPanel: { clear() {}, ...(overrides.backlinksPanel || {}) },
-    drawioEmbed: { setHydrationPaused() {}, syncLayout() {}, ...(overrides.drawioEmbed || {}) },
+    basesPreview: overrides.basesPreview,
+    drawioEmbed: {
+      detachForCommit() {},
+      hydrateVisibleEmbeds() {},
+      reconcileEmbeds() {},
+      setHydrationPaused() {},
+      syncLayout() {},
+      updateLocalUser() {},
+      updateTheme() {},
+      ...(overrides.drawioEmbed || {}),
+    },
     elements: overrides.elements ?? {
       markdownToolbar: { classList: { toggle() {} } },
       outlineToggle: { classList: { toggle() {} } },
       previewContent: { classList: { add() {}, remove() {}, toggle() {} } },
     },
-    excalidrawEmbed: { setHydrationPaused() {}, ...(overrides.excalidrawEmbed || {}) },
+    excalidrawEmbed: {
+      detachForCommit() {},
+      hydrateVisibleEmbeds() {},
+      reconcileEmbeds() {},
+      setHydrationPaused() {},
+      syncLayout() {},
+      updateLocalUser() {},
+      updateTheme() {},
+      ...(overrides.excalidrawEmbed || {}),
+    },
     getDisplayName: (filePath) => filePath,
     getSession,
     isDrawioFile: (filePath) => filePath?.endsWith('.drawio'),
@@ -31,7 +50,7 @@ function createController(overrides = {}) {
       setHydrationPaused() {},
       ...(overrides.previewRenderer || {}),
     },
-    schedulePreviewLayoutSync: () => {},
+    schedulePreviewLayoutSync: overrides.schedulePreviewLayoutSync ?? (() => {}),
     scrollSyncController: { invalidatePreviewBlocks() {}, warmPreviewBlocks() {}, ...(overrides.scrollSyncController || {}) },
   });
 }
@@ -211,6 +230,125 @@ test('WorkspacePreviewController forces image attachments into preview without o
     ['set-view', 'preview', { persist: false }],
     ['outline-close'],
     ['backlinks-clear'],
+  ]);
+});
+
+test('WorkspacePreviewController forces base files into preview without overwriting layout preference', () => {
+  const events = [];
+  const controller = createController({
+    isBaseFile: (filePath) => filePath?.endsWith('.base'),
+    layoutController: {
+      setView(view, options) {
+        events.push(['set-view', view, options]);
+      },
+    },
+    outlineController: {
+      close() {
+        events.push(['outline-close']);
+      },
+    },
+    backlinksPanel: {
+      clear() {
+        events.push(['backlinks-clear']);
+      },
+    },
+  });
+
+  controller.syncFileChrome('views/tasks.base');
+
+  assert.deepEqual(events, [
+    ['set-view', 'preview', { persist: false }],
+    ['outline-close'],
+    ['backlinks-clear'],
+  ]);
+});
+
+test('WorkspacePreviewController delegates standalone base preview rendering', async () => {
+  const events = [];
+  const renderHost = {
+    replaceChildren(...children) {
+      events.push(['replace-children', children.length]);
+    },
+    style: { minHeight: '24px' },
+  };
+  const previewContent = {
+    classList: {
+      add(token) {
+        events.push(['class-add', token]);
+      },
+      remove(token) {
+        events.push(['class-remove', token]);
+      },
+      toggle() {},
+    },
+    dataset: {},
+  };
+  const controller = createController({
+    basesPreview: {
+      async renderStandalone({ filePath, renderHost: nextRenderHost }) {
+        events.push(['render-standalone', filePath, nextRenderHost === renderHost]);
+      },
+    },
+    elements: {
+      markdownToolbar: { classList: { toggle() {} } },
+      outlineToggle: { classList: { toggle() {} } },
+      previewContent,
+    },
+    previewRenderer: {
+      ensureRenderHost() {
+        return renderHost;
+      },
+      normalizePreviewChildren(nextRenderHost) {
+        events.push(['normalize-preview', nextRenderHost === renderHost]);
+      },
+      scheduleActiveMermaidRefit() {},
+      scheduleActivePlantUmlRefit() {},
+      setHydrationPaused() {},
+    },
+    schedulePreviewLayoutSync() {
+      events.push(['schedule-layout-sync']);
+    },
+    scrollSyncController: {
+      invalidatePreviewBlocks() {
+        events.push(['invalidate-preview']);
+      },
+      setLargeDocumentMode(value) {
+        events.push(['set-large-document-mode', value]);
+      },
+      warmPreviewBlocks() {},
+    },
+    outlineController: {
+      close() {
+        events.push(['outline-close']);
+      },
+      scheduleActiveHeadingUpdate() {},
+    },
+    backlinksPanel: {
+      clear() {
+        events.push(['backlinks-clear']);
+      },
+    },
+  });
+
+  await controller.renderBaseFilePreview('views/tasks.base');
+
+  assert.equal(previewContent.dataset.renderPhase, 'ready');
+  assert.deepEqual(events, [
+    ['class-remove', 'is-drawio-file-preview'],
+    ['class-remove', 'is-excalidraw-file-preview'],
+    ['class-remove', 'is-base-file-preview'],
+    ['class-remove', 'is-image-file-preview'],
+    ['class-remove', 'is-mermaid-file-preview'],
+    ['class-remove', 'is-plantuml-file-preview'],
+    ['class-add', 'is-base-file-preview'],
+    ['normalize-preview', true],
+    ['replace-children', 0],
+    ['render-standalone', 'views/tasks.base', true],
+    ['outline-close'],
+    ['backlinks-clear'],
+    ['set-large-document-mode', false],
+    ['invalidate-preview'],
+    ['schedule-layout-sync'],
   ]);
 });
 

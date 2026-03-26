@@ -1,4 +1,5 @@
 import {
+  isBaseFilePath,
   isDiagramFilePath,
   isMarkdownFilePath,
 } from '../../domain/file-kind.js';
@@ -7,6 +8,7 @@ import { resolveApiUrl } from '../domain/runtime-paths.js';
 export class WorkspacePreviewController {
   constructor({
     backlinksPanel,
+    basesPreview = null,
     drawioEmbed,
     elements,
     excalidrawEmbed,
@@ -14,6 +16,7 @@ export class WorkspacePreviewController {
     getSession,
     isDrawioFile,
     isExcalidrawFile,
+    isBaseFile,
     isImageFile,
     isMermaidFile,
     isPlantUmlFile,
@@ -25,6 +28,7 @@ export class WorkspacePreviewController {
     videoEmbed,
   }) {
     this.backlinksPanel = backlinksPanel;
+    this.basesPreview = basesPreview ?? { reconcileEmbeds() {}, renderStandalone() {} };
     this.drawioEmbed = drawioEmbed ?? {
       detachForCommit() {},
       hydrateVisibleEmbeds() {},
@@ -40,6 +44,7 @@ export class WorkspacePreviewController {
     this.getSession = getSession;
     this.isDrawioFile = isDrawioFile ?? (() => false);
     this.isExcalidrawFile = isExcalidrawFile ?? (() => false);
+    this.isBaseFile = isBaseFile ?? isBaseFilePath;
     this.isImageFile = isImageFile ?? (() => false);
     this.isMermaidFile = isMermaidFile ?? (() => false);
     this.isPlantUmlFile = isPlantUmlFile ?? (() => false);
@@ -78,6 +83,7 @@ export class WorkspacePreviewController {
   resetPreviewMode() {
     this.elements.previewContent?.classList.remove('is-drawio-file-preview');
     this.elements.previewContent?.classList.remove('is-excalidraw-file-preview');
+    this.elements.previewContent?.classList.remove('is-base-file-preview');
     this.elements.previewContent?.classList.remove('is-image-file-preview');
     this.elements.previewContent?.classList.remove('is-mermaid-file-preview');
     this.elements.previewContent?.classList.remove('is-plantuml-file-preview');
@@ -86,6 +92,7 @@ export class WorkspacePreviewController {
   syncFileChrome(filePath, { drawioMode = null } = {}) {
     const isDrawio = this.isDrawioFile(filePath);
     const isExcalidraw = this.isExcalidrawFile(filePath);
+    const isBase = this.isBaseFile(filePath);
     const isImage = this.isImageFile(filePath);
     const isMarkdown = isMarkdownFilePath(filePath);
     const isMermaid = this.isMermaidFile(filePath);
@@ -95,11 +102,11 @@ export class WorkspacePreviewController {
     this.elements.editorFindButton?.classList.toggle('hidden', !isMarkdown);
     this.elements.markdownToolbar?.classList.toggle('hidden', !isMarkdown);
     this.elements.exportMenuGroup?.classList.toggle('hidden', !isMarkdown);
-    this.elements.outlineToggle?.classList.toggle('hidden', isDiagramFile || isImage);
+    this.elements.outlineToggle?.classList.toggle('hidden', isDiagramFile || isImage || isBase);
     this.elements.previewContent?.classList.toggle('is-mermaid-file-preview', isMermaid);
     this.elements.previewContent?.classList.toggle('is-plantuml-file-preview', isPlantUml);
 
-    if ((isDrawio && drawioMode !== 'text') || isExcalidraw || isImage) {
+    if ((isDrawio && drawioMode !== 'text') || isExcalidraw || isImage || isBase) {
       this.layoutController.setView('preview', { persist: false });
       this.outlineController.close();
       this.backlinksPanel.clear();
@@ -222,6 +229,39 @@ export class WorkspacePreviewController {
 
     previewElement.dataset.renderPhase = 'ready';
     this.outlineController.refresh();
+    this.scrollSyncController.setLargeDocumentMode(false);
+    this.scrollSyncController.invalidatePreviewBlocks();
+    this.videoEmbed?.reconcileEmbeds(previewElement);
+    this.schedulePreviewLayoutSyncCallback({ delayMs: 0 });
+  }
+
+  async renderBaseFilePreview(filePath) {
+    const previewElement = this.elements.previewContent;
+    if (!previewElement) {
+      return;
+    }
+
+    this.videoEmbed?.detachForCommit();
+    this.drawioEmbed.detachForCommit();
+    this.excalidrawEmbed.detachForCommit();
+    this.resetPreviewMode();
+    previewElement.classList.add('is-base-file-preview');
+    const renderHost = this.previewRenderer.ensureRenderHost();
+    this.previewRenderer.normalizePreviewChildren(renderHost);
+
+    if (renderHost) {
+      renderHost.replaceChildren();
+      renderHost.style.minHeight = '';
+    }
+
+    await this.basesPreview.renderStandalone({
+      filePath,
+      renderHost,
+    });
+
+    previewElement.dataset.renderPhase = 'ready';
+    this.outlineController.close();
+    this.backlinksPanel.clear();
     this.scrollSyncController.setLargeDocumentMode(false);
     this.scrollSyncController.invalidatePreviewBlocks();
     this.videoEmbed?.reconcileEmbeds(previewElement);

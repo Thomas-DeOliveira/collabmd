@@ -22,6 +22,7 @@ import { TabActivityLock } from '../infrastructure/tab-activity-lock.js';
 import { vaultApiClient } from '../infrastructure/vault-api-client.js';
 import { WorkspaceSyncClient } from '../infrastructure/workspace-sync-client.js';
 import { BacklinksPanel } from '../presentation/backlinks-panel.js';
+import { BasesPreviewController } from '../presentation/bases-preview-controller.js';
 import { CommentUiController } from '../presentation/comment-ui-controller.js';
 import { DrawioEmbedController } from '../presentation/drawio-embed-controller.js';
 import { ExcalidrawEmbedController } from '../presentation/excalidraw-embed-controller.js';
@@ -185,6 +186,13 @@ export class CollabMdAppShell {
     this.videoEmbed = new VideoEmbedController({
       previewElement: this.elements.previewContent,
     });
+    this.basesPreview = new BasesPreviewController({
+      getActiveFilePath: () => this.currentFilePath,
+      onOpenFile: (filePath) => filePath && this.navigation.navigateToFile(filePath),
+      previewElement: this.elements.previewContent,
+      toastController: this.toastController,
+      vaultApiClient: this.vaultApiClient,
+    });
     this.imageLightbox = new ImageLightboxController({
       previewElement: this.elements.previewContent,
     });
@@ -199,6 +207,7 @@ export class CollabMdAppShell {
         });
         this.videoEmbed.reconcileEmbeds(this.elements.previewContent);
         this.videoEmbed.syncLayout();
+        this.basesPreview.reconcileEmbeds(this.elements.previewContent);
         this.drawioEmbed.reconcileEmbeds(this.elements.previewContent);
         this.drawioEmbed.syncLayout();
         this.excalidrawEmbed.reconcileEmbeds(this.elements.previewContent, { isLargeDocument: stats.isLargeDocument });
@@ -284,11 +293,13 @@ export class CollabMdAppShell {
     });
     this.workspacePreviewController = new WorkspacePreviewController({
       backlinksPanel: this.backlinksPanel,
+      basesPreview: this.basesPreview,
       drawioEmbed: this.drawioEmbed,
       elements: this.elements,
       excalidrawEmbed: this.excalidrawEmbed,
       getDisplayName: (filePath) => this.getDisplayName(filePath),
       getSession: () => this.session,
+      isBaseFile: (filePath) => this.isBaseFile(filePath),
       isDrawioFile: (filePath) => this.isDrawioFile(filePath),
       isExcalidrawFile: (filePath) => this.isExcalidrawFile(filePath),
       isImageFile: (filePath) => this.isImageFile(filePath),
@@ -374,6 +385,7 @@ export class CollabMdAppShell {
       getLocalUser: () => this.lobby.getLocalUser(),
       getStoredUserName: () => this.getStoredUserName(),
       getTheme: () => this.themeController.getTheme(),
+      isBaseFile: (filePath) => this.isBaseFile(filePath),
       isDrawioFile: (filePath) => this.isDrawioFile(filePath),
       isExcalidrawFile: (filePath) => this.isExcalidrawFile(filePath),
       isImageFile: (filePath) => this.isImageFile(filePath),
@@ -422,6 +434,7 @@ export class CollabMdAppShell {
         this.commentUi.attachSession(session);
       },
       onRenderDrawioPreview: (filePath) => this.renderDrawioFilePreview(filePath),
+      onRenderBasePreview: (filePath) => this.renderBaseFilePreview(filePath),
       onRenderExcalidrawPreview: (filePath) => this.renderExcalidrawFilePreview(filePath),
       onRenderImagePreview: (filePath) => this.renderImageFilePreview(filePath),
       onSyncWrapToggle: () => this.syncWrapToggle(),

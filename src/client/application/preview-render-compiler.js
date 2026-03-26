@@ -84,6 +84,18 @@ function createDrawioPlaceholder({ embedKey, label, target }) {
   return `<span class="drawio-embed-placeholder diagram-preview-shell" data-drawio-key="${escapeHtml(embedKey)}" data-drawio-target="${escapeHtml(target)}" data-drawio-label="${escapeHtml(label)}" data-drawio-mode="view"><span class="drawio-embed-placeholder-card diagram-preview-placeholder-card"><span class="drawio-embed-placeholder-copy diagram-preview-placeholder-copy"><strong>${escapeHtml(label)}</strong><span>Loads when visible</span></span><button type="button" class="drawio-embed-placeholder-btn diagram-preview-placeholder-btn" data-drawio-key="${escapeHtml(embedKey)}">Load diagram</button></span></span>`;
 }
 
+function createBasePlaceholder({ key, sourceAttributes, sourceFilePath, sourceText, viewName = '' }) {
+  const sourceFileAttribute = sourceFilePath ? ` data-base-source-path="${escapeHtml(sourceFilePath)}"` : '';
+  const viewAttribute = viewName ? ` data-base-view="${escapeHtml(viewName)}"` : '';
+  return `<div class="bases-embed-placeholder diagram-preview-shell"${sourceAttributes} data-base-key="${escapeHtml(key)}" data-base-source="${escapeHtml(sourceText)}"${sourceFileAttribute}${viewAttribute}><div class="diagram-preview-placeholder-card"><div class="diagram-preview-placeholder-copy"><strong>Base view</strong><span>Loads query results when preview renders</span></div></div></div>`;
+}
+
+function createBaseFileEmbedPlaceholder({ embedKey, label, target, viewName = '', sourceFilePath = '' }) {
+  const sourceFileAttribute = sourceFilePath ? ` data-base-source-path="${escapeHtml(sourceFilePath)}"` : '';
+  const viewAttribute = viewName ? ` data-base-view="${escapeHtml(viewName)}"` : '';
+  return `<span class="bases-embed-placeholder diagram-preview-shell" data-base-key="${escapeHtml(embedKey)}" data-base-path="${escapeHtml(target)}" data-base-label="${escapeHtml(label)}"${viewAttribute}${sourceFileAttribute}><span class="diagram-preview-placeholder-card"><span class="diagram-preview-placeholder-copy"><strong>${escapeHtml(label)}</strong><span>Loads query results when preview renders</span></span></span></span>`;
+}
+
 function getDirectVideoMimeType(pathname = '') {
   const match = pathname.toLowerCase().match(/\.(mp4|ogg|webm)$/i);
   if (!match) {
@@ -228,13 +240,15 @@ function resolveLocalAttachmentUrl(source = '', {
 }
 
 function renderInlineWikiText(content, {
+  baseEmbedCounts,
   drawioEmbedCounts,
   excalidrawEmbedCounts,
   fileList,
   mermaidEmbedCounts,
   plantUmlEmbedCounts,
+  sourceFilePath = '',
 }) {
-  const regex = /!\[\[([^\]|]+\.(?:excalidraw|drawio|mmd|mermaid|puml|plantuml))(?:\|([^\]]+))?\]\]|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/gi;
+  const regex = /!\[\[([^\]|#]+\.(?:base|excalidraw|drawio|mmd|mermaid|puml|plantuml))(?:#([^\]|]+))?(?:\|([^\]]+))?\]\]|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/gi;
   let lastIndex = 0;
   let html = '';
   let match;
@@ -246,9 +260,20 @@ function renderInlineWikiText(content, {
 
     if (match[1]) {
       const target = match[1].trim();
-      const label = (match[2] || target).trim();
+      const viewName = (match[2] || '').trim();
+      const label = (match[3] || target).trim();
 
-      if (/\.excalidraw$/i.test(target)) {
+      if (/\.base$/i.test(target)) {
+        const occurrenceIndex = baseEmbedCounts.get(`${target}#${viewName}`) ?? 0;
+        baseEmbedCounts.set(`${target}#${viewName}`, occurrenceIndex + 1);
+        html += createBaseFileEmbedPlaceholder({
+          embedKey: `${target}#${viewName || 'default'}#${occurrenceIndex}`,
+          label: normalizePreviewTypography(label.replace(/\.base$/i, '')),
+          sourceFilePath,
+          target,
+          viewName,
+        });
+      } else if (/\.excalidraw$/i.test(target)) {
         const occurrenceIndex = excalidrawEmbedCounts.get(target) ?? 0;
         excalidrawEmbedCounts.set(target, occurrenceIndex + 1);
         html += createExcalidrawPlaceholder({
@@ -282,8 +307,8 @@ function renderInlineWikiText(content, {
         });
       }
     } else {
-      const target = match[3].trim();
-      const display = (match[4] || match[3]).trim();
+      const target = match[4].trim();
+      const display = (match[5] || match[4]).trim();
       const resolved = resolveWikiTarget(target, fileList);
       const classes = resolved ? 'wiki-link' : 'wiki-link wiki-link-new';
       const title = resolved ? normalizePreviewTypography(display) : `Create "${target}"`;
@@ -344,6 +369,7 @@ function createMarkdownRenderer(fileList = [], {
 
   const drawioEmbedCounts = new Map();
   const excalidrawEmbedCounts = new Map();
+  const baseCounts = new Map();
   const mermaidCounts = new Map();
   const mermaidEmbedCounts = new Map();
   const plantUmlCounts = new Map();
@@ -389,6 +415,18 @@ function createMarkdownRenderer(fileList = [], {
       });
     }
 
+    if (info === 'base') {
+      const sourceHash = hashString(token.content);
+      const occurrenceIndex = baseCounts.get(sourceHash) ?? 0;
+      baseCounts.set(sourceHash, occurrenceIndex + 1);
+      return createBasePlaceholder({
+        key: `base-${sourceHash}-${occurrenceIndex}`,
+        sourceAttributes,
+        sourceFilePath,
+        sourceText: token.content,
+      });
+    }
+
     const rendered = renderToken(fallbackFence, tokens, index, options, env, self);
     if (!sourceLine) {
       return rendered;
@@ -416,30 +454,36 @@ function createMarkdownRenderer(fileList = [], {
 
     if (content.startsWith('[x] ') || content.startsWith('[X] ')) {
       return `<input type="checkbox" checked data-task-checkbox="true"> ${renderInlineWikiText(content.slice(4), {
+        baseEmbedCounts: baseCounts,
         drawioEmbedCounts,
         excalidrawEmbedCounts,
         fileList,
         mermaidEmbedCounts,
         plantUmlEmbedCounts,
+        sourceFilePath,
       })}`;
     }
 
     if (content.startsWith('[ ] ')) {
       return `<input type="checkbox" data-task-checkbox="true"> ${renderInlineWikiText(content.slice(4), {
+        baseEmbedCounts: baseCounts,
         drawioEmbedCounts,
         excalidrawEmbedCounts,
         fileList,
         mermaidEmbedCounts,
         plantUmlEmbedCounts,
+        sourceFilePath,
       })}`;
     }
 
     return renderInlineWikiText(content, {
+      baseEmbedCounts: baseCounts,
       drawioEmbedCounts,
       excalidrawEmbedCounts,
       fileList,
       mermaidEmbedCounts,
       plantUmlEmbedCounts,
+      sourceFilePath,
     });
   };
 

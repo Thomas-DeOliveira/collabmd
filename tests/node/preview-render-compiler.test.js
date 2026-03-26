@@ -47,6 +47,35 @@ test('compilePreviewDocument emits stable excalidraw placeholder keys and wiki-l
   assert.equal(stats.plantumlBlocks, 1);
 });
 
+test('compilePreviewDocument emits base placeholders for fenced bases and base embeds', () => {
+  const markdown = [
+    '```base',
+    'filters: file.ext == "md"',
+    'views:',
+    '  - type: table',
+    '```',
+    '',
+    '![[views/tasks.base#Board|Tasks]]',
+    '',
+    '![[views/tasks.base#Board|Tasks]]',
+  ].join('\n');
+
+  const { html } = compilePreviewDocument({
+    markdownText: markdown,
+    sourceFilePath: 'notes/daily.md',
+  });
+
+  assert.match(html, /class="bases-embed-placeholder diagram-preview-shell"/);
+  assert.match(html, /data-base-key="base-[a-z0-9]+-0"/);
+  assert.match(html, /data-base-source="filters: file\.ext == &quot;md&quot;\nviews:\n {2}- type: table\n"/);
+  assert.match(html, /data-base-source-path="notes\/daily\.md"/);
+  assert.match(html, /data-base-key="views\/tasks\.base#Board#0"/);
+  assert.match(html, /data-base-key="views\/tasks\.base#Board#1"/);
+  assert.match(html, /data-base-path="views\/tasks\.base"/);
+  assert.match(html, /data-base-view="Board"/);
+  assert.match(html, /<strong>Tasks<\/strong>/);
+});
+
 test('compilePreviewDocument emits stable draw.io embed shell keys', () => {
   const markdown = [
     '![[architecture.drawio]]',

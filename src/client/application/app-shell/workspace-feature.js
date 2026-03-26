@@ -1,5 +1,6 @@
 import {
   getVaultFileKind,
+  isBaseFilePath,
   isDrawioFilePath,
   isExcalidrawFilePath,
   isImageAttachmentFilePath,
@@ -11,6 +12,10 @@ import {
 export const workspaceFeature = {
   isExcalidrawFile(filePath) {
     return isExcalidrawFilePath(filePath);
+  },
+
+  isBaseFile(filePath) {
+    return isBaseFilePath(filePath);
   },
 
   isDrawioFile(filePath) {
@@ -130,6 +135,10 @@ export const workspaceFeature = {
 
   renderImageFilePreview(filePath) {
     this.workspacePreviewController.renderImageFilePreview(filePath);
+  },
+
+  renderBaseFilePreview(filePath) {
+    return this.workspacePreviewController.renderBaseFilePreview(filePath);
   },
 
   renderTextFilePreview(payload) {

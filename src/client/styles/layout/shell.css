@@ -220,6 +220,12 @@
   padding: var(--space-4);
 }
 
+.preview-content.is-base-file-preview {
+  width: 100%;
+  min-height: 100%;
+  max-width: none;
+}
+
 .preview-content.is-plantuml-file-preview,
 .preview-content.is-mermaid-file-preview {
   width: 100%;
@@ -246,7 +252,8 @@
 
 .preview-content.is-drawio-file-preview [data-preview-render-host='true'],
 .preview-content.is-excalidraw-file-preview [data-preview-render-host='true'],
-.preview-content.is-image-file-preview [data-preview-render-host='true'] {
+.preview-content.is-image-file-preview [data-preview-render-host='true'],
+.preview-content.is-base-file-preview [data-preview-render-host='true'] {
   display: flex;
   flex: 1;
   width: 100%;

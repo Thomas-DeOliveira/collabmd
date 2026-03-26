@@ -21,6 +21,7 @@ export class WorkspaceCoordinator {
     getLocalUser,
     getStoredUserName,
     getTheme,
+    isBaseFile,
     isDrawioFile,
     isExcalidrawFile,
     isImageFile,
@@ -41,6 +42,7 @@ export class WorkspaceCoordinator {
     onSelectionChange,
     onSessionAssigned = null,
     onFileOpenMetric = null,
+    onRenderBasePreview,
     onRenderExcalidrawPreview,
     onRenderDrawioPreview,
     onRenderImagePreview,
@@ -66,6 +68,7 @@ export class WorkspaceCoordinator {
     this.getLocalUser = getLocalUser;
     this.getStoredUserName = getStoredUserName;
     this.getTheme = getTheme;
+    this.isBaseFile = isBaseFile ?? (() => false);
     this.isDrawioFile = isDrawioFile ?? (() => false);
     this.isExcalidrawFile = isExcalidrawFile ?? (() => false);
     this.isImageFile = isImageFile ?? (() => false);
@@ -86,6 +89,7 @@ export class WorkspaceCoordinator {
     this.onSelectionChange = onSelectionChange;
     this.onSessionAssigned = onSessionAssigned;
     this.onFileOpenMetric = onFileOpenMetric;
+    this.onRenderBasePreview = onRenderBasePreview;
     this.onRenderExcalidrawPreview = onRenderExcalidrawPreview;
     this.onSyncWrapToggle = onSyncWrapToggle;
     this.onUpdateActiveFile = onUpdateActiveFile;
@@ -110,6 +114,7 @@ export class WorkspaceCoordinator {
       onRenderDrawioPreview,
       onFileOpenError,
       onFileOpenReady,
+      onRenderBasePreview,
       onRenderExcalidrawPreview,
       onRenderImagePreview,
       onSyncWrapToggle,
@@ -164,6 +169,7 @@ export class WorkspaceCoordinator {
     const currentDrawioMode = this.stateStore.get('currentDrawioMode') ?? null;
     const isDrawio = this.isDrawioFile(filePath) && drawioMode !== 'text' && this.shouldUseDrawioPreview(filePath);
     const isExcalidraw = this.isExcalidrawFile(filePath);
+    const isBase = this.isBaseFile(filePath);
     const isImage = this.isImageFile(filePath);
     const isMermaid = this.isMermaidFile(filePath);
     const isPlantUml = this.isPlantUmlFile(filePath);
@@ -171,7 +177,7 @@ export class WorkspaceCoordinator {
     if (
       filePath === this.stateStore.get('currentFilePath')
       && normalizedDrawioMode === currentDrawioMode
-      && (this.session || isDrawio || isExcalidraw || isImage)
+      && (this.session || isBase || isDrawio || isExcalidraw || isImage)
     ) {
       this.onUpdateActiveFile(filePath);
       this.onUpdateLobbyCurrentFile(filePath);
@@ -184,11 +190,11 @@ export class WorkspaceCoordinator {
     this.cleanupSession();
     const chromeState = this.chromeController.prepareForFileOpen(filePath, {
       drawioMode: normalizedDrawioMode,
-      resetConnectionState: !isDrawio && !isExcalidraw && !isImage,
+      resetConnectionState: !isBase && !isDrawio && !isExcalidraw && !isImage,
     });
     this.reportFileOpenMetric('open_started', loadToken, { filePath });
 
-    if (isDrawio || isExcalidraw || isImage) {
+    if (isBase || isDrawio || isExcalidraw || isImage) {
       this.onSessionAssigned?.(null);
 
       if (loadToken !== this.stateStore.get('sessionLoadToken')) {
@@ -198,6 +204,7 @@ export class WorkspaceCoordinator {
       this.chromeController.markFileOpenReady(null);
       this.chromeController.finalizeFileOpen({
         filePath,
+        isBase,
         isDrawio,
         isExcalidraw,
         isImage,
