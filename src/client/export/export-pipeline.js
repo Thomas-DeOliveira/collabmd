@@ -217,7 +217,9 @@ async function fetchAsDataUrl(src, {
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error(`Timed out while fetching asset: ${assetUrl.toString()}`);
+      throw new Error(`Timed out while fetching asset: ${assetUrl.toString()}`, {
+        cause: error,
+      });
     }
     throw error;
   } finally {

@@ -240,7 +240,7 @@ export class PullBackupStore {
   }
 
   async listBackups() {
-    let entries = [];
+    let entries;
     try {
       entries = await readdir(this.getStorageRoot(), { withFileTypes: true });
     } catch (error) {

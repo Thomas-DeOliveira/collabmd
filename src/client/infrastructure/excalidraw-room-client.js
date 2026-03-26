@@ -258,10 +258,14 @@ export class ExcalidrawRoomClient {
     } catch (readError) {
       if (readError?.status !== 404 || !createIfMissing) {
         if (readError?.status === 404) {
-          throw new Error(readError.message || 'Excalidraw file not found');
+          throw new Error(readError.message || 'Excalidraw file not found', {
+            cause: readError,
+          });
         }
 
-        throw new Error(readError?.message || 'Failed to load Excalidraw file');
+        throw new Error(readError?.message || 'Failed to load Excalidraw file', {
+          cause: readError,
+        });
       }
     }
 
@@ -278,11 +282,15 @@ export class ExcalidrawRoomClient {
           const existingData = await this.vaultClient.readFile(this.filePath);
           return parseSceneJson(existingData.content);
         } catch (conflictReadError) {
-          throw new Error(conflictReadError?.message || 'Failed to load existing Excalidraw file after create conflict');
+          throw new Error(conflictReadError?.message || 'Failed to load existing Excalidraw file after create conflict', {
+            cause: conflictReadError,
+          });
         }
       }
 
-      throw new Error(createError?.message || 'Failed to create Excalidraw file');
+      throw new Error(createError?.message || 'Failed to create Excalidraw file', {
+        cause: createError,
+      });
     }
   }
 

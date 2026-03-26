@@ -291,7 +291,7 @@ export class DiagramPreviewHydrator {
     this.hydrationInProgress = true;
     this.renderer.setPhase('hydrating');
 
-    let batchContext = null;
+    let batchContext;
     try {
       batchContext = await this.prepareHydrationBatch(shells);
     } catch (error) {

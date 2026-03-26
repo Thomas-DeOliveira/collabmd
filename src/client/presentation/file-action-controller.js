@@ -436,11 +436,10 @@ export class FileActionController {
 
     this.setActionDialogBusy(true);
 
-    let shouldClose = false;
+    let shouldClose;
     try {
       shouldClose = await this.pendingAction.onSubmit(rawValue);
     } catch (error) {
-      shouldClose = false;
       this.showError('Failed to complete action', error);
     }
 

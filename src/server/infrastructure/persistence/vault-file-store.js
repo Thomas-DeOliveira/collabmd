@@ -418,8 +418,8 @@ export class VaultFileStore {
     const timestamp = createAttachmentTimestamp(now);
     const baseFileName = `${attachmentStem}-${timestamp}`;
     let collisionIndex = 0;
-    let storedPath = '';
-    let absolutePath = '';
+    let storedPath;
+    let absolutePath;
 
     do {
       const suffix = collisionIndex > 0 ? `-${collisionIndex + 1}` : '';

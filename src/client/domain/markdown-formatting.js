@@ -434,7 +434,7 @@ function formatHorizontalRule(text, range) {
 export function createMarkdownToolbarEdit(documentText, selectionRange, action) {
   const text = String(documentText ?? '');
   const range = normalizeRange(selectionRange, text.length);
-  let edit = null;
+  let edit;
 
   switch (action) {
     case 'bold':

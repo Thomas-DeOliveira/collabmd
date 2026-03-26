@@ -430,7 +430,7 @@ export class GitHistoryService {
     }
 
     return this.runRequest(cacheKey, async () => {
-      let content = '';
+      let content;
       try {
         content = await this.commandRunner.execGit(['show', `${normalizedHash}:${normalizedPath}`]);
       } catch {

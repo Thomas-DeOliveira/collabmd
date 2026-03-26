@@ -696,16 +696,13 @@ export class GitDiffViewController {
     const errorMessage = this.fileErrors.get(file.path);
     const detail = this.getFileDetail(file.path) ?? file;
 
-    let bodyMarkup = '';
-    if (isCollapsed) {
-      bodyMarkup = '';
-    } else if (isLoading) {
-      bodyMarkup = '<div class="diff-empty-state">Loading file diff...</div>';
-    } else if (errorMessage) {
-      bodyMarkup = `<div class="diff-empty-state">${escapeHtml(errorMessage)}</div>`;
-    } else {
-      bodyMarkup = this.renderDiffDetail(detail, index, { includeHeader: false });
-    }
+    const bodyMarkup = isCollapsed
+      ? ''
+      : isLoading
+        ? '<div class="diff-empty-state">Loading file diff...</div>'
+        : errorMessage
+          ? `<div class="diff-empty-state">${escapeHtml(errorMessage)}</div>`
+          : this.renderDiffDetail(detail, index, { includeHeader: false });
 
     return `
       <section
