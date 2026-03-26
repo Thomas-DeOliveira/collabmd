@@ -37,6 +37,7 @@ function createController(overrides = {}) {
     },
     getDisplayName: (filePath) => filePath,
     getSession,
+    isBaseFile: overrides.isBaseFile ?? ((filePath) => filePath?.endsWith('.base')),
     isDrawioFile: (filePath) => filePath?.endsWith('.drawio'),
     isExcalidrawFile: (filePath) => filePath?.endsWith('.excalidraw'),
     isImageFile: (filePath) => filePath?.endsWith('.png'),
@@ -233,10 +234,9 @@ test('WorkspacePreviewController forces image attachments into preview without o
   ]);
 });
 
-test('WorkspacePreviewController forces base files into preview without overwriting layout preference', () => {
+test('WorkspacePreviewController keeps base files in the current layout so split mode can show raw YAML', () => {
   const events = [];
   const controller = createController({
-    isBaseFile: (filePath) => filePath?.endsWith('.base'),
     layoutController: {
       setView(view, options) {
         events.push(['set-view', view, options]);
@@ -256,11 +256,7 @@ test('WorkspacePreviewController forces base files into preview without overwrit
 
   controller.syncFileChrome('views/tasks.base');
 
-  assert.deepEqual(events, [
-    ['set-view', 'preview', { persist: false }],
-    ['outline-close'],
-    ['backlinks-clear'],
-  ]);
+  assert.deepEqual(events, []);
 });
 
 test('WorkspacePreviewController delegates standalone base preview rendering', async () => {
@@ -284,9 +280,10 @@ test('WorkspacePreviewController delegates standalone base preview rendering', a
     dataset: {},
   };
   const controller = createController({
+    session: { getText: () => 'filters:\n  and: []\n' },
     basesPreview: {
-      async renderStandalone({ filePath, renderHost: nextRenderHost }) {
-        events.push(['render-standalone', filePath, nextRenderHost === renderHost]);
+      async renderStandalone({ filePath, renderHost: nextRenderHost, source }) {
+        events.push(['render-standalone', filePath, nextRenderHost === renderHost, source]);
       },
     },
     elements: {
@@ -343,7 +340,7 @@ test('WorkspacePreviewController delegates standalone base preview rendering', a
     ['class-add', 'is-base-file-preview'],
     ['normalize-preview', true],
     ['replace-children', 0],
-    ['render-standalone', 'views/tasks.base', true],
+    ['render-standalone', 'views/tasks.base', true, 'filters:\n  and: []\n'],
     ['outline-close'],
     ['backlinks-clear'],
     ['set-large-document-mode', false],

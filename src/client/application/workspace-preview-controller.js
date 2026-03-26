@@ -106,7 +106,7 @@ export class WorkspacePreviewController {
     this.elements.previewContent?.classList.toggle('is-mermaid-file-preview', isMermaid);
     this.elements.previewContent?.classList.toggle('is-plantuml-file-preview', isPlantUml);
 
-    if ((isDrawio && drawioMode !== 'text') || isExcalidraw || isImage || isBase) {
+    if ((isDrawio && drawioMode !== 'text') || isExcalidraw || isImage) {
       this.layoutController.setView('preview', { persist: false });
       this.outlineController.close();
       this.backlinksPanel.clear();
@@ -235,7 +235,7 @@ export class WorkspacePreviewController {
     this.schedulePreviewLayoutSyncCallback({ delayMs: 0 });
   }
 
-  async renderBaseFilePreview(filePath) {
+  async renderBaseFilePreview(filePath, { source = null } = {}) {
     const previewElement = this.elements.previewContent;
     if (!previewElement) {
       return;
@@ -257,6 +257,9 @@ export class WorkspacePreviewController {
     await this.basesPreview.renderStandalone({
       filePath,
       renderHost,
+      source: typeof source === 'string'
+        ? source
+        : (this.getSession()?.getText?.() ?? null),
     });
 
     previewElement.dataset.renderPhase = 'ready';

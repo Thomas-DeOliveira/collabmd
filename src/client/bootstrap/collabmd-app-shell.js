@@ -409,8 +409,15 @@ export class CollabMdAppShell {
         this.clearInitialFileBootstrap();
       },
       onConnectionChange: (state) => this.handleConnectionChange(state),
-      onContentChange: ({ isMermaid, isPlantUml }) => {
+      onContentChange: ({ isBase, isMermaid, isPlantUml }) => {
         this.handleCommentEditorContentChange();
+        if (isBase) {
+          void this.renderBaseFilePreview(this.currentFilePath, {
+            source: this.session?.getText?.() ?? '',
+          });
+          return;
+        }
+
         this.previewRenderer.queueRender();
         if (!isMermaid && !isPlantUml) {
           this.scheduleBacklinkRefresh();

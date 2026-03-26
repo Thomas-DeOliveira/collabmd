@@ -369,14 +369,14 @@ export class BasesPreviewController {
     });
   }
 
-  async renderStandalone({ filePath, renderHost }) {
+  async renderStandalone({ filePath, renderHost, source = null }) {
     const key = `standalone:${filePath}`;
     const entry = this.entries.get(key) ?? {
       key,
       payload: {
         path: filePath,
         search: '',
-        source: null,
+        source,
         sourcePath: filePath,
         view: '',
       },
@@ -387,6 +387,7 @@ export class BasesPreviewController {
     };
     entry.placeholder = renderHost;
     entry.payload.path = filePath;
+    entry.payload.source = typeof source === 'string' ? source : null;
     entry.payload.sourcePath = filePath;
     this.entries.set(key, entry);
     await this.renderEntry(entry);

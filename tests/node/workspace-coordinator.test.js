@@ -326,22 +326,20 @@ test('WorkspaceCoordinator skips creating an editor session for image attachment
   assert.ok(events.includes('render-image'));
 });
 
-test('WorkspaceCoordinator skips creating an editor session for base files and renders the base preview', async () => {
+test('WorkspaceCoordinator opens base files in the editor and renders the base preview', async () => {
   let createSessionCalls = 0;
-  const { coordinator, events } = createCoordinator({
+  const { coordinator, events, session } = createCoordinator({
     createEditorSession: () => {
       createSessionCalls += 1;
-      return {
-        destroy() {},
-      };
+      return session;
     },
     isBaseFile: (filePath) => filePath?.endsWith('.base'),
   });
 
   await coordinator.openFile('views/board.base');
 
-  assert.equal(createSessionCalls, 0);
-  assert.equal(coordinator.getSession(), null);
+  assert.equal(createSessionCalls, 1);
+  assert.equal(coordinator.getSession(), session);
   assert.ok(events.includes('open-ready'));
   assert.ok(events.includes('render-base'));
 });
