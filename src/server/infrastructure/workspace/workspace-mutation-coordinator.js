@@ -8,6 +8,7 @@ import {
   normalizeWorkspaceEvent,
 } from '../../../domain/workspace-change.js';
 import { WORKSPACE_ROOM_NAME } from '../../../domain/workspace-room.js';
+import { createWorkspaceStateSnapshot } from '../../domain/workspace-state.js';
 import { sanitizeVaultPath } from '../persistence/path-utils.js';
 
 function createEventId() {
@@ -193,11 +194,13 @@ function diffWorkspaceEntries(previousEntries = new Map(), nextEntries = new Map
 export class WorkspaceMutationCoordinator {
   constructor({
     backlinkIndex,
+    baseQueryService = null,
     roomRegistry,
     vaultFileStore,
     managedWriteWindowMs = 1200,
   }) {
     this.backlinkIndex = backlinkIndex ?? null;
+    this.baseQueryService = baseQueryService ?? null;
     this.roomRegistry = roomRegistry;
     this.vaultFileStore = vaultFileStore;
     this.managedWriteWindowMs = managedWriteWindowMs;
@@ -383,11 +386,9 @@ export class WorkspaceMutationCoordinator {
       nextMetadata.set(pathValue, nextPathState.metadata);
     }
 
-    return {
-      entries: nextEntries,
-      metadata: nextMetadata,
+    return createWorkspaceStateSnapshot(nextEntries, nextMetadata, {
       scannedAt: Date.now(),
-    };
+    });
   }
 
   getWorkspaceRoom() {
@@ -414,6 +415,7 @@ export class WorkspaceMutationCoordinator {
   async initialize({ snapshot = null } = {}) {
     const effectiveSnapshot = snapshot ?? await this.vaultFileStore.scanWorkspaceState();
     this.replaceWorkspaceState(effectiveSnapshot);
+    await this.baseQueryService?.initializeFromWorkspaceState?.(effectiveSnapshot);
     this.getWorkspaceRoom()?.replaceWorkspaceEntries(effectiveSnapshot.entries, {
       generatedAt: effectiveSnapshot.scannedAt,
     });
@@ -554,52 +556,17 @@ export class WorkspaceMutationCoordinator {
       return;
     }
 
-    const previousEntries = this.workspaceState?.entries ?? new Map();
     if (
       forceRebuild
       || countBacklinkAffectedPaths(workspaceChange) > 25
     ) {
-      this.backlinkIndex.scheduleBuild?.();
+      this.backlinkIndex.scheduleBuild?.({ workspaceState: nextState });
       return;
     }
-
-    for (const pathValue of workspaceChange.deletedPaths ?? []) {
-      if (supportsBacklinksForFilePath(pathValue)) {
-        this.backlinkIndex.onFileDeleted(pathValue);
-      }
-    }
-
-    for (const entry of workspaceChange.renamedPaths ?? []) {
-      if (supportsBacklinksForFilePath(entry.oldPath) || supportsBacklinksForFilePath(entry.newPath)) {
-        this.backlinkIndex.onFileRenamed(entry.oldPath, entry.newPath);
-      }
-    }
-
-    for (const pathValue of workspaceChange.changedPaths ?? []) {
-      if (!supportsBacklinksForFilePath(pathValue)) {
-        continue;
-      }
-
-      const existsNow = nextState.entries.has(pathValue);
-      const existedBefore = previousEntries.has(pathValue);
-      if (!existsNow) {
-        if (existedBefore) {
-          this.backlinkIndex.onFileDeleted(pathValue);
-        }
-        continue;
-      }
-
-      const content = await this.vaultFileStore.readMarkdownFile(pathValue);
-      if (content === null) {
-        continue;
-      }
-
-      if (existedBefore) {
-        this.backlinkIndex.updateFile(pathValue, content);
-      } else {
-        this.backlinkIndex.onFileCreated(pathValue, content);
-      }
-    }
+    await this.backlinkIndex.applyWorkspaceChange?.(workspaceChange, {
+      nextState,
+      previousState: this.workspaceState,
+    });
   }
 
   async apply({
@@ -623,6 +590,10 @@ export class WorkspaceMutationCoordinator {
     await this.vaultFileStore.reconcileCollaborationSnapshots?.(normalizedChange);
     await this.reconcileBacklinks(normalizedChange, resolvedState, {
       forceRebuild: forceBacklinkRebuild,
+    });
+    await this.baseQueryService?.applyWorkspaceChange?.(normalizedChange, {
+      nextState: resolvedState,
+      previousState,
     });
 
     const roomEffects = await this.roomRegistry?.reconcileWorkspaceChange?.(normalizedChange) ?? {};

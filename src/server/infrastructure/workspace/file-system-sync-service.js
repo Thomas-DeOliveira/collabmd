@@ -5,6 +5,7 @@ import { basename, dirname, join } from 'path';
 import { createWorkspaceChange } from '../../../domain/workspace-change.js';
 import { getVaultTreeNodeType, isVaultFilePath } from '../../../domain/file-kind.js';
 import { logPerfEvent } from '../../config/perf-logging.js';
+import { createWorkspaceStateSnapshot } from '../../domain/workspace-state.js';
 import {
   isIgnoredVaultEntry,
   sanitizeVaultPath,
@@ -86,6 +87,67 @@ function createWorkspaceMetadata(pathValue, type, info) {
 
 function isPathWithinPrefix(pathValue, prefix) {
   return pathValue === prefix || pathValue.startsWith(`${prefix}/`);
+}
+
+function collectAncestorPaths(pathValue = '') {
+  const normalizedPath = normalizeWorkspacePath(pathValue);
+  if (!normalizedPath) {
+    return [];
+  }
+
+  const segments = normalizedPath.split('/').filter(Boolean);
+  const ancestors = [];
+  let currentPath = '';
+  for (let index = 0; index < Math.max(segments.length - 1, 0); index += 1) {
+    currentPath = currentPath ? `${currentPath}/${segments[index]}` : segments[index];
+    ancestors.push(currentPath);
+  }
+
+  return ancestors;
+}
+
+function collapsePendingPaths(paths = []) {
+  const collapsed = [];
+  for (const pathValue of sortByPath(paths.filter(Boolean))) {
+    if (collapsed.some((existingPath) => isPathWithinPrefix(pathValue, existingPath))) {
+      continue;
+    }
+
+    collapsed.push(pathValue);
+  }
+
+  return collapsed;
+}
+
+function collectPathsWithinPrefixes(paths = [], prefixes = []) {
+  const collected = new Set();
+  for (const pathValue of paths) {
+    if (prefixes.some((prefix) => isPathWithinPrefix(pathValue, prefix))) {
+      collected.add(pathValue);
+    }
+  }
+  return collected;
+}
+
+function createScopedWorkspaceState(sourceState, scopedPaths = new Set()) {
+  const entries = new Map();
+  const metadata = new Map();
+
+  scopedPaths.forEach((pathValue) => {
+    const entry = sourceState?.entries?.get(pathValue);
+    const entryMetadata = sourceState?.metadata?.get(pathValue);
+    if (entry) {
+      entries.set(pathValue, entry);
+    }
+    if (entryMetadata) {
+      metadata.set(pathValue, entryMetadata);
+    }
+  });
+
+  return {
+    entries,
+    metadata,
+  };
 }
 
 function buildPrefixRenameEntries(previousState, nextState, oldPrefix, newPrefix) {
@@ -274,6 +336,25 @@ export class FileSystemSyncService {
     this.lastState = snapshot ?? this.mutationCoordinator.workspaceState ?? await this.vaultFileStore.scanWorkspaceState();
   }
 
+  async flushPendingChanges() {
+    clearTimeout(this.debounceTimer);
+    this.debounceTimer = null;
+
+    if (this.runningFlush) {
+      await this.runningFlush;
+      return;
+    }
+
+    if (this.pendingEventTypesByPath.size === 0 && !this.forceFullScan) {
+      return;
+    }
+
+    this.runningFlush = this.flush().finally(() => {
+      this.runningFlush = null;
+    });
+    await this.runningFlush;
+  }
+
   async readWorkspacePathSnapshot(pathValue) {
     const normalizedPath = normalizeWorkspacePath(pathValue);
     if (!normalizedPath) {
@@ -397,9 +478,7 @@ export class FileSystemSyncService {
       return { fallbackReason: 'missing-last-state', incrementalResult: null };
     }
 
-    const pendingPaths = Array.from(this.pendingEventTypesByPath.keys())
-      .filter(Boolean)
-      .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
+    const pendingPaths = collapsePendingPaths(Array.from(this.pendingEventTypesByPath.keys()));
     if (pendingPaths.length === 0 || pendingPaths.length > MAX_INCREMENTAL_PENDING_PATHS) {
       return { fallbackReason: 'too-many-pending-paths', incrementalResult: null };
     }
@@ -407,19 +486,23 @@ export class FileSystemSyncService {
     const nextEntries = new Map(this.lastState.entries);
     const nextMetadata = new Map(this.lastState.metadata);
     const previousState = this.lastState;
+    const previousTouchedPaths = collectPathsWithinPrefixes(previousState.entries.keys(), pendingPaths);
+    const nextTouchedPaths = new Set();
+
+    pendingPaths.forEach((pathValue) => {
+      collectAncestorPaths(pathValue).forEach((ancestorPath) => {
+        if (previousState.entries.has(ancestorPath)) {
+          previousTouchedPaths.add(ancestorPath);
+        }
+      });
+    });
+
+    previousTouchedPaths.forEach((pathValue) => {
+      nextEntries.delete(pathValue);
+      nextMetadata.delete(pathValue);
+    });
 
     for (const pathValue of pendingPaths) {
-      Array.from(previousState.entries.keys())
-        .filter((candidatePath) => isPathWithinPrefix(candidatePath, pathValue))
-        .forEach((candidatePath) => {
-          nextEntries.delete(candidatePath);
-        });
-      Array.from(previousState.metadata.keys())
-        .filter((candidatePath) => isPathWithinPrefix(candidatePath, pathValue))
-        .forEach((candidatePath) => {
-          nextMetadata.delete(candidatePath);
-        });
-
       const snapshot = await this.readWorkspacePathSnapshot(pathValue);
       if (!snapshot) {
         return { fallbackReason: 'snapshot-unavailable', incrementalResult: null };
@@ -429,22 +512,30 @@ export class FileSystemSyncService {
         if (!(await this.ensureAncestorDirectories(nextEntries, nextMetadata, pathValue))) {
           return { fallbackReason: 'ancestor-missing', incrementalResult: null };
         }
+
+        collectAncestorPaths(pathValue).forEach((ancestorPath) => {
+          if (nextEntries.has(ancestorPath)) {
+            nextTouchedPaths.add(ancestorPath);
+          }
+        });
       }
 
       snapshot.entries.forEach((entry, entryPath) => {
         nextEntries.set(entryPath, entry);
+        nextTouchedPaths.add(entryPath);
       });
       snapshot.metadata.forEach((metadata, metadataPath) => {
         nextMetadata.set(metadataPath, metadata);
       });
     }
 
-    const nextState = {
-      entries: nextEntries,
-      metadata: nextMetadata,
+    const nextState = createWorkspaceStateSnapshot(nextEntries, nextMetadata, {
       scannedAt: Date.now(),
-    };
-    const workspaceChange = detectWorkspaceChange(this.lastState, nextState);
+    });
+    const workspaceChange = detectWorkspaceChange(
+      createScopedWorkspaceState(previousState, previousTouchedPaths),
+      createScopedWorkspaceState(nextState, nextTouchedPaths),
+    );
 
     return {
       fallbackReason: '',

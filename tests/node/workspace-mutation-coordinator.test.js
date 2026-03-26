@@ -11,8 +11,10 @@ import { WorkspaceMutationCoordinator } from '../../src/server/infrastructure/wo
 function createState(paths = []) {
   return {
     entries: new Map(paths.map((pathValue) => [pathValue, { path: pathValue, type: 'file' }])),
+    markdownPaths: paths.filter((pathValue) => pathValue.endsWith('.md')),
     metadata: new Map(),
     scannedAt: Date.now(),
+    vaultFileCount: paths.length,
   };
 }
 
@@ -57,19 +59,12 @@ async function createCoordinatorWithVault(t, initialFiles = {}) {
 
 test('WorkspaceMutationCoordinator applies small backlink renames incrementally', async () => {
   const calls = [];
+  const previousState = createState(['a.md', 'b.md']);
+  const nextState = createState(['b.md', 'c.md']);
   const coordinator = new WorkspaceMutationCoordinator({
     backlinkIndex: {
-      build() {
-        calls.push(['build']);
-      },
-      onFileDeleted(pathValue) {
-        calls.push(['delete', pathValue]);
-      },
-      onFileRenamed(oldPath, newPath) {
-        calls.push(['rename', oldPath, newPath]);
-      },
-      updateFile(pathValue) {
-        calls.push(['update', pathValue]);
+      async applyWorkspaceChange(workspaceChange, { nextState, previousState }) {
+        calls.push(['apply', workspaceChange, previousState, nextState]);
       },
     },
     roomRegistry: null,
@@ -78,22 +73,32 @@ test('WorkspaceMutationCoordinator applies small backlink renames incrementally'
     },
   });
 
-  coordinator.workspaceState = createState(['a.md', 'b.md']);
+  coordinator.workspaceState = previousState;
   await coordinator.reconcileBacklinks({
     changedPaths: [],
     deletedPaths: [],
     renamedPaths: [{ oldPath: 'a.md', newPath: 'c.md' }],
-  }, createState(['b.md', 'c.md']));
+  }, nextState);
 
-  assert.deepEqual(calls, [['rename', 'a.md', 'c.md']]);
+  assert.deepEqual(calls, [[
+    'apply',
+    {
+      changedPaths: [],
+      deletedPaths: [],
+      renamedPaths: [{ oldPath: 'a.md', newPath: 'c.md' }],
+    },
+    previousState,
+    nextState,
+  ]]);
 });
 
 test('WorkspaceMutationCoordinator schedules large backlink rebuilds without awaiting a full build', async () => {
   const calls = [];
+  const nextState = createState(['note-1.md']);
   const coordinator = new WorkspaceMutationCoordinator({
     backlinkIndex: {
-      scheduleBuild() {
-        calls.push(['schedule-build']);
+      scheduleBuild(options) {
+        calls.push(['schedule-build', options]);
       },
     },
     roomRegistry: null,
@@ -107,9 +112,12 @@ test('WorkspaceMutationCoordinator schedules large backlink rebuilds without awa
     changedPaths: Array.from({ length: 26 }, (_, index) => `note-${index}.md`),
     deletedPaths: [],
     renamedPaths: [],
-  }, createState(['note-1.md']));
+  }, nextState);
 
-  assert.deepEqual(calls, [['schedule-build']]);
+  assert.deepEqual(calls, [[
+    'schedule-build',
+    { workspaceState: nextState },
+  ]]);
 });
 
 test('WorkspaceMutationCoordinator avoids a full rescan for API file writes', async (t) => {
@@ -130,6 +138,8 @@ test('WorkspaceMutationCoordinator avoids a full rescan for API file writes', as
   assert.equal(harness.scanCalls, 0);
   assert.equal(harness.coordinator.workspaceState.entries.has('docs/test.md'), true);
   assert.equal(harness.coordinator.workspaceState.entries.has('docs'), true);
+  assert.deepEqual(harness.coordinator.workspaceState.markdownPaths, ['docs/test.md']);
+  assert.equal(harness.coordinator.workspaceState.vaultFileCount, 1);
 });
 
 test('WorkspaceMutationCoordinator avoids a full rescan for API file creation with nested directories', async (t) => {
@@ -149,6 +159,8 @@ test('WorkspaceMutationCoordinator avoids a full rescan for API file creation wi
   assert.equal(harness.coordinator.workspaceState.entries.has('guides'), true);
   assert.equal(harness.coordinator.workspaceState.entries.has('guides/start'), true);
   assert.equal(harness.coordinator.workspaceState.entries.has('guides/start/here.md'), true);
+  assert.deepEqual(harness.coordinator.workspaceState.markdownPaths, ['guides/start/here.md']);
+  assert.equal(harness.coordinator.workspaceState.vaultFileCount, 1);
 });
 
 test('WorkspaceMutationCoordinator avoids a full rescan for API file deletion', async (t) => {
@@ -169,6 +181,8 @@ test('WorkspaceMutationCoordinator avoids a full rescan for API file deletion', 
   assert.equal(harness.scanCalls, 0);
   assert.equal(harness.coordinator.workspaceState.entries.has('docs/test.md'), false);
   assert.equal(harness.coordinator.workspaceState.entries.has('docs'), true);
+  assert.deepEqual(harness.coordinator.workspaceState.markdownPaths, []);
+  assert.equal(harness.coordinator.workspaceState.vaultFileCount, 0);
 });
 
 test('WorkspaceMutationCoordinator avoids a full rescan for API file renames', async (t) => {

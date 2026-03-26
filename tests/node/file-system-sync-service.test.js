@@ -60,6 +60,8 @@ test('FileSystemSyncService applies single-file content changes without a full w
   assert.equal(scanCount, 0);
   assert.deepEqual(applied?.workspaceChange?.changedPaths, ['README.md']);
   assert.equal(applied?.nextState?.entries?.has('README.md'), true);
+  assert.deepEqual(applied?.nextState?.markdownPaths, ['docs/guide.md', 'README.md']);
+  assert.equal(applied?.nextState?.vaultFileCount, 2);
 });
 
 test('FileSystemSyncService falls back to a full workspace rescan for rename events', async (t) => {
@@ -151,4 +153,46 @@ test('FileSystemSyncService emits gated perf logs for full-scan fallback reasons
     && line.includes('mode=full-scan')
     && line.includes('fallbackReason=forced-full-scan')
   )));
+});
+
+test('FileSystemSyncService collapses overlapping pending paths during incremental diffing', async (t) => {
+  const { cleanup, store, vaultDir } = await createVault();
+  t.after(cleanup);
+
+  const baselineState = await store.scanWorkspaceState();
+  let scanCount = 0;
+  const originalScanWorkspaceState = store.scanWorkspaceState.bind(store);
+  store.scanWorkspaceState = async (...args) => {
+    scanCount += 1;
+    return originalScanWorkspaceState(...args);
+  };
+
+  let applied = null;
+  const mutationCoordinator = {
+    filterManagedWorkspaceChange(workspaceChange) {
+      return workspaceChange;
+    },
+    async apply(payload) {
+      applied = payload;
+      return payload;
+    },
+    getWorkspaceRoom() {
+      return null;
+    },
+    workspaceState: baselineState,
+  };
+
+  const service = new FileSystemSyncService({
+    mutationCoordinator,
+    vaultFileStore: store,
+  });
+  service.lastState = baselineState;
+  service.pendingEventTypesByPath.set('docs', new Set(['change']));
+  service.pendingEventTypesByPath.set('docs/guide.md', new Set(['change']));
+
+  await writeFile(join(vaultDir, 'docs', 'guide.md'), '# Guide\n\nUpdated\n', 'utf8');
+  await service.flush();
+
+  assert.equal(scanCount, 0);
+  assert.deepEqual(applied?.workspaceChange?.changedPaths, ['docs/guide.md']);
 });

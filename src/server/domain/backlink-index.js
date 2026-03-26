@@ -66,9 +66,11 @@ export class BacklinkIndex {
     return this.flushScheduledBuild();
   }
 
-  scheduleBuild({ delayMs = this.rebuildDelayMs } = {}) {
+  scheduleBuild({ delayMs = this.rebuildDelayMs, workspaceState } = {}) {
     this._requestedBuildVersion += 1;
-    this._latestRequestedWorkspaceState = null;
+    if (workspaceState !== undefined) {
+      this._latestRequestedWorkspaceState = workspaceState;
+    }
     if (!this._scheduledBuildDeferred) {
       this._scheduledBuildDeferred = createDeferred();
     }
@@ -175,14 +177,16 @@ export class BacklinkIndex {
    * Incrementally update the index when a file's content changes.
    * Call this after every persist / write.
    */
-  updateFile(filePath, content) {
+  updateFile(filePath, content, { refreshIndex = true } = {}) {
     // Remove old forward links for this file
     this._removeForwardLinks(filePath);
 
     if (!this._fileSet.has(filePath)) {
       this._fileSet.add(filePath);
       this._fileList.push(filePath);
-      this._refreshWikiTargetIndex();
+      if (refreshIndex) {
+        this._refreshWikiTargetIndex();
+      }
     }
 
     // Re-index with new content
@@ -192,36 +196,47 @@ export class BacklinkIndex {
   /**
    * Handle file creation — add to file list and index its content.
    */
-  onFileCreated(filePath, content = '') {
+  onFileCreated(filePath, content = '', { refreshIndex = true } = {}) {
+    let membershipChanged = false;
     if (!this._fileSet.has(filePath)) {
       this._fileSet.add(filePath);
       this._fileList.push(filePath);
-      this._refreshWikiTargetIndex();
+      membershipChanged = true;
+      if (refreshIndex) {
+        this._refreshWikiTargetIndex();
+      }
     }
 
     if (content) {
       this._indexFile(filePath, content);
     }
+
+    return membershipChanged;
   }
 
   /**
    * Handle file deletion — remove from file list and all index entries.
    */
-  onFileDeleted(filePath) {
+  onFileDeleted(filePath, { refreshIndex = true } = {}) {
     this._removeForwardLinks(filePath);
+    let membershipChanged = false;
     if (this._fileSet.delete(filePath)) {
       this._fileList = this._fileList.filter((f) => f !== filePath);
-      this._refreshWikiTargetIndex();
+      membershipChanged = true;
+      if (refreshIndex) {
+        this._refreshWikiTargetIndex();
+      }
     }
 
     // Also remove this file as a reverse entry (no one can link to a deleted file)
     this.reverse.delete(filePath);
+    return membershipChanged;
   }
 
   /**
    * Handle file rename — re-map all index entries from oldPath to newPath.
    */
-  onFileRenamed(oldPath, newPath) {
+  onFileRenamed(oldPath, newPath, { refreshIndex = true } = {}) {
     // Move cached contexts for the renamed source file.
     if (this.contextsBySource.has(oldPath)) {
       const sourceContexts = this.contextsBySource.get(oldPath);
@@ -272,9 +287,61 @@ export class BacklinkIndex {
     }
 
     // Update file list
+    let membershipChanged = false;
     if (this._fileSet.delete(oldPath)) {
       this._fileSet.add(newPath);
       this._fileList = this._fileList.map((f) => (f === oldPath ? newPath : f));
+      membershipChanged = true;
+      if (refreshIndex) {
+        this._refreshWikiTargetIndex();
+      }
+    }
+
+    return membershipChanged;
+  }
+
+  async applyWorkspaceChange(workspaceChange = {}, {
+    previousState = null,
+    nextState = null,
+  } = {}) {
+    let refreshIndex = false;
+    const previousEntries = previousState?.entries ?? new Map();
+    const nextEntries = nextState?.entries ?? new Map();
+
+    for (const pathValue of workspaceChange.deletedPaths ?? []) {
+      refreshIndex = this.onFileDeleted(pathValue, { refreshIndex: false }) || refreshIndex;
+    }
+
+    for (const entry of workspaceChange.renamedPaths ?? []) {
+      if (!entry?.oldPath || !entry?.newPath) {
+        continue;
+      }
+      refreshIndex = this.onFileRenamed(entry.oldPath, entry.newPath, { refreshIndex: false }) || refreshIndex;
+    }
+
+    for (const pathValue of new Set(workspaceChange.changedPaths ?? [])) {
+      const existsNow = nextEntries.has(pathValue);
+      const existedBefore = previousEntries.has(pathValue);
+      if (!existsNow) {
+        if (existedBefore) {
+          refreshIndex = this.onFileDeleted(pathValue, { refreshIndex: false }) || refreshIndex;
+        }
+        continue;
+      }
+
+      const content = await this.vaultFileStore.readMarkdownFile(pathValue);
+      if (content === null) {
+        continue;
+      }
+
+      if (existedBefore) {
+        this.updateFile(pathValue, content, { refreshIndex: false });
+      } else {
+        refreshIndex = this.onFileCreated(pathValue, content, { refreshIndex: false }) || refreshIndex;
+      }
+    }
+
+    if (refreshIndex) {
       this._refreshWikiTargetIndex();
     }
   }

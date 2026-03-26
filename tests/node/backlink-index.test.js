@@ -132,3 +132,48 @@ test('BacklinkIndex full builds source file lists from scanWorkspaceState instea
     },
   ]);
 });
+
+test('BacklinkIndex batches workspace changes behind a single wiki-target refresh', async () => {
+  const vaultFileStore = new StubVaultStore([
+    ['docs/a.md', '[[docs/b]]'],
+    ['docs/b.md', '# b'],
+    ['docs/c.md', '# c'],
+  ]);
+  const index = new BacklinkIndex({ vaultFileStore });
+  let refreshCount = 0;
+  const originalRefresh = index._refreshWikiTargetIndex.bind(index);
+  index._refreshWikiTargetIndex = () => {
+    refreshCount += 1;
+    originalRefresh();
+  };
+
+  await index.build();
+  refreshCount = 0;
+  vaultFileStore.files.delete('docs/b.md');
+  vaultFileStore.files.set('archive/b.md', '# b');
+  vaultFileStore.files.set('docs/new.md', '# new');
+
+  await index.applyWorkspaceChange({
+    changedPaths: ['docs/new.md'],
+    deletedPaths: [],
+    renamedPaths: [{ oldPath: 'docs/b.md', newPath: 'archive/b.md' }],
+  }, {
+    previousState: {
+      entries: new Map([
+        ['docs/a.md', { path: 'docs/a.md', type: 'file' }],
+        ['docs/b.md', { path: 'docs/b.md', type: 'file' }],
+        ['docs/c.md', { path: 'docs/c.md', type: 'file' }],
+      ]),
+    },
+    nextState: {
+      entries: new Map([
+        ['archive/b.md', { path: 'archive/b.md', type: 'file' }],
+        ['docs/a.md', { path: 'docs/a.md', type: 'file' }],
+        ['docs/c.md', { path: 'docs/c.md', type: 'file' }],
+        ['docs/new.md', { path: 'docs/new.md', type: 'file' }],
+      ]),
+    },
+  });
+
+  assert.equal(refreshCount, 1);
+});
