@@ -169,25 +169,73 @@ function renderViewBody(result) {
   }
 }
 
+function renderViewTabs(result) {
+  return (result.views ?? []).map((view) => (
+    `<button type="button" class="bases-view-tab${view.id === result.view.id ? ' is-active' : ''}" data-base-view="${escapeHtml(view.id)}">${escapeHtml(view.name)}</button>`
+  )).join('');
+}
+
 function renderShellHtml(result, state) {
   return `
     <section class="bases-shell" data-base-shell-key="${escapeHtml(state.key)}">
       <header class="bases-toolbar">
         <div class="bases-toolbar-main">
-          <div class="bases-tabs">
-            ${(result.views ?? []).map((view) => `<button type="button" class="bases-view-tab${view.id === result.view.id ? ' is-active' : ''}" data-base-view="${escapeHtml(view.id)}">${escapeHtml(view.name)}</button>`).join('')}
+          <div class="bases-tabs" data-base-tabs>
+            ${renderViewTabs(result)}
           </div>
-          <div class="bases-meta">${escapeHtml(String(result.totalRows ?? 0))} results</div>
+          <div class="bases-meta" data-base-meta>${escapeHtml(String(result.totalRows ?? 0))} results</div>
         </div>
         <div class="bases-toolbar-actions">
           <input class="bases-search-input" type="search" value="${escapeHtml(state.search)}" placeholder="Search this base">
           <button type="button" class="bases-export-btn">Export CSV</button>
         </div>
       </header>
-      ${renderSummaryBar(result.summaries)}
-      <div class="bases-content">${renderViewBody(result)}</div>
+      <div data-base-summary-slot>${renderSummaryBar(result.summaries)}</div>
+      <div class="bases-content" data-base-content>${renderViewBody(result)}</div>
     </section>
   `;
+}
+
+function findShellElement(entry) {
+  if (!entry?.placeholder?.querySelector) {
+    return null;
+  }
+
+  return entry.placeholder.querySelector(`[data-base-shell-key="${entry.key}"]`)
+    ?? entry.placeholder.querySelector('.bases-shell');
+}
+
+function updateShellContent(entry, result) {
+  const shell = findShellElement(entry);
+  if (!shell?.querySelector) {
+    entry.placeholder.innerHTML = renderShellHtml(result, entry);
+    return;
+  }
+
+  const tabs = shell.querySelector('[data-base-tabs]');
+  if (tabs) {
+    tabs.innerHTML = renderViewTabs(result);
+  }
+
+  const meta = shell.querySelector('[data-base-meta]');
+  if (meta) {
+    meta.textContent = `${String(result.totalRows ?? 0)} results`;
+  }
+
+  const summarySlot = shell.querySelector('[data-base-summary-slot]');
+  if (summarySlot) {
+    summarySlot.innerHTML = renderSummaryBar(result.summaries);
+  }
+
+  const content = shell.querySelector('[data-base-content]');
+  if (content) {
+    content.innerHTML = renderViewBody(result);
+  }
+
+  const input = shell.querySelector('.bases-search-input');
+  if (input && input.value !== entry.search) {
+    input.value = entry.search;
+  }
 }
 
 function downloadBlob(blob, fileName = 'base.csv') {
@@ -351,7 +399,10 @@ export class BasesPreviewController {
 
     const requestVersion = (entry.requestVersion ?? 0) + 1;
     entry.requestVersion = requestVersion;
-    entry.placeholder.innerHTML = '<div class="preview-shell">Loading base…</div>';
+    const hasShell = Boolean(findShellElement(entry));
+    if (!hasShell) {
+      entry.placeholder.innerHTML = '<div class="preview-shell">Loading base…</div>';
+    }
     try {
       const response = await this.vaultApiClient.queryBase({
         activeFilePath: this.getActiveFilePath?.() ?? '',
@@ -361,10 +412,18 @@ export class BasesPreviewController {
         return;
       }
       entry.result = response.result;
-      entry.placeholder.innerHTML = renderShellHtml(entry.result, entry);
+      updateShellContent(entry, entry.result);
     } catch (error) {
       if (requestVersion !== entry.requestVersion || !entry?.placeholder?.isConnected) {
         return;
+      }
+      if (hasShell) {
+        const shell = findShellElement(entry);
+        const content = shell?.querySelector?.('[data-base-content]') ?? null;
+        if (content) {
+          content.innerHTML = `<div class="preview-shell">Failed to load base: ${escapeHtml(error.message || 'Unknown error')}</div>`;
+          return;
+        }
       }
       entry.placeholder.innerHTML = `<div class="preview-shell">Failed to load base: ${escapeHtml(error.message || 'Unknown error')}</div>`;
     }
