@@ -297,6 +297,7 @@ test('FileActionController shares the create registry across menus and includes 
 
   assert.deepEqual(createActions.map((item) => item.id), [
     'markdown',
+    'base',
     'excalidraw',
     'drawio',
     'mermaid',
@@ -304,4 +305,26 @@ test('FileActionController shares the create registry across menus and includes 
     'folder',
   ]);
   assert.deepEqual(contextItems.map((item) => item.label), createActions.map((item) => item.contextLabel));
+});
+
+test('FileActionController creates base files with starter content and opens them', async (t) => {
+  const { calls, controller } = createController(t);
+  let dialogConfig = null;
+  controller.openActionDialog = (config) => {
+    dialogConfig = config;
+  };
+
+  controller.handleNewBase({ parentDir: 'views' });
+
+  assert.equal(dialogConfig?.title, 'Create base file');
+  assert.equal(dialogConfig?.submitLabel, 'Create base');
+
+  const created = await dialogConfig.onSubmit('tasks');
+
+  assert.equal(created, true);
+  assert.deepEqual(calls, [
+    ['create-file', 'views/tasks.base', 'views:\n  - type: table\n    name: Table\n    order:\n      - file.name\n'],
+    ['refresh'],
+    ['select', 'views/tasks.base'],
+  ]);
 });

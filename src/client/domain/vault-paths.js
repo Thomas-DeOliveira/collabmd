@@ -1,4 +1,5 @@
 import {
+  isBaseFilePath,
   isDrawioFilePath,
   isMermaidFilePath,
   isPlantUmlFilePath,
@@ -45,6 +46,24 @@ export function ensureVaultExtension(pathValue, extension) {
 export function createMarkdownStarter(filePath) {
   const title = stripVaultFileExtension(String(filePath ?? '').split('/').pop() || '') || 'Untitled';
   return `# ${title}\n\n`;
+}
+
+export function createBaseStarter(filePath) {
+  const normalizedPath = normalizeVaultPathInput(filePath);
+  const nextPath = isBaseFilePath(normalizedPath)
+    ? normalizedPath
+    : `${normalizedPath}.base`;
+  return {
+    content: [
+      'views:',
+      '  - type: table',
+      '    name: Table',
+      '    order:',
+      '      - file.name',
+      '',
+    ].join('\n'),
+    path: nextPath,
+  };
 }
 
 export function createMermaidStarter(filePath) {

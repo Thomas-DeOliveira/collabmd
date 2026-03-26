@@ -2,6 +2,7 @@ import {
   getVaultFileExtension,
 } from '../../domain/file-kind.js';
 import {
+  createBaseStarter,
   composeVaultChildPath,
   createDrawioStarter,
   createMarkdownStarter,
@@ -124,6 +125,16 @@ export class FileActionController {
         onSelect: () => this.handleNewFile({ parentDir }),
       },
       {
+        contextLabel: 'New base file',
+        group: 'Note',
+        hint: 'Base',
+        icon: this.getCreateActionIcon('base'),
+        id: 'base',
+        label: 'Base file',
+        meta: '.base',
+        onSelect: () => this.handleNewBase({ parentDir }),
+      },
+      {
         contextLabel: 'New Excalidraw drawing',
         group: 'Diagram',
         hint: 'Excalidraw',
@@ -220,6 +231,8 @@ export class FileActionController {
 
   getCreateActionIcon(kind) {
     switch (kind) {
+      case 'base':
+        return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M14 4v5h5"/><path d="M8 13h8"/><path d="M8 17h6"/><path d="M8 9h3"/></svg>';
       case 'drawio':
       case 'plantuml':
         return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="6" rx="1"/><rect x="14" y="4" width="7" height="6" rx="1"/><rect x="8.5" y="14" width="7" height="6" rx="1"/><path d="M10 7h4"/><path d="M17.5 10v2.5"/><path d="M6.5 10v2.5"/><path d="M6.5 12.5h11"/></svg>';
@@ -664,6 +677,36 @@ export class FileActionController {
         const filePath = this.ensureExtension(composeVaultChildPath(context.normalizedParentDir, normalizedPath), '.md');
         return this.createVaultFile(filePath, createMarkdownStarter(filePath), {
           errorMessage: 'Failed to create file',
+          openAfterCreate: true,
+        });
+      },
+    });
+  }
+
+  handleNewBase({ parentDir = '' } = {}) {
+    const context = this.getCreateContext(parentDir);
+
+    this.openActionDialog({
+      title: 'Create base file',
+      copy: context.normalizedParentDir
+        ? 'Add a new `.base` file inside the selected folder. It opens immediately after creation.'
+        : 'Add a new `.base` file to the vault. It opens immediately after creation.',
+      label: `Base ${context.inputLabelSuffix}`,
+      hint: `${context.hintPrefix} ".base" is added automatically.`,
+      note: context.note,
+      placeholder: context.normalizedParentDir ? 'table-view' : 'views/table-view',
+      submitLabel: 'Create base',
+      emptyMessage: 'Base path is required',
+      onSubmit: (value) => {
+        const normalizedPath = normalizeVaultPathInput(value);
+        if (!normalizedPath) {
+          this.showToast('Base path is required');
+          return false;
+        }
+
+        const starter = createBaseStarter(composeVaultChildPath(context.normalizedParentDir, normalizedPath));
+        return this.createVaultFile(starter.path, starter.content, {
+          errorMessage: 'Failed to create base file',
           openAfterCreate: true,
         });
       },
