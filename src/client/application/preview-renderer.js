@@ -13,6 +13,7 @@ export class PreviewRenderer {
     getSourceFilePath,
     onAfterRenderCommit,
     onBeforeRenderCommit,
+    onPreviewLayoutChange,
     onRenderComplete,
     outlineController,
     previewContainer,
@@ -23,6 +24,7 @@ export class PreviewRenderer {
     this.getSourceFilePath = getSourceFilePath;
     this.onAfterRenderCommit = onAfterRenderCommit;
     this.onBeforeRenderCommit = onBeforeRenderCommit;
+    this.onPreviewLayoutChange = onPreviewLayoutChange;
     this.onRenderComplete = onRenderComplete;
     this.outlineController = outlineController;
     this.previewContainer = previewContainer;
@@ -35,8 +37,18 @@ export class PreviewRenderer {
     this.currentStats = null;
     this.isLargeDocument = false;
     this.hydrationPaused = false;
+    this.frontmatterCollapsed = false;
 
     this.handlePreviewClick = (event) => {
+      const frontmatterToggle = event.target.closest('.frontmatter-toggle');
+      if (frontmatterToggle) {
+        event.preventDefault();
+        this.frontmatterCollapsed = !this.frontmatterCollapsed;
+        this.applyFrontmatterState();
+        this.handleFrontmatterLayoutChange();
+        return;
+      }
+
       const mermaidButton = event.target.closest('.mermaid-placeholder-btn');
       if (mermaidButton) {
         const shell = mermaidButton.closest('.mermaid-shell');
@@ -134,6 +146,7 @@ export class PreviewRenderer {
     this.readyRenderVersion = 0;
     this.currentStats = null;
     this.isLargeDocument = false;
+    this.frontmatterCollapsed = false;
     if (this.renderExecutor.hasPendingJob()) {
       this.resetWorker('Document changed');
     }
@@ -272,7 +285,10 @@ export class PreviewRenderer {
   }
 
   async compilePreview(markdownText, renderVersion) {
-    return this.renderExecutor.compile(markdownText, renderVersion);
+    return this.renderExecutor.compile(markdownText, renderVersion, {
+      frontmatterCollapsed: this.frontmatterCollapsed,
+      frontmatterInteractive: true,
+    });
   }
 
   commitBaseRender({ html, stats }, renderVersion) {
@@ -294,6 +310,7 @@ export class PreviewRenderer {
     if (renderHost) {
       renderHost.innerHTML = html;
     }
+    this.applyFrontmatterState();
     this.reconcileHydratedMermaids();
     this.reconcileHydratedPlantUmls();
     this.setPhase('base');
@@ -311,6 +328,39 @@ export class PreviewRenderer {
     if (mermaidShellCount === 0 && plantUmlShellCount === 0) {
       this.notifyReady();
     }
+  }
+
+  applyFrontmatterState() {
+    const block = this.renderHost?.querySelector?.('.frontmatter-block');
+    if (!(block instanceof HTMLElement)) {
+      return;
+    }
+
+    const collapsed = this.frontmatterCollapsed;
+    const toggle = block.querySelector('.frontmatter-toggle');
+    const summary = block.querySelector('.frontmatter-summary');
+    const content = block.querySelector('.frontmatter-content');
+
+    block.dataset.collapsed = collapsed ? 'true' : 'false';
+    if (toggle instanceof HTMLButtonElement) {
+      toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      toggle.textContent = collapsed ? 'Show' : 'Hide';
+    }
+    if (summary instanceof HTMLElement) {
+      summary.hidden = !collapsed;
+    }
+    if (content instanceof HTMLElement) {
+      content.hidden = collapsed;
+    }
+  }
+
+  handleFrontmatterLayoutChange() {
+    this.outlineController.refresh();
+    this.onPreviewLayoutChange?.({
+      isLargeDocument: this.isLargeDocument,
+      renderVersion: this.activeRenderVersion,
+      stats: this.currentStats,
+    });
   }
 
   preserveHydratedMermaidsForCommit() {

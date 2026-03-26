@@ -135,6 +135,96 @@ test('compilePreviewDocument emits stable .plantuml embed shell keys', () => {
   assert.equal(stats.plantumlBlocks, 2);
 });
 
+test('compilePreviewDocument renders YAML frontmatter as a metadata block and preserves body source lines', () => {
+  const markdown = [
+    '---',
+    'title: Demo note',
+    'tags:',
+    '  - alpha',
+    '  - beta',
+    '---',
+    '',
+    '# Heading',
+    '',
+    'Body copy',
+  ].join('\n');
+
+  const { html } = compilePreviewDocument({ markdownText: markdown });
+
+  assert.match(html, /<section class="frontmatter-block" data-source-line="1" data-source-line-end="6">/);
+  assert.match(html, /<div class="frontmatter-label">Properties<\/div>/);
+  assert.match(html, /<dt class="frontmatter-key">title<\/dt>/);
+  assert.match(html, /<span class="frontmatter-value-text">Demo note<\/span>/);
+  assert.match(html, /<dt class="frontmatter-key">tags<\/dt>/);
+  assert.match(html, /<span class="frontmatter-value-pill">alpha<\/span>/);
+  assert.match(html, /<span class="frontmatter-value-pill">beta<\/span>/);
+  assert.doesNotMatch(html, /<hr>\s*<p[^>]*>title: Demo note/);
+  assert.match(html, /<h1 data-source-line="8" data-source-line-end="8">Heading<\/h1>/);
+  assert.match(html, /<p data-source-line="10" data-source-line-end="10">Body copy<\/p>/);
+});
+
+test('compilePreviewDocument renders complex and empty YAML frontmatter values', () => {
+  const markdown = [
+    '---',
+    'aliases: []',
+    'config:',
+    '  theme: ocean',
+    '  widgets:',
+    '    - chart',
+    '    - table',
+    '---',
+    '',
+    '# Heading',
+  ].join('\n');
+
+  const { html } = compilePreviewDocument({ markdownText: markdown });
+
+  assert.match(html, /<section class="frontmatter-block" data-source-line="1" data-source-line-end="8">/);
+  assert.match(html, /<dt class="frontmatter-key">aliases<\/dt>/);
+  assert.match(html, /<div class="frontmatter-value-list"><\/div>/);
+  assert.match(html, /<dt class="frontmatter-key">config<\/dt>/);
+  assert.match(html, /<pre class="frontmatter-value-code"><code>theme: ocean/);
+  assert.match(html, /widgets:\n {2}- chart\n {2}- table/);
+});
+
+test('compilePreviewDocument renders an empty frontmatter shell for empty YAML objects', () => {
+  const markdown = [
+    '---',
+    '---',
+    '',
+    '# Heading',
+  ].join('\n');
+
+  const { html } = compilePreviewDocument({ markdownText: markdown });
+
+  assert.match(html, /<section class="frontmatter-block" data-source-line="1" data-source-line-end="2">/);
+  assert.match(html, /<dl class="frontmatter-properties"><\/dl><div class="frontmatter-empty">No properties<\/div>/);
+  assert.match(html, /<h1 data-source-line="4" data-source-line-end="4">Heading<\/h1>/);
+});
+
+test('compilePreviewDocument renders interactive frontmatter controls for preview mode', () => {
+  const markdown = [
+    '---',
+    'title: Demo note',
+    'tags:',
+    '  - alpha',
+    '---',
+    '',
+    '# Heading',
+  ].join('\n');
+
+  const { html } = compilePreviewDocument({
+    frontmatterCollapsed: true,
+    frontmatterInteractive: true,
+    markdownText: markdown,
+  });
+
+  assert.match(html, /<section class="frontmatter-block" data-source-line="1" data-source-line-end="5" data-collapsed="true">/);
+  assert.match(html, /<button type="button" class="frontmatter-toggle" aria-controls="frontmatter-body-1-5" aria-expanded="false">Show<\/button>/);
+  assert.match(html, /<div class="frontmatter-summary">2 properties hidden<\/div>/);
+  assert.match(html, /<div class="frontmatter-content" id="frontmatter-body-1-5" hidden>/);
+});
+
 test('compilePreviewDocument normalizes ASCII arrows in preview text', () => {
   const markdown = [
     '## Pie Chart -> Test',
@@ -171,6 +261,39 @@ test('compilePreviewDocument renders inline br tags without enabling arbitrary h
   assert.match(html, /Template for BUY\/SELL stocks txn <br> <code>partnerCorporateAccountNo<\/code>/);
   assert.ok(!html.includes('<div id="unsafe-html">unsafe</div>'));
   assert.match(html, /&lt;div id=.*unsafe-html.*&gt;unsafe&lt;\/div&gt;/);
+});
+
+test('compilePreviewDocument falls back to raw markdown rendering for invalid YAML frontmatter', () => {
+  const markdown = [
+    '---',
+    'title: [oops',
+    '---',
+    '',
+    '# Heading',
+  ].join('\n');
+
+  const { html } = compilePreviewDocument({ markdownText: markdown });
+
+  assert.doesNotMatch(html, /frontmatter-block/);
+  assert.match(html, /<hr>/);
+  assert.match(html, /title: \[oops/);
+  assert.match(html, /<h1 data-source-line="5" data-source-line-end="5">Heading<\/h1>/);
+});
+
+test('compilePreviewDocument falls back to raw markdown rendering when frontmatter is missing a closing delimiter', () => {
+  const markdown = [
+    '---',
+    'title: Missing closer',
+    '',
+    '# Heading',
+  ].join('\n');
+
+  const { html } = compilePreviewDocument({ markdownText: markdown });
+
+  assert.doesNotMatch(html, /frontmatter-block/);
+  assert.match(html, /<hr>/);
+  assert.match(html, /<p data-source-line="2" data-source-line-end="2">title: Missing closer<\/p>/);
+  assert.match(html, /<h1 data-source-line="4" data-source-line-end="4">Heading<\/h1>/);
 });
 
 test('compilePreviewDocument preserves nested task list structure', () => {

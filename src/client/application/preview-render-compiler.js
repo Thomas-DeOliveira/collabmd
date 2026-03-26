@@ -3,6 +3,7 @@ import hljs from 'highlight.js';
 
 import { isImageAttachmentFilePath } from '../../domain/file-kind.js';
 import { escapeHtml, resolveVaultRelativePath, resolveWikiTarget } from '../domain/vault-utils.js';
+import { extractYamlFrontmatter, renderFrontmatterBlock } from './markdown-frontmatter.js';
 import { analyzeMarkdownComplexity } from './preview-render-profile.js';
 
 const DIRECT_VIDEO_MIME_TYPES = Object.freeze({
@@ -480,17 +481,25 @@ function createMarkdownRenderer(fileList = [], {
 export function compilePreviewDocument({
   attachmentApiPath = '/api/attachment',
   fileList = [],
+  frontmatterCollapsed = false,
+  frontmatterInteractive = false,
   markdownText = '',
   sourceFilePath = '',
 } = {}) {
   const normalizedMarkdown = String(markdownText);
+  const frontmatter = extractYamlFrontmatter(normalizedMarkdown);
   const renderer = createMarkdownRenderer(fileList, {
     attachmentApiPath,
     sourceFilePath,
   });
+  const renderedMarkdown = frontmatter ? frontmatter.bodyMarkdown : normalizedMarkdown;
+  const frontmatterHtml = renderFrontmatterBlock(frontmatter, {
+    collapsed: frontmatterCollapsed,
+    interactive: frontmatterInteractive,
+  });
 
   return {
-    html: renderer.render(normalizedMarkdown),
+    html: `${frontmatterHtml}${renderer.render(renderedMarkdown)}`,
     stats: analyzeMarkdownComplexity(normalizedMarkdown),
   };
 }

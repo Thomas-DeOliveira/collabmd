@@ -68,6 +68,48 @@ test('renders markdown preview when a file is opened', async ({ page }) => {
   await expect(page.locator('#previewContent')).toContainText('Welcome to the test vault');
 });
 
+test('frontmatter preview can be collapsed and stays collapsed across rerenders', async ({ page }) => {
+  await openFile(page, 'README.md');
+
+  await replaceEditorContent(page, [
+    '---',
+    'title: Preview toggle',
+    'tags:',
+    '  - one',
+    '  - two',
+    '---',
+    '',
+    '# Heading',
+    '',
+    'Body copy',
+  ].join('\n'));
+
+  const frontmatter = page.locator('#previewContent .frontmatter-block');
+  const toggle = frontmatter.locator('.frontmatter-toggle');
+  const summary = frontmatter.locator('.frontmatter-summary');
+  const content = frontmatter.locator('.frontmatter-content');
+
+  await expect(frontmatter).toBeVisible();
+  await expect(content).toBeVisible();
+
+  await toggle.click();
+
+  await expect(frontmatter).toHaveAttribute('data-collapsed', 'true');
+  await expect(summary).toBeVisible();
+  await expect(summary).toContainText('2 properties hidden');
+  await expect(content).toBeHidden();
+
+  await appendEditorContent(page, 'Another paragraph');
+
+  await expect(frontmatter).toHaveAttribute('data-collapsed', 'true');
+  await expect(content).toBeHidden();
+
+  await toggle.click();
+
+  await expect(frontmatter).toHaveAttribute('data-collapsed', 'false');
+  await expect(content).toBeVisible();
+});
+
 test('indents nested task list items in markdown preview', async ({ page }) => {
   await openFile(page, 'README.md');
 

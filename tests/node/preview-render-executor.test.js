@@ -56,11 +56,16 @@ test('PreviewRenderExecutor compiles through the worker when available', async (
     getFileList: () => ['notes/today.md'],
   });
 
-  const resultPromise = executor.compile('# Today', 7);
+  const resultPromise = executor.compile('# Today', 7, {
+    frontmatterCollapsed: true,
+    frontmatterInteractive: true,
+  });
 
   assert.deepEqual(worker.lastMessage, {
     attachmentApiPath: '/api/attachment',
     fileList: ['notes/today.md'],
+    frontmatterCollapsed: true,
+    frontmatterInteractive: true,
     markdownText: '# Today',
     renderVersion: 7,
     sourceFilePath: '',

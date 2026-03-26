@@ -212,6 +212,11 @@ export class CollabMdAppShell {
         this.drawioEmbed.detachForCommit();
         this.excalidrawEmbed.detachForCommit();
       },
+      onPreviewLayoutChange: () => {
+        this.scrollSyncController.invalidatePreviewBlocks();
+        this.schedulePreviewLayoutSync({ delayMs: 0 });
+        this.refreshCommentUiLayout();
+      },
       onRenderComplete: () => {
         this.videoEmbed.syncLayout();
         this.drawioEmbed.syncLayout();

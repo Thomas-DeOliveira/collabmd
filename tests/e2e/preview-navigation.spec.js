@@ -21,6 +21,24 @@ Welcome to the test vault.
 - [[projects/collabmd]]
 `;
 
+const FRONTMATTER_OUTLINE_DOCUMENT = `---
+title: Frontmatter test
+tags:
+  - preview
+  - outline
+summary: Keeps headings aligned
+---
+
+# My Vault
+
+Welcome to the test vault.
+
+## Links
+
+- [[daily/2026-03-05]]
+- [[projects/collabmd]]
+`;
+
 async function createLinkedMentionFiles(page, {
   count = 12,
   target = 'projects/collabmd',
@@ -223,6 +241,26 @@ test('keeps the outline open on desktop after selecting a section', async ({ pag
   await page.locator('#outlineNav .outline-item', { hasText: 'Links' }).click();
 
   await expect(page.locator('#outlinePanel')).toBeVisible();
+});
+
+test('renders frontmatter as metadata while keeping outline navigation aligned', async ({ page }) => {
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, FRONTMATTER_OUTLINE_DOCUMENT);
+
+  const frontmatterBlock = page.locator('#previewContent .frontmatter-block');
+  await expect(frontmatterBlock).toBeVisible();
+  await expect(frontmatterBlock).toContainText('Properties');
+  await expect(frontmatterBlock).toContainText('Frontmatter test');
+
+  await page.locator('#outlineToggle').click();
+  await expect(page.locator('#outlinePanel')).toBeVisible();
+  await expect(page.locator('#outlineNav')).toContainText('My Vault');
+  await expect(page.locator('#outlineNav')).toContainText('Links');
+
+  await page.locator('#outlineNav .outline-item', { hasText: 'Links' }).click();
+
+  await expect(page.locator('#previewContent h2[data-source-line="13"]')).toBeVisible();
+  await expect(page.locator('#outlineNav .outline-item.active').first()).toHaveText('Links');
 });
 
 test('keeps the preview container width stable when the outline opens in preview mode', async ({ page }) => {

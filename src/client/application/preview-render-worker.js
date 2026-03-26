@@ -4,6 +4,8 @@ self.onmessage = (event) => {
   const {
     attachmentApiPath,
     fileList,
+    frontmatterCollapsed,
+    frontmatterInteractive,
     markdownText,
     renderVersion,
     sourceFilePath,
@@ -13,6 +15,8 @@ self.onmessage = (event) => {
     const result = compilePreviewDocument({
       attachmentApiPath,
       fileList,
+      frontmatterCollapsed,
+      frontmatterInteractive,
       markdownText,
       sourceFilePath,
     });

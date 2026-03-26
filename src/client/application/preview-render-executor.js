@@ -97,7 +97,10 @@ export class PreviewRenderExecutor {
     }
   }
 
-  async compile(markdownText, renderVersion) {
+  async compile(markdownText, renderVersion, {
+    frontmatterCollapsed = false,
+    frontmatterInteractive = false,
+  } = {}) {
     const worker = this.ensureWorker();
 
     if (worker) {
@@ -111,6 +114,8 @@ export class PreviewRenderExecutor {
         activeWorker.postMessage({
           attachmentApiPath: this.attachmentApiPath,
           fileList: this.getFileList?.() ?? [],
+          frontmatterCollapsed,
+          frontmatterInteractive,
           markdownText,
           renderVersion,
           sourceFilePath: this.getSourceFilePath?.() ?? '',
@@ -122,6 +127,8 @@ export class PreviewRenderExecutor {
     return compilePreviewDocument({
       attachmentApiPath: this.attachmentApiPath,
       fileList: this.getFileList?.() ?? [],
+      frontmatterCollapsed,
+      frontmatterInteractive,
       markdownText,
       sourceFilePath: this.getSourceFilePath?.() ?? '',
     });
