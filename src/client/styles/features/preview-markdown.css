@@ -1,5 +1,18 @@
 /* ===== PREVIEW / MARKDOWN ===== */
 
+.preview-content {
+  font-family: var(--font-prose);
+}
+
+.preview-content h1,
+.preview-content h2,
+.preview-content h3,
+.preview-content h4,
+.preview-content h5,
+.preview-content h6 {
+  font-family: var(--font-prose);
+}
+
 .preview-content h1 {
   margin: var(--space-8) 0 var(--space-4);
   padding-bottom: var(--space-2);
