@@ -12,6 +12,14 @@ const appRoot = resolve(clientRoot, 'app');
 const ALLOWED_RAW_COLOR_FILES = new Set([
   'src/client/styles/foundation/themes.css',
 ]);
+const ALLOWED_RUNTIME_CSS_VARIABLES = new Set([
+  '--app-viewport-height',
+  '--app-viewport-offset-top',
+  '--bases-card-swatch',
+  '--depth',
+  '--preview-comment-rail-offset',
+  '--preview-comment-rail-reserved',
+]);
 
 async function collectFiles(dirPath, pattern) {
   const entries = await readdir(dirPath, { withFileTypes: true });
@@ -99,6 +107,39 @@ test('client stylesheets parse without CSS syntax errors', async () => {
       });
     }
   }
+
+  assert.deepEqual(violations, []);
+});
+
+test('client stylesheets do not reference undefined css variables', async () => {
+  const cssFiles = await collectFiles(clientStylesRoot, /\.css$/u);
+  const definedVariables = new Set();
+  const referencedVariables = new Map();
+
+  for (const filePath of cssFiles) {
+    const source = await readFile(filePath, 'utf8');
+    const repoPath = toRepoPath(filePath);
+
+    for (const match of source.matchAll(/(--[a-z0-9-]+)\s*:/giu)) {
+      definedVariables.add(match[1]);
+    }
+
+    for (const match of source.matchAll(/var\((--[a-z0-9-]+)/giu)) {
+      const variableName = match[1];
+      if (!referencedVariables.has(variableName)) {
+        referencedVariables.set(variableName, new Set());
+      }
+      referencedVariables.get(variableName).add(repoPath);
+    }
+  }
+
+  const violations = Array.from(referencedVariables.entries())
+    .filter(([variableName]) => !definedVariables.has(variableName) && !ALLOWED_RUNTIME_CSS_VARIABLES.has(variableName))
+    .map(([variableName, repoPaths]) => ({
+      files: Array.from(repoPaths).sort(),
+      variable: variableName,
+    }))
+    .sort((left, right) => left.variable.localeCompare(right.variable));
 
   assert.deepEqual(violations, []);
 });
