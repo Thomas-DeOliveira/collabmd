@@ -420,7 +420,7 @@
 
 .preview-content .task-list-item input[type='checkbox'] {
   position: absolute;
-  top: 0.3em;
+  top: 0.5em;
   left: calc(var(--space-5) * -1);
   margin: 0;
   accent-color: var(--color-primary);
