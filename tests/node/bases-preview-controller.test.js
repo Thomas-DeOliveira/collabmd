@@ -4,7 +4,19 @@ import assert from 'node:assert/strict';
 import { BasesPreviewController } from '../../src/client/presentation/bases-preview-controller.js';
 
 function createPlaceholder() {
+  const classes = new Set(['bases-embed-placeholder', 'diagram-preview-shell']);
   return {
+    classList: {
+      add(...tokens) {
+        tokens.forEach((token) => classes.add(token));
+      },
+      contains(token) {
+        return classes.has(token);
+      },
+      remove(...tokens) {
+        tokens.forEach((token) => classes.delete(token));
+      },
+    },
     innerHTML: '',
     isConnected: true,
   };
@@ -82,6 +94,16 @@ class FakeShellNode {
 
 class FakeRenderedPlaceholder {
   constructor() {
+    const classes = new Set(['bases-embed-placeholder', 'diagram-preview-shell']);
+    this.classList = {
+      add: (...tokens) => {
+        tokens.forEach((token) => classes.add(token));
+      },
+      contains: (token) => classes.has(token),
+      remove: (...tokens) => {
+        tokens.forEach((token) => classes.delete(token));
+      },
+    };
     this.isConnected = true;
     this.renderCount = 0;
     this._innerHTML = '';
@@ -227,6 +249,38 @@ test('BasesPreviewController renders typed image cells through the attachment en
   } finally {
     globalThis.window = originalWindow;
   }
+});
+
+test('BasesPreviewController removes the placeholder shell chrome after hydration', async () => {
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return {
+          result: createBaseResult({ label: 'Hydrated', totalRows: 2 }),
+        };
+      },
+    },
+  });
+  const placeholder = createPlaceholder();
+  const entry = {
+    key: 'hydrated-entry',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: null,
+      sourcePath: '',
+      view: '',
+    },
+    placeholder,
+    requestVersion: 0,
+    result: null,
+    search: '',
+  };
+
+  await controller.renderEntry(entry);
+
+  assert.equal(placeholder.classList.contains('diagram-preview-shell'), false);
+  assert.equal(placeholder.classList.contains('is-hydrated'), true);
 });
 
 test('BasesPreviewController renders file name cells as open-file buttons', async () => {

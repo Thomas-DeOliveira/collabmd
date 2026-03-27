@@ -214,10 +214,20 @@ function findShellElement(entry) {
     ?? entry.placeholder.querySelector('.bases-shell');
 }
 
+function markPlaceholderHydrated(placeholder) {
+  if (!placeholder?.classList) {
+    return;
+  }
+
+  placeholder.classList.add('is-hydrated');
+  placeholder.classList.remove('diagram-preview-shell');
+}
+
 function updateShellContent(entry, result) {
   const shell = findShellElement(entry);
   if (!shell?.querySelector) {
     entry.placeholder.innerHTML = renderShellHtml(result, entry);
+    markPlaceholderHydrated(entry.placeholder);
     return;
   }
 

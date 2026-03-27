@@ -5,6 +5,10 @@
   background: var(--surface-media-canvas);
 }
 
+.preview-content .bases-embed-placeholder {
+  display: block;
+}
+
 .preview-content .video-embed,
 .preview-content .video-embed-placeholder {
   display: block;
