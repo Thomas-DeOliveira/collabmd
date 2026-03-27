@@ -1,7 +1,43 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EditorState } from '@codemirror/state';
+import * as Y from 'yjs';
 
 import { EditorSession } from '../../src/client/infrastructure/editor-session.js';
+import { createCommentThreadSharedType } from '../../src/domain/comment-threads.js';
+
+function createCommentBindings(content = '# Notes\n\nHello\n') {
+  const ydoc = new Y.Doc();
+  const ytext = ydoc.getText('codemirror');
+  const commentThreads = ydoc.getArray('comments');
+  ytext.insert(0, content);
+  commentThreads.push([createCommentThreadSharedType({
+    anchorEnd: { assoc: 0, type: null },
+    anchorEndLine: 3,
+    anchorKind: 'line',
+    anchorQuote: 'Hello',
+    anchorStart: { assoc: 0, type: null },
+    anchorStartLine: 3,
+    createdAt: 1,
+    createdByName: 'Alice',
+    id: 'thread-1',
+    messages: [{
+      body: 'Existing comment',
+      createdAt: 2,
+      id: 'comment-1',
+      userName: 'Alice',
+    }],
+  })]);
+
+  return {
+    awareness: { getStates: () => new Map() },
+    commentThreads,
+    localUser: null,
+    undoManager: null,
+    ydoc,
+    ytext,
+  };
+}
 
 test('EditorSession preserves collaboration compatibility getters', () => {
   const session = new EditorSession({
@@ -92,6 +128,82 @@ test('EditorSession keeps bootstrap content out of Yjs until collaborative view 
   assert.deepEqual(collaborativeCalls, [{ filePath: 'README.md', text: '# Live\n' }]);
   assert.equal(session.bootstrapContent, null);
   assert.deepEqual(contentChanges, ['# Bootstrap\n']);
+});
+
+test('EditorSession refreshes comments after provisional and collaborative editor initialization', () => {
+  const session = new EditorSession({
+    editorContainer: null,
+    initialTheme: 'light',
+    lineInfoElement: null,
+    localUser: null,
+    onAwarenessChange: () => {},
+    onCommentsChange: () => {},
+    onConnectionChange: () => {},
+    onContentChange: () => {},
+    preferredUserName: 'Tester',
+  });
+
+  let refreshCalls = 0;
+  session.commentThreadStore.refreshComments = () => {
+    refreshCalls += 1;
+  };
+  session.viewAdapter.initializeProvisional = () => {};
+  session.viewAdapter.initialize = () => {};
+
+  assert.equal(session.showBootstrapContent({ content: '# Bootstrap\n', filePath: 'README.md' }), true);
+  assert.equal(refreshCalls, 1);
+
+  session.pendingCollaborativeBindings = {
+    awareness: { getStates: () => new Map() },
+    undoManager: null,
+    ytext: { toString: () => '# Live\n' },
+  };
+  session.activeFilePath = 'README.md';
+
+  assert.equal(session.activateCollaborativeView(), true);
+  assert.equal(refreshCalls, 2);
+
+  session.destroy();
+});
+
+test('EditorSession re-emits existing comments after collaborative editor mount', async () => {
+  const commentSnapshots = [];
+  const session = new EditorSession({
+    editorContainer: null,
+    initialTheme: 'light',
+    lineInfoElement: null,
+    localUser: null,
+    onAwarenessChange: () => {},
+    onCommentsChange: (threads) => {
+      commentSnapshots.push(threads);
+    },
+    onConnectionChange: () => {},
+    onContentChange: () => {},
+    preferredUserName: 'Tester',
+  });
+
+  const collaborationBindings = createCommentBindings();
+  session.viewAdapter.initialize = ({ ytext }) => {
+    const state = EditorState.create({ doc: ytext.toString() });
+    session.viewAdapter.getState = () => state;
+    session.viewAdapter.getText = () => ytext.toString();
+  };
+
+  session.collaborationClient.initialSyncComplete = true;
+  session.collaborationClient.initialize = async () => {
+    session.collaborationClient.ydoc = collaborationBindings.ydoc;
+    session.collaborationClient.ytext = collaborationBindings.ytext;
+    return collaborationBindings;
+  };
+
+  await session.initialize('README.md');
+
+  assert.deepEqual(commentSnapshots.map((threads) => threads.length), [0, 1]);
+  assert.equal(commentSnapshots[1][0].id, 'thread-1');
+  assert.equal(commentSnapshots[1][0].anchor.startLine, 3);
+  assert.equal(commentSnapshots[1][0].messages[0].body, 'Existing comment');
+
+  session.destroy();
 });
 
 test('EditorSession only toggles preview task items after collaborative sync', () => {

@@ -134,6 +134,10 @@ export class CommentThreadStore {
     this.onCommentsChange?.(this.getCommentThreads());
   }
 
+  refreshComments() {
+    this.emitCommentsChange();
+  }
+
   getCommentThreads() {
     if (!this.commentThreads) {
       return [];

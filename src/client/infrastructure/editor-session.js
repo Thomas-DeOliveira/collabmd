@@ -93,6 +93,7 @@ export class EditorSession {
       undoManager: this.pendingCollaborativeBindings.undoManager,
       ytext: this.pendingCollaborativeBindings.ytext,
     });
+    this.commentThreadStore.refreshComments();
     this.pendingCollaborativeBindings = null;
     this.bootstrapContent = null;
     return true;
@@ -109,6 +110,7 @@ export class EditorSession {
       content: this.bootstrapContent,
       filePath: this.activeFilePath,
     });
+    this.commentThreadStore.refreshComments();
     return this.emitContentChange();
   }
 
