@@ -75,6 +75,8 @@ export class ExcalidrawEmbedController {
     this.maximizedEmbed = null;
     this.overlayRoot = null;
     this.maximizedRoot = null;
+    this.warmCacheRoot = null;
+    this.warmEntry = null;
     this.placeholderObserver = null;
     this.followedPeerIdsByFilePath = new Map();
     this.pendingDisconnectRequests = new Map();
@@ -106,6 +108,11 @@ export class ExcalidrawEmbedController {
       entry.placeholder = null;
     });
     this.embedEntries.clear();
+    if (this.warmEntry) {
+      this._clearEntryBootTimeout(this.warmEntry);
+      this.warmEntry.wrapper?.remove();
+      this.warmEntry = null;
+    }
     this.pendingDisconnectRequests.forEach((request) => {
       request.resolve(false);
     });
@@ -115,6 +122,8 @@ export class ExcalidrawEmbedController {
     this.overlayRoot = null;
     this.maximizedRoot?.remove();
     this.maximizedRoot = null;
+    this.warmCacheRoot?.remove();
+    this.warmCacheRoot = null;
   }
 
   async setFollowedUser(filePath, peerId = null) {
@@ -186,6 +195,7 @@ export class ExcalidrawEmbedController {
     }));
 
     const { nextEntries, removedEntries } = reconcileEmbedEntries(this.embedEntries, descriptors);
+    this._captureWarmEntry(removedEntries);
     this._adoptReusableEntries(nextEntries, removedEntries);
     removedEntries.forEach((entry) => this._destroyEntry(entry));
     this.embedEntries = nextEntries;
@@ -196,8 +206,7 @@ export class ExcalidrawEmbedController {
       entry.queued = false;
       entry.followedPeerId = this.followedPeerIdsByFilePath.get(entry.filePath);
       if (entry.wrapper) {
-        this._updateEmbedLabel(entry);
-        this._attachWrapper(entry);
+        void this._hydrateEntry(entry);
         return;
       }
 
@@ -233,7 +242,7 @@ export class ExcalidrawEmbedController {
   }
 
   updateTheme(theme) {
-    this.embedEntries.forEach((entry) => {
+    this._forEachManagedEntry((entry) => {
       this._postMessageToEntry(entry, {
         source: 'collabmd-host',
         type: 'set-theme',
@@ -243,7 +252,7 @@ export class ExcalidrawEmbedController {
   }
 
   updateLocalUser(user) {
-    this.embedEntries.forEach((entry) => {
+    this._forEachManagedEntry((entry) => {
       this._syncEntryUser(entry, user);
     });
   }
@@ -390,19 +399,31 @@ export class ExcalidrawEmbedController {
       return;
     }
 
+    entry.isParked = false;
+
     if (!entry.wrapper) {
       const mount = this._createEmbedContainer(entry);
+      entry.header = mount.header;
       entry.wrapper = mount.wrapper;
       entry.iframe = mount.iframe;
       entry.labelElement = mount.labelElement;
+      entry.maxButton = mount.maxButton;
+      entry.openButton = mount.openButton;
       entry.instanceId = mount.instanceId;
       entry.isReady = false;
+      entry.bootFilePath = entry.filePath;
+      entry.bootMode = this._getEntryMode(entry);
+      entry.loadedFilePath = entry.bootFilePath;
+      entry.loadedMode = entry.bootMode;
       entry.bootAttempts = (entry.bootAttempts ?? 0) + 1;
       this._armEntryBootTimeout(entry);
     }
 
     entry.followedPeerId = this.followedPeerIdsByFilePath.get(entry.filePath);
     this._updateEmbedLabel(entry);
+    if (this._entryNeedsHardReload(entry)) {
+      this._reloadEntry(entry);
+    }
     this._attachWrapper(entry);
   }
 
@@ -444,22 +465,16 @@ export class ExcalidrawEmbedController {
         return;
       }
 
-      const removedIndex = removedEntries.findIndex((entry) => (
-        entry.filePath === nextEntry.filePath
-        && this._getEntryMode(entry) === this._getEntryMode(nextEntry)
-        && (entry.wrapper || entry.iframe)
-      ));
-      if (removedIndex < 0) {
+      const reusedEntry = this._claimReusableEntry(nextEntry, removedEntries);
+      if (!reusedEntry) {
         return;
       }
 
-      const [reusedEntry] = removedEntries.splice(removedIndex, 1);
       reusedEntry.filePath = nextEntry.filePath;
       reusedEntry.key = nextEntry.key;
       reusedEntry.label = nextEntry.label;
       reusedEntry.placeholder = nextEntry.placeholder;
       reusedEntry.queued = false;
-      reusedEntry.reusedFromEmbed = this._isFilePreviewEntry(nextEntry);
       nextEntries.set(key, reusedEntry);
     });
   }
@@ -477,16 +492,20 @@ export class ExcalidrawEmbedController {
     }
 
     this._clearEntryBootTimeout(entry);
+    if (this.warmEntry === entry) {
+      this.warmEntry = null;
+    }
     this._resetPlaceholderLayout(entry);
+    this._setEntryLoadingState(entry, false);
     entry.wrapper?.remove();
     entry.placeholder = null;
   }
 
-  _armEntryBootTimeout(entry) {
+  _armEntryBootTimeout(entry, delayMs = IFRAME_BOOT_TIMEOUT_MS) {
     this._clearEntryBootTimeout(entry);
     entry.bootTimerId = window.setTimeout(() => {
       void this._handleEntryBootTimeout(entry);
-    }, IFRAME_BOOT_TIMEOUT_MS);
+    }, delayMs);
   }
 
   _clearEntryBootTimeout(entry) {
@@ -519,6 +538,7 @@ export class ExcalidrawEmbedController {
 
     this._clearEntryBootTimeout(entry);
     this._resetPlaceholderLayout(entry);
+    this._setEntryLoadingState(entry, false);
 
     if (this.maximizedEmbed?.wrapper === entry.wrapper) {
       this._exitMaximizedEmbed();
@@ -527,9 +547,17 @@ export class ExcalidrawEmbedController {
     entry.wrapper?.remove();
     entry.wrapper = null;
     entry.iframe = null;
+    entry.header = null;
     entry.labelElement = null;
+    entry.maxButton = null;
+    entry.openButton = null;
     entry.instanceId = null;
     entry.isReady = false;
+    entry.isParked = false;
+    entry.bootFilePath = null;
+    entry.bootMode = null;
+    entry.loadedFilePath = null;
+    entry.loadedMode = null;
 
     await this._hydrateEntry(entry);
   }
@@ -543,6 +571,10 @@ export class ExcalidrawEmbedController {
       if (entry.iframe?.contentWindow === contentWindow) {
         return entry;
       }
+    }
+
+    if (this.warmEntry?.iframe?.contentWindow === contentWindow) {
+      return this.warmEntry;
     }
 
     return null;
@@ -559,6 +591,10 @@ export class ExcalidrawEmbedController {
       }
     }
 
+    if (this.warmEntry?.filePath === filePath) {
+      return this.warmEntry;
+    }
+
     return null;
   }
 
@@ -572,10 +608,19 @@ export class ExcalidrawEmbedController {
     if (entry.wrapper) {
       entry.wrapper.dataset.embedKey = entry.key;
       entry.wrapper.dataset.file = entry.filePath;
+      entry.wrapper.classList.toggle('is-direct-file', this._isFilePreviewEntry(entry));
     }
 
     if (entry.iframe) {
       entry.iframe.title = `Excalidraw: ${entry.filePath}`;
+    }
+
+    if (entry.openButton) {
+      if (this._isFilePreviewEntry(entry)) {
+        entry.openButton.remove();
+      } else if (!entry.openButton.isConnected && entry.header) {
+        entry.header.insertBefore(entry.openButton, entry.maxButton || null);
+      }
     }
   }
 
@@ -724,11 +769,31 @@ export class ExcalidrawEmbedController {
     syncMaximizeButtonState();
 
     return {
+      header,
       iframe,
       instanceId: iframe.dataset.instanceId,
       labelElement: label,
+      maxButton: maxBtn,
+      openButton: openBtn,
       wrapper,
     };
+  }
+
+  _ensureWarmCacheRoot() {
+    if (this.warmCacheRoot?.isConnected && this.warmCacheRoot.parentElement === document.body) {
+      return this.warmCacheRoot;
+    }
+
+    let warmCacheRoot = document.body.querySelector('[data-excalidraw-warm-cache-root="true"]');
+    if (!warmCacheRoot) {
+      warmCacheRoot = document.createElement('div');
+      warmCacheRoot.dataset.excalidrawWarmCacheRoot = 'true';
+      warmCacheRoot.className = 'excalidraw-warm-cache-root';
+      document.body.appendChild(warmCacheRoot);
+    }
+
+    this.warmCacheRoot = warmCacheRoot;
+    return warmCacheRoot;
   }
 
   _setupResizer(resizer, iframe, onResizeEnd = null) {
@@ -801,7 +866,164 @@ export class ExcalidrawEmbedController {
   }
 
   _shouldInlineFilePreview(entry) {
-    return this._isFilePreviewEntry(entry) && !entry?.reusedFromEmbed;
+    return this._isFilePreviewEntry(entry);
+  }
+
+  _entryNeedsHardReload(entry) {
+    const desiredMode = this._getEntryMode(entry);
+    return Boolean(
+      entry?.wrapper
+      && entry.iframe
+      && (
+        entry.isReady
+          ? (
+            entry.loadedFilePath !== entry.filePath
+            || entry.loadedMode !== desiredMode
+          )
+          : (
+            entry.bootFilePath !== entry.filePath
+            || entry.bootMode !== desiredMode
+          )
+      )
+    );
+  }
+
+  _setEntryLoadingState(entry, isLoading) {
+    if (!entry?.wrapper) {
+      return;
+    }
+
+    entry.wrapper.classList.toggle('is-loading', Boolean(isLoading));
+    entry.wrapper.setAttribute('aria-busy', isLoading ? 'true' : 'false');
+  }
+
+  _forEachManagedEntry(callback) {
+    const seen = new Set();
+    this.embedEntries.forEach((entry) => {
+      if (!entry || seen.has(entry)) {
+        return;
+      }
+
+      seen.add(entry);
+      callback(entry);
+    });
+
+    if (this.warmEntry && !seen.has(this.warmEntry)) {
+      callback(this.warmEntry);
+    }
+  }
+
+  _claimEntryFromRemovedEntries(removedEntries, predicate) {
+    const removedIndex = removedEntries.findIndex((entry) => (
+      (entry.wrapper || entry.iframe) && predicate(entry)
+    ));
+    if (removedIndex < 0) {
+      return null;
+    }
+
+    const [reusedEntry] = removedEntries.splice(removedIndex, 1);
+    return reusedEntry;
+  }
+
+  _claimReusableEntry(nextEntry, removedEntries) {
+    const desiredMode = this._getEntryMode(nextEntry);
+    const exactMatch = this._claimEntryFromRemovedEntries(removedEntries, (entry) => (
+      entry.filePath === nextEntry.filePath
+      && this._getEntryMode(entry) === desiredMode
+    ));
+    if (exactMatch) {
+      return exactMatch;
+    }
+
+    if (this._isFilePreviewEntry(nextEntry)) {
+      const promotedEntry = this._claimEntryFromRemovedEntries(removedEntries, (entry) => (
+        entry.filePath === nextEntry.filePath
+      ));
+      if (promotedEntry) {
+        return promotedEntry;
+      }
+
+      const warmEntry = this._claimWarmEntry();
+      if (warmEntry) {
+        return warmEntry;
+      }
+
+      return this._claimEntryFromRemovedEntries(removedEntries, (entry) => (
+        this._isFilePreviewEntry(entry)
+      ));
+    }
+
+    return null;
+  }
+
+  _claimWarmEntry() {
+    const warmEntry = this.warmEntry;
+    if (!warmEntry) {
+      return null;
+    }
+
+    this.warmEntry = null;
+    return warmEntry;
+  }
+
+  _captureWarmEntry(removedEntries) {
+    const warmCandidate = this._claimEntryFromRemovedEntries(removedEntries, (entry) => (
+      this._isFilePreviewEntry(entry)
+    ));
+    if (!warmCandidate) {
+      return;
+    }
+
+    if (this.warmEntry && this.warmEntry !== warmCandidate) {
+      this._destroyEntry(this.warmEntry);
+    }
+
+    this.warmEntry = warmCandidate;
+    this._parkWarmEntry(warmCandidate);
+  }
+
+  _parkWarmEntry(entry) {
+    if (!entry?.wrapper) {
+      return;
+    }
+
+    if (this.maximizedEmbed?.wrapper === entry.wrapper) {
+      this._exitMaximizedEmbed();
+    }
+
+    const warmCacheRoot = this._ensureWarmCacheRoot();
+    this._setEntryLoadingState(entry, false);
+    entry.isParked = true;
+    entry.isReady = false;
+    entry.bootFilePath = null;
+    entry.bootMode = null;
+    entry.loadedFilePath = null;
+    entry.loadedMode = null;
+    entry.placeholder = null;
+    if (entry.wrapper.parentElement !== warmCacheRoot) {
+      warmCacheRoot.appendChild(entry.wrapper);
+    }
+    this._postMessageToEntry(entry, {
+      source: 'collabmd-host',
+      type: 'park-room',
+    });
+  }
+
+  _reloadEntry(entry) {
+    if (!entry?.iframe) {
+      return;
+    }
+
+    this._clearEntryBootTimeout(entry);
+    this._setEntryLoadingState(entry, true);
+    entry.isReady = false;
+    entry.bootAttempts = (entry.bootAttempts ?? 0) + 1;
+    entry.bootFilePath = entry.filePath;
+    entry.bootMode = this._getEntryMode(entry);
+    entry.loadedFilePath = null;
+    entry.loadedMode = null;
+    entry.iframe.src = this._buildIframeUrl(entry).toString();
+    this._armEntryBootTimeout(entry);
   }
 
   _resetPlaceholderLayout(entry) {
@@ -950,8 +1172,15 @@ export class ExcalidrawEmbedController {
     }
 
     if (msg.type === 'ready') {
+      if (entry.isParked) {
+        return;
+      }
+
       entry.isReady = true;
       this._clearEntryBootTimeout(entry);
+      entry.loadedFilePath = entry.bootFilePath || entry.filePath;
+      entry.loadedMode = entry.bootMode || this._getEntryMode(entry);
+      this._setEntryLoadingState(entry, false);
       this._syncEntryUser(entry);
       this._postMessageToEntry(entry, {
         source: 'collabmd-host',
@@ -959,10 +1188,17 @@ export class ExcalidrawEmbedController {
         theme: this.getTheme?.() || 'dark',
       });
       this._syncEntryFollowState(entry);
+      if (this._entryNeedsHardReload(entry)) {
+        void this._hydrateEntry(entry);
+      }
       return;
     }
 
     if (msg.type === 'error') {
+      if (entry.isParked) {
+        return;
+      }
+
       entry.isReady = false;
       void this._handleEntryBootTimeout(entry);
       return;

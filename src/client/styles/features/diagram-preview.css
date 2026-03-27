@@ -277,6 +277,16 @@ body.drawio-maximized-open::before {
   pointer-events: none;
 }
 
+.excalidraw-warm-cache-root {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  inset: 0 auto auto 0;
+}
+
 body.excalidraw-maximized-open {
   overflow: hidden;
 }
@@ -301,6 +311,29 @@ body.excalidraw-maximized-open .resizer {
 
 .excalidraw-embed:hover {
   box-shadow: var(--shadow-elevated-soft);
+}
+
+.excalidraw-embed.is-loading {
+  position: relative;
+}
+
+.excalidraw-embed.is-loading::after {
+  content: 'Loading Excalidraw...';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in oklab, var(--color-surface) 82%, transparent);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  letter-spacing: 0.01em;
+  z-index: 2;
+}
+
+.excalidraw-embed.is-loading .excalidraw-embed-iframe {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .excalidraw-embed-placeholder.is-hydrated {

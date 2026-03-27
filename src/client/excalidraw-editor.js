@@ -21,17 +21,22 @@ import {
   parseSceneJson,
   sceneToInitialData,
 } from './domain/excalidraw-scene.js';
+import {
+  normalizeDocumentMode,
+} from './domain/excalidraw-document-switch.js';
 import { ensureClientAuthenticated } from './infrastructure/auth-client.js';
 import { ExcalidrawRoomClient } from './infrastructure/excalidraw-room-client.js';
 import { vaultApiClient } from './infrastructure/vault-api-client.js';
 
 const params = new URLSearchParams(window.location.search);
-const filePath = params.get('file');
 const isTestMode = params.get('test') === '1';
-const isPreviewMode = params.get('mode') === 'preview';
 const parentOrigin = window.location.origin;
 const syncTimeoutMs = Number.parseInt(params.get('syncTimeoutMs') || '', 10);
 
+let currentDocument = {
+  filePath: params.get('file') || '',
+  mode: normalizeDocumentMode(params.get('mode')),
+};
 let excalidrawAPI = null;
 let currentTheme = params.get('theme') || 'dark';
 let localAwarenessUser = resolveLocalAwarenessUser({
@@ -55,22 +60,104 @@ let apiStateCleanupCallbacks = [];
 let collaboratorRenderFrame = 0;
 let queuedCollaborators = null;
 let initialViewportFitPending = true;
-const roomClient = new ExcalidrawRoomClient({
-  filePath,
-  onCollaboratorsChange: (collaborators) => {
-    if (!collabReady) {
-      pendingCollaborators = collaborators;
-      return;
-    }
+let roomClient = null;
+let roomClientGeneration = 0;
+let reactRoot = null;
 
-    queueCollaboratorsRender(collaborators);
-  },
-  onRemoteSceneJson: (sceneJson) => {
-    applySceneFromJson(sceneJson);
-  },
-  syncTimeoutMs: Number.isFinite(syncTimeoutMs) ? syncTimeoutMs : undefined,
-  vaultClient: vaultApiClient,
-});
+function getDocumentViewState(mode = currentDocument.mode) {
+  const normalizedMode = normalizeDocumentMode(mode);
+  return {
+    viewModeEnabled: normalizedMode === 'preview',
+    zenModeEnabled: normalizedMode === 'preview',
+  };
+}
+
+function createRoomClient(filePath) {
+  const generation = ++roomClientGeneration;
+  const client = new ExcalidrawRoomClient({
+    filePath,
+    onCollaboratorsChange: (collaborators) => {
+      if (generation !== roomClientGeneration) {
+        return;
+      }
+
+      if (!collabReady) {
+        pendingCollaborators = collaborators;
+        return;
+      }
+
+      queueCollaboratorsRender(collaborators);
+    },
+    onRemoteSceneJson: (sceneJson) => {
+      if (generation !== roomClientGeneration) {
+        return;
+      }
+
+      applySceneFromJson(sceneJson);
+    },
+    syncTimeoutMs: Number.isFinite(syncTimeoutMs) ? syncTimeoutMs : undefined,
+    vaultClient: vaultApiClient,
+  });
+
+  return {
+    client,
+    generation,
+  };
+}
+
+function buildExcalidrawProps({ initialData } = {}) {
+  const props = {
+    onMount: handleEditorMount,
+    onInitialize: (api) => {
+      initializeEditor(api);
+    },
+    onUnmount: () => {
+      clearEditorApiStateBindings();
+      disconnectRealtimeRoom({ preserveEditorBindings: true });
+      excalidrawAPI = null;
+      collabReady = false;
+    },
+    aiEnabled: false,
+    isCollaborating: true,
+    onChange: (elements, appState, files) => {
+      scheduleSyncToRoom(elements, appState, files);
+      roomClient?.syncLocalSelectionAwareness(appState);
+    },
+    onPointerUpdate: (payload) => {
+      roomClient?.scheduleLocalPointerAwareness(payload);
+    },
+    theme: currentTheme,
+    ...getDocumentViewState(),
+    UIOptions: {
+      canvasActions: {
+        export: false,
+        loadScene: false,
+        saveToActiveFile: false,
+        toggleTheme: false,
+      },
+    },
+  };
+
+  if (initialData) {
+    props.initialData = initialData;
+  }
+
+  return props;
+}
+
+function renderExcalidrawApp({ initialData } = {}) {
+  if (!reactRoot) {
+    return;
+  }
+
+  reactRoot.render(
+    React.createElement(
+      'div',
+      { style: { height: '100vh', width: '100%' } },
+      React.createElement(Excalidraw, buildExcalidrawProps({ initialData })),
+    ),
+  );
+}
 
 function applySurfaceTheme(theme = currentTheme) {
   document.body.dataset.theme = theme === 'light' ? 'light' : 'dark';
@@ -108,7 +195,7 @@ function applyLocalUserPatch(nextUser = {}) {
     currentUser: localAwarenessUser,
     nextUser,
   });
-  roomClient.setLocalUser(localAwarenessUser);
+  roomClient?.setLocalUser(localAwarenessUser);
 }
 
 if (isTestMode) {
@@ -149,13 +236,13 @@ if (isTestMode) {
       } : null;
     },
     isViewMode: () => Boolean(excalidrawAPI?.getAppState?.().viewModeEnabled),
-    getSceneJson: () => roomClient.getLastSceneJson(),
+    getSceneJson: () => roomClient?.getLastSceneJson?.() || '',
     isAuthoritativeReady: () => (
       Boolean(excalidrawAPI)
       && collabReady
-      && roomClient.canWriteToRoom === true
-      && roomClient.waitingForAuthoritativeSync === false
-      && roomClient.isApplyingSharedSnapshot() === false
+      && roomClient?.canWriteToRoom === true
+      && roomClient?.waitingForAuthoritativeSync === false
+      && roomClient?.isApplyingSharedSnapshot?.() === false
     ),
     isReady: () => collabReady && Boolean(excalidrawAPI) && Boolean(getNativeHistoryButton('undo')) && Boolean(getNativeHistoryButton('redo')),
     redoShared: () => triggerNativeHistory('redo'),
@@ -243,7 +330,7 @@ function releaseOnChangeSuppressionAfterPaint({ trackedSharedSnapshot = false } 
     requestAnimationFrame(() => {
       pendingSuppressionReleases = Math.max(0, pendingSuppressionReleases - 1);
       if (trackedSharedSnapshot) {
-        roomClient.endApplyingSharedSnapshot();
+        roomClient?.endApplyingSharedSnapshot();
       }
       if (pendingSuppressionReleases === 0) {
         suppressOnChange = false;
@@ -264,20 +351,29 @@ function releaseViewportBroadcastSuppressionAfterPaint() {
   });
 }
 
-function buildApiSceneUpdate(scene) {
+function buildApiSceneUpdate(scene, {
+  appStateOverrides = {},
+  replaceElements = false,
+} = {}) {
   const currentAppState = excalidrawAPI.getAppState();
-  const currentElements = excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements();
+  const currentElements = replaceElements
+    ? []
+    : (excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements());
   const restoredElements = restoreElements(scene?.elements || [], currentElements, {
     repairBindings: true,
   });
   const restoredAppState = restoreAppState(scene?.appState || {}, currentAppState);
-  const reconciledElements = reconcileElements(currentElements, restoredElements, currentAppState);
+  const reconciledElements = replaceElements
+    ? restoredElements
+    : reconcileElements(currentElements, restoredElements, currentAppState);
 
   return {
     appState: {
       theme: currentTheme,
       viewBackgroundColor: restoredAppState.viewBackgroundColor ?? '#ffffff',
       gridSize: restoredAppState.gridSize ?? null,
+      ...getDocumentViewState(),
+      ...appStateOverrides,
     },
     elements: reconciledElements,
     files: scene?.files || {},
@@ -285,14 +381,19 @@ function buildApiSceneUpdate(scene) {
 }
 
 function updateApiScene(scene, {
+  appStateOverrides = {},
   captureUpdate = CaptureUpdateAction.NEVER,
+  replaceElements = false,
   trackedSharedSnapshot = true,
 } = {}) {
-  const nextSceneUpdate = buildApiSceneUpdate(scene);
+  const nextSceneUpdate = buildApiSceneUpdate(scene, {
+    appStateOverrides,
+    replaceElements,
+  });
 
   suppressOnChange = true;
   if (trackedSharedSnapshot) {
-    roomClient.beginApplyingSharedSnapshot();
+    roomClient?.beginApplyingSharedSnapshot();
   }
   try {
     excalidrawAPI.updateScene({
@@ -325,14 +426,14 @@ function applyLocalScene(scene, {
   });
 
   if (suppressOnChange) {
-    roomClient.commitSceneJson(normalizedJson, {
+    roomClient?.commitSceneJson(normalizedJson, {
       origin: 'excalidraw-local-scene-apply',
     });
   }
 }
 
 function onRoomTextUpdate() {
-  applySceneFromJson(roomClient.getLastSceneJson());
+  applySceneFromJson(roomClient?.getLastSceneJson?.() || '');
 }
 
 function postToParent(type, payload = {}) {
@@ -367,14 +468,14 @@ function scheduleInitialViewportFit() {
         animate: false,
         fitToViewport: true,
         maxZoom: 2,
-        viewportZoomFactor: isPreviewMode ? 0.92 : 0.88,
+        viewportZoomFactor: normalizeDocumentMode(currentDocument.mode) === 'preview' ? 0.92 : 0.88,
       });
     });
   });
 }
 
 function syncLocalViewportToRoom() {
-  if (!collabReady || !excalidrawAPI || suppressViewportBroadcast) {
+  if (!collabReady || !excalidrawAPI || !roomClient || suppressViewportBroadcast) {
     return;
   }
 
@@ -462,8 +563,16 @@ function applyHostFollowRequest(peerId) {
   pendingHostFollowPeerId = null;
 }
 
-function disconnectRealtimeRoom() {
+function clearEditorApiStateBindings() {
+  apiStateCleanupCallbacks.forEach((cleanup) => cleanup());
+  apiStateCleanupCallbacks = [];
+}
+
+function resetRealtimeRoomState() {
   collabReady = false;
+  suppressOnChange = false;
+  pendingRemoteSceneJson = '';
+  pendingSuppressionReleases = 0;
   pendingCollaborators = null;
   activeCollaborators = new Map();
   followedSocketId = null;
@@ -476,9 +585,19 @@ function disconnectRealtimeRoom() {
   }
   collaboratorRenderFrame = 0;
   queuedCollaborators = null;
-  apiStateCleanupCallbacks.forEach((cleanup) => cleanup());
-  apiStateCleanupCallbacks = [];
-  roomClient.disconnect();
+}
+
+function disconnectRealtimeRoom({ preserveEditorBindings = false } = {}) {
+  const activeRoomClient = roomClient;
+  roomClient = null;
+  roomClientGeneration += 1;
+
+  resetRealtimeRoomState();
+  if (!preserveEditorBindings) {
+    clearEditorApiStateBindings();
+  }
+
+  activeRoomClient?.disconnect();
 }
 
 let didDisconnectRealtimeRoom = false;
@@ -499,7 +618,7 @@ async function waitForPendingRoomWrites({
   const startedAt = performance.now();
 
   while ((performance.now() - startedAt) < maxWaitMs) {
-    const ws = roomClient.provider?.ws;
+    const ws = roomClient?.provider?.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN || ws.bufferedAmount === 0) {
       return;
     }
@@ -509,8 +628,21 @@ async function waitForPendingRoomWrites({
 }
 
 async function prepareRealtimeRoomDisconnect() {
-  roomClient.flushSceneSync();
+  roomClient?.flushSceneSync();
   await waitForPendingRoomWrites();
+}
+
+async function connectDocumentClient(filePath) {
+  const { client, generation } = createRoomClient(filePath);
+  roomClient = client;
+  const scene = await client.connect({ initialUser: localAwarenessUser });
+
+  if (generation !== roomClientGeneration || roomClient !== client) {
+    client.disconnect();
+    return null;
+  }
+
+  return scene;
 }
 
 window.addEventListener('pagehide', disconnectRealtimeRoomOnce);
@@ -536,6 +668,7 @@ window.addEventListener('message', (event) => {
       });
       releaseOnChangeSuppressionAfterPaint();
     }
+    renderExcalidrawApp();
     return;
   }
 
@@ -556,11 +689,19 @@ window.addEventListener('message', (event) => {
         requestId: message.requestId || '',
       });
     })();
+    return;
+  }
+
+  if (message.type === 'park-room') {
+    void (async () => {
+      await prepareRealtimeRoomDisconnect();
+      disconnectRealtimeRoom({ preserveEditorBindings: true });
+    })();
   }
 });
 
 function scheduleSyncToRoom(elements, appState, files) {
-  if (!collabReady || suppressOnChange) {
+  if (!collabReady || !roomClient || suppressOnChange) {
     return;
   }
 
@@ -589,7 +730,7 @@ function initializeEditor(api) {
     setFollowedSocket(null, { force: true });
   }));
 
-  const sceneJson = pendingRemoteSceneJson || roomClient.getLastSceneJson();
+  const sceneJson = pendingRemoteSceneJson || roomClient?.getLastSceneJson?.() || '';
   pendingRemoteSceneJson = '';
   updateApiScene(parseSceneJson(sceneJson));
 
@@ -622,53 +763,15 @@ async function init() {
   try {
     applySurfaceTheme(currentTheme);
     await ensureClientAuthenticated();
-    const initialScene = await roomClient.connect({ initialUser: localAwarenessUser });
+    const initialScene = await connectDocumentClient(currentDocument.filePath);
+    if (!initialScene) {
+      throw new Error('Failed to connect initial Excalidraw document');
+    }
     const initialData = sceneToInitialData(initialScene, { theme: currentTheme });
 
     loadingElement?.remove();
-
-    const excalidrawProps = {
-      onMount: handleEditorMount,
-      onInitialize: (api) => {
-        initializeEditor(api);
-      },
-      onUnmount: () => {
-        apiStateCleanupCallbacks.forEach((cleanup) => cleanup());
-        apiStateCleanupCallbacks = [];
-        excalidrawAPI = null;
-        collabReady = false;
-      },
-      initialData,
-      aiEnabled: false,
-      isCollaborating: true,
-      onChange: (elements, appState, files) => {
-        scheduleSyncToRoom(elements, appState, files);
-        roomClient.syncLocalSelectionAwareness(appState);
-      },
-      onPointerUpdate: (payload) => {
-        roomClient.scheduleLocalPointerAwareness(payload);
-      },
-      theme: currentTheme,
-      viewModeEnabled: isPreviewMode,
-      zenModeEnabled: isPreviewMode,
-      UIOptions: {
-        canvasActions: {
-          export: false,
-          loadScene: false,
-          saveToActiveFile: false,
-          toggleTheme: false,
-        },
-      },
-    };
-
-    const App = () => React.createElement(
-      'div',
-      { style: { height: '100vh', width: '100%' } },
-      React.createElement(Excalidraw, excalidrawProps),
-    );
-
-    const root = createRoot(document.getElementById('root'));
-    root.render(React.createElement(App));
+    reactRoot = createRoot(document.getElementById('root'));
+    renderExcalidrawApp({ initialData });
   } catch (error) {
     console.error('[excalidraw] Failed to initialize:', error);
     postToParent('error', {

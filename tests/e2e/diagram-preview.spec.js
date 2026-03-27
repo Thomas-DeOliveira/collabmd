@@ -13,8 +13,10 @@ import {
   openSampleFull,
   replaceEditorContent,
   restoreReadmeTestDocument,
+  seedStoredUserName,
   stubPlantUmlRender,
   test,
+  waitForExcalidrawFrameHarness,
   waitForHeavyPreviewContent,
   writeVaultFileAndResetCollab,
 } from './helpers/app-fixture.js';
@@ -436,10 +438,13 @@ test('preserves excalidraw iframe instances across unrelated preview rerenders',
   ), { timeout: 60000 }).toBe('alive');
 });
 
-test('opening an embedded excalidraw file directly remounts it in editable mode', async ({ page }) => {
+test('opening an embedded excalidraw file directly promotes the same iframe into editable mode', async ({ page }) => {
   test.slow();
 
-  await openSampleFull(page);
+  await stubPlantUmlRender(page, 'sample-full-plantuml');
+  await seedStoredUserName(page);
+  await page.goto('/?test=1#file=sample-full.md');
+  await expect(page.locator('#previewContent')).toBeVisible();
 
   const embeddedIframe = page.locator('#previewContent .excalidraw-embed iframe[src*="sample-excalidraw.excalidraw"]').first();
   await expect.poll(async () => (
@@ -467,7 +472,146 @@ test('opening an embedded excalidraw file directly remounts it in editable mode'
 
   await expect.poll(async () => (
     page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('data-instance-id')
-  ), { timeout: 60000 }).not.toBe(firstInstanceId);
+  ), { timeout: 60000 }).toBe(firstInstanceId);
+
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+      return iframe?.contentWindow?.__COLLABMD_EXCALIDRAW_TEST__?.isReady?.() || false;
+    })
+  ), { timeout: 60000 }).toBe(true);
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+      return iframe?.contentWindow?.__COLLABMD_EXCALIDRAW_TEST__?.isViewMode?.();
+    })
+  ), { timeout: 60000 }).toBe(false);
+});
+
+test('switching directly between excalidraw files reuses the warm iframe instance', async ({ page }) => {
+  await openHome(page);
+  await expect(page.locator('#fileTree')).toBeVisible();
+
+  await writeVaultFileAndResetCollab(page, {
+    path: 'new-diagram.excalidraw',
+    content: JSON.stringify({
+      type: 'excalidraw',
+      version: 2,
+      source: 'collabmd',
+      appState: {
+        gridSize: null,
+        viewBackgroundColor: '#ffffff',
+      },
+      elements: [{
+        id: 'shape-new',
+        type: 'rectangle',
+        x: 32,
+        y: 48,
+        width: 144,
+        height: 96,
+        angle: 0,
+        strokeColor: '#1f2937',
+        backgroundColor: '#f8fafc',
+        fillStyle: 'solid',
+        strokeWidth: 2,
+        strokeStyle: 'solid',
+        roughness: 0,
+        opacity: 100,
+        index: 'a0',
+        groupIds: [],
+        frameId: null,
+        roundness: { type: 3 },
+        seed: 1,
+        version: 11,
+        versionNonce: 1,
+        isDeleted: false,
+        boundElements: null,
+        updated: 1,
+        link: null,
+        locked: false,
+      }],
+      files: {},
+    }),
+  });
+  await page.locator('#refreshFilesBtn').click();
+  await expect(page.locator('#fileTree')).toContainText('new-diagram');
+
+  await page.locator('#fileTree .file-tree-item', { hasText: 'sample-excalidraw' }).first().click();
+  const firstIframe = page.locator('#previewContent .excalidraw-embed[data-file="sample-excalidraw.excalidraw"] iframe').first();
+  await expect(firstIframe).toBeVisible();
+  const firstInstanceId = await firstIframe.getAttribute('data-instance-id');
+
+  await page.locator('#fileTree .file-tree-item', { hasText: 'new-diagram' }).first().click();
+  const secondIframe = page.locator('#previewContent .excalidraw-embed[data-file="new-diagram.excalidraw"] iframe').first();
+  await expect(secondIframe).toBeVisible();
+  await expect.poll(async () => (
+    page.locator('#previewContent .excalidraw-embed[data-file="new-diagram.excalidraw"] iframe').first().getAttribute('data-instance-id')
+  ), { timeout: 60000 }).toBe(firstInstanceId);
+  await expect(page.locator('#previewContent')).not.toContainText('Loading Excalidraw preview…');
+});
+
+test('switching directly between excalidraw files updates the reused iframe scene', async ({ page }) => {
+  await writeVaultFileAndResetCollab(page, {
+    path: 'new-diagram.excalidraw',
+    content: JSON.stringify({
+      type: 'excalidraw',
+      version: 2,
+      source: 'collabmd',
+      appState: {
+        gridSize: null,
+        viewBackgroundColor: '#ffffff',
+      },
+      elements: [{
+        id: 'shape-new',
+        type: 'rectangle',
+        x: 32,
+        y: 48,
+        width: 144,
+        height: 96,
+        angle: 0,
+        strokeColor: '#1f2937',
+        backgroundColor: '#f8fafc',
+        fillStyle: 'solid',
+        strokeWidth: 2,
+        strokeStyle: 'solid',
+        roughness: 0,
+        opacity: 100,
+        index: 'a0',
+        groupIds: [],
+        frameId: null,
+        roundness: { type: 3 },
+        seed: 1,
+        version: 11,
+        versionNonce: 1,
+        isDeleted: false,
+        boundElements: null,
+        updated: 1,
+        link: null,
+        locked: false,
+      }],
+      files: {},
+    }),
+  });
+
+  const writtenDiagram = await page.request.get('http://127.0.0.1:4173/api/file?path=new-diagram.excalidraw');
+  expect(writtenDiagram.ok()).toBe(true);
+  expect(await writtenDiagram.text()).toContain('shape-new');
+
+  await seedStoredUserName(page);
+  await page.goto('/?test=1#file=sample-excalidraw.excalidraw');
+  const firstFrame = await waitForExcalidrawFrameHarness(page);
+  await expect.poll(async () => (
+    firstFrame.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
+  ), { timeout: 60000 }).toEqual([]);
+
+  await page.locator('#refreshFilesBtn').click();
+  await expect(page.locator('#fileTree')).toContainText('new-diagram');
+  await page.locator('#fileTree .file-tree-item', { hasText: 'new-diagram' }).first().click();
+
+  const secondFrame = await waitForExcalidrawFrameHarness(page);
+  await expect.poll(async () => (
+    secondFrame.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
+  ), { timeout: 60000 }).toEqual(['shape-new']);
 });
 
 test('switching away from a direct excalidraw preview hides stale iframe overlays immediately', async ({ page }) => {

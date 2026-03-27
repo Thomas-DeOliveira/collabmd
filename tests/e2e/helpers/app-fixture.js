@@ -258,15 +258,23 @@ export async function waitForExcalidrawTestHarness(page) {
 }
 
 export async function waitForExcalidrawFrameHarness(page, selector = '#previewContent .excalidraw-embed iframe') {
+  await expect.poll(async () => (
+    page.evaluate(async (resolvedSelector) => {
+      const iframe = document.querySelector(resolvedSelector);
+      const frameWindow = iframe?.contentWindow;
+      try {
+        return frameWindow?.__COLLABMD_EXCALIDRAW_TEST__?.isReady?.() || false;
+      } catch {
+        return false;
+      }
+    }, selector)
+  )).toBe(true);
+
   const handle = await page.locator(selector).first().elementHandle();
   const frame = await handle?.contentFrame();
   if (!frame) {
     throw new Error(`Missing iframe for selector: ${selector}`);
   }
-
-  await expect.poll(async () => (
-    frame.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__?.isReady?.() || false)
-  )).toBe(true);
 
   return frame;
 }
