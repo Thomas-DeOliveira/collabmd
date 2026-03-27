@@ -90,6 +90,7 @@ export class FileHistoryViewController {
     this.nextButton = document.getElementById('diffNextBtn');
     this.layoutToggle = document.getElementById('diffLayoutToggle');
     this.modeButtons = Array.from(document.querySelectorAll('[data-diff-mode]'));
+    this.isActive = false;
     this.currentFilePath = null;
     this.localChanges = null;
     this.history = createEmptyHistoryState();
@@ -105,6 +106,9 @@ export class FileHistoryViewController {
 
   initialize() {
     this.openEditorButton?.addEventListener('click', () => {
+      if (!this.isActive) {
+        return;
+      }
       if (!this.currentFilePath) {
         return;
       }
@@ -114,6 +118,9 @@ export class FileHistoryViewController {
 
     this.modeButtons.forEach((button) => {
       button.addEventListener('click', () => {
+        if (!this.isActive) {
+          return;
+        }
         const nextMode = button.getAttribute('data-diff-mode');
         if (!nextMode || nextMode === this.diffMode) {
           return;
@@ -124,6 +131,9 @@ export class FileHistoryViewController {
     });
 
     this.content?.addEventListener('click', (event) => {
+      if (!this.isActive) {
+        return;
+      }
       const selectionButton = event.target instanceof Element
         ? event.target.closest('[data-file-history-select]')
         : null;
@@ -161,6 +171,7 @@ export class FileHistoryViewController {
   }
 
   hide() {
+    this.isActive = false;
     this.page?.classList.add('hidden');
     this.content?.classList.remove('diff-content--history');
     if (this.content) {
@@ -176,7 +187,6 @@ export class FileHistoryViewController {
     this.historyListElement = null;
     this.historyListScrollTop = 0;
     this.selectionRequestToken = 0;
-    this.syncToolbar();
   }
 
   getEntries() {
@@ -230,6 +240,7 @@ export class FileHistoryViewController {
   }
 
   async openFileHistory({ filePath }) {
+    this.isActive = true;
     this.currentFilePath = String(filePath ?? '').trim() || null;
     this.localChanges = null;
     this.history = {
@@ -545,6 +556,9 @@ export class FileHistoryViewController {
   }
 
   renderLoading() {
+    if (!this.isActive) {
+      return;
+    }
     this.page?.classList.remove('hidden');
     if (this.content) {
       this.content.classList.add('diff-content--history');
@@ -555,6 +569,9 @@ export class FileHistoryViewController {
   }
 
   renderEmpty(message) {
+    if (!this.isActive) {
+      return;
+    }
     this.page?.classList.remove('hidden');
     if (this.content) {
       this.content.classList.add('diff-content--history');
@@ -725,6 +742,9 @@ export class FileHistoryViewController {
   }
 
   render() {
+    if (!this.isActive) {
+      return;
+    }
     this.page?.classList.remove('hidden');
     this.captureListScroll();
     this.syncToolbar();

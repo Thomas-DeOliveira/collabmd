@@ -177,6 +177,7 @@ export class GitDiffViewController {
     this.layoutToggle = document.getElementById('diffLayoutToggle');
     this.modeButtons = Array.from(document.querySelectorAll('[data-diff-mode]'));
     this.layoutButtons = Array.from(document.querySelectorAll('[data-diff-layout]'));
+    this.isActive = false;
     this.mode = 'unified';
     this.layoutMode = 'focused';
     this.source = 'workspace';
@@ -197,9 +198,22 @@ export class GitDiffViewController {
   }
 
   initialize() {
-    this.prevButton?.addEventListener('click', () => this.navigateFile(-1));
-    this.nextButton?.addEventListener('click', () => this.navigateFile(1));
+    this.prevButton?.addEventListener('click', () => {
+      if (!this.isActive) {
+        return;
+      }
+      this.navigateFile(-1);
+    });
+    this.nextButton?.addEventListener('click', () => {
+      if (!this.isActive) {
+        return;
+      }
+      this.navigateFile(1);
+    });
     this.backToHistoryButton?.addEventListener('click', () => {
+      if (!this.isActive) {
+        return;
+      }
       if (!this.commitMeta?.hash) {
         return;
       }
@@ -209,6 +223,9 @@ export class GitDiffViewController {
       });
     });
     this.openEditorButton?.addEventListener('click', () => {
+      if (!this.isActive) {
+        return;
+      }
       if (this.source !== 'workspace') {
         return;
       }
@@ -221,6 +238,9 @@ export class GitDiffViewController {
       this.onOpenFile?.(currentFile.path);
     });
     this.primaryActionButton?.addEventListener('click', () => {
+      if (!this.isActive) {
+        return;
+      }
       const action = this.getPrimaryAction();
       if (!action) {
         return;
@@ -229,9 +249,15 @@ export class GitDiffViewController {
       void this.handleFileAction(action);
     });
     this.commitButton?.addEventListener('click', () => {
+      if (!this.isActive) {
+        return;
+      }
       void this.handleFileAction('commit');
     });
     this.content?.addEventListener('click', (event) => {
+      if (!this.isActive) {
+        return;
+      }
       const loadButton = event.target instanceof Element
         ? event.target.closest('[data-load-full-diff]')
         : null;
@@ -266,6 +292,9 @@ export class GitDiffViewController {
     });
     this.modeButtons.forEach((button) => {
       button.addEventListener('click', () => {
+        if (!this.isActive) {
+          return;
+        }
         const nextMode = button.getAttribute('data-diff-mode');
         if (!nextMode || nextMode === this.mode) {
           return;
@@ -276,6 +305,9 @@ export class GitDiffViewController {
     });
     this.layoutButtons.forEach((button) => {
       button.addEventListener('click', () => {
+        if (!this.isActive) {
+          return;
+        }
         const nextLayout = button.getAttribute('data-diff-layout');
         if (!nextLayout || nextLayout === this.layoutMode) {
           return;
@@ -284,11 +316,15 @@ export class GitDiffViewController {
       });
     });
     this.scrollContainer?.addEventListener('scroll', () => {
+      if (!this.isActive) {
+        return;
+      }
       this.handleScrollSelection();
     });
   }
 
   hide() {
+    this.isActive = false;
     this.page?.classList.add('hidden');
     if (this.content) {
       this.content.innerHTML = '';
@@ -309,10 +345,10 @@ export class GitDiffViewController {
     this.historyFilePath = null;
     this.pendingAction = null;
     this.repoStatus = null;
-    this.syncToolbar();
   }
 
   async openWorkspaceDiff({ filePath = null, scope = 'all' } = {}) {
+    this.isActive = true;
     this.source = 'workspace';
     this.layoutMode = 'focused';
     this.commitHash = null;
@@ -361,6 +397,7 @@ export class GitDiffViewController {
   }
 
   async openCommitDiff({ hash, path = null, historyFilePath = null } = {}) {
+    this.isActive = true;
     this.source = 'commit';
     this.layoutMode = 'stacked';
     this.commitHash = String(hash ?? '').trim() || null;
@@ -463,6 +500,9 @@ export class GitDiffViewController {
   }
 
   renderLoading(message = 'Loading git diff...') {
+    if (!this.isActive) {
+      return;
+    }
     this.page?.classList.remove('hidden');
     if (this.content) {
       this.content.innerHTML = `<div class="diff-empty-state">${escapeHtml(message)}</div>`;
@@ -472,6 +512,9 @@ export class GitDiffViewController {
   }
 
   renderEmpty(message) {
+    if (!this.isActive) {
+      return;
+    }
     this.page?.classList.remove('hidden');
     if (this.content) {
       this.content.innerHTML = `<div class="diff-empty-state">${escapeHtml(message)}</div>`;
@@ -1158,6 +1201,9 @@ export class GitDiffViewController {
   }
 
   render() {
+    if (!this.isActive) {
+      return;
+    }
     this.page?.classList.remove('hidden');
 
     const files = this.data?.files ?? [];

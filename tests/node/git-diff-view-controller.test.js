@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { GitApiClient } from '../../src/client/infrastructure/git-api-client.js';
+import { FileHistoryViewController } from '../../src/client/presentation/file-history-view-controller.js';
 import { GitDiffViewController } from '../../src/client/presentation/git-diff-view-controller.js';
 
 class FakeClassList {
@@ -50,15 +51,19 @@ class FakeElement {
   }
 
   addEventListener(type, handler) {
-    this.listeners.set(type, handler);
+    const handlers = this.listeners.get(type) ?? [];
+    handlers.push(handler);
+    this.listeners.set(type, handlers);
   }
 
   dispatch(type, target = this) {
-    this.listeners.get(type)?.({
-      preventDefault() {},
-      stopPropagation() {},
-      target,
-    });
+    for (const handler of this.listeners.get(type) ?? []) {
+      handler({
+        preventDefault() {},
+        stopPropagation() {},
+        target,
+      });
+    }
   }
 
   getAttribute(name) {
@@ -141,6 +146,8 @@ function createHarness() {
 
   return {
     elements,
+    layoutButtons,
+    modeButtons,
     restore() {
       globalThis.document = previousDocument;
     },
@@ -404,4 +411,54 @@ test('GitDiffViewController routes back to file history when commit diff carries
     hash: 'abc1234',
     historyFilePath: 'docs/current-name.md',
   }]);
+});
+
+test('GitDiffViewController diff mode toggle ignores inactive file history listeners', async (t) => {
+  const harness = createHarness();
+  t.after(() => harness.restore());
+  installWindowStub(t);
+
+  installFetchStub(t, [
+    {
+      body: {
+        commit: { hash: 'xyz9876', shortHash: 'xyz9876', subject: 'Commit title' },
+        files: [
+          { path: 'README.md', stats: { additions: 1, deletions: 1 }, status: 'modified' },
+        ],
+        summary: { additions: 1, deletions: 1, filesChanged: 1 },
+      },
+    },
+    {
+      body: {
+        files: [{
+          path: 'README.md',
+          hunks: [{
+            header: '@@ -1 +1 @@',
+            lines: [
+              { type: 'deletion', oldLine: 1, newLine: null, content: 'before' },
+              { type: 'addition', oldLine: null, newLine: 1, content: 'after' },
+            ],
+          }],
+          stats: { additions: 1, deletions: 1 },
+          status: 'modified',
+        }],
+      },
+    },
+  ]);
+
+  const controller = new GitDiffViewController({ gitApiClient: new GitApiClient() });
+  const fileHistoryView = new FileHistoryViewController({
+    diffRenderer: controller,
+    gitApiClient: new GitApiClient(),
+  });
+  controller.initialize();
+  fileHistoryView.initialize();
+
+  await controller.openCommitDiff({ hash: 'xyz9876' });
+  harness.modeButtons[1].dispatch('click');
+
+  assert.equal(controller.mode, 'split');
+  assert.equal(fileHistoryView.currentFilePath, null);
+  assert.match(harness.elements.diffContent.innerHTML, /diff-split-row/);
+  assert.doesNotMatch(harness.elements.diffContent.innerHTML, /No file selected\./);
 });
