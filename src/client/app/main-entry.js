@@ -1,5 +1,7 @@
 import darkHighlightThemeUrl from '../assets/vendor/highlight/github-dark.min.css?url';
 import lightHighlightThemeUrl from '../assets/vendor/highlight/github.min.css?url';
+import '@fontsource-variable/inter';
+import '@fontsource/jetbrains-mono';
 import '../styles/base.css';
 import '../styles/style.css';
 
