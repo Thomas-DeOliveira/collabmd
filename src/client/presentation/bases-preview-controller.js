@@ -17,6 +17,18 @@ function looksLikeExternalImageUrl(value = '') {
   return /^https?:\/\/.+\.(?:png|jpe?g|webp|gif|svg)(?:[?#].*)?$/iu.test(String(value ?? '').trim());
 }
 
+function isPlainObject(value) {
+  return Object.prototype.toString.call(value) === '[object Object]';
+}
+
+function createEmptyFilterGroup(conjunction = 'and') {
+  return {
+    children: [],
+    conjunction,
+    type: 'group',
+  };
+}
+
 function getCardImageCell(view, columns, row) {
   const preferred = view.image
     || columns.find((column) => ['cover', 'image'].includes(String(column.id ?? '').toLowerCase()))?.id
@@ -178,9 +190,579 @@ function renderViewTabs(result) {
   )).join('');
 }
 
-function renderShellHtml(result, state) {
+function getMeta(result) {
+  return result?.meta ?? {};
+}
+
+function getAvailableProperties(result) {
+  return getMeta(result).availableProperties ?? [];
+}
+
+function getVisiblePropertyIds(result) {
+  const explicitOrder = getMeta(result).activeViewConfig?.order;
+  if (Array.isArray(explicitOrder) && explicitOrder.length > 0) {
+    return [...explicitOrder];
+  }
+
+  return Array.isArray(result?.columns)
+    ? result.columns.map((column) => column.id).filter(Boolean)
+    : [];
+}
+
+function findPropertyMeta(result, propertyId = '') {
+  return getAvailableProperties(result).find((entry) => entry.id === propertyId) ?? null;
+}
+
+function getEditableViewConfig(result) {
+  const config = getMeta(result).activeViewConfig ?? {};
+  return {
+    filters: config.filters ?? null,
+    groupBy: config.groupBy ?? null,
+    order: Array.isArray(config.order) ? [...config.order] : [],
+    sort: Array.isArray(config.sort) ? config.sort.map((entry) => ({ ...entry })) : [],
+  };
+}
+
+function isStandaloneBaseEntry(entry) {
+  return Boolean(
+    entry?.payload?.path
+    && entry?.payload?.sourcePath
+    && entry.payload.path === entry.payload.sourcePath,
+  );
+}
+
+function buildToolbarButton(label, panel, entry, result) {
+  const active = entry.ui?.openPanel === panel;
+  const editable = Boolean(getMeta(result).editable);
+  return `<button type="button" class="${escapeHtml(buttonClassNames({ variant: active ? 'primary' : 'secondary', pill: true, extra: ['bases-toolbar-btn', active ? 'is-active' : ''] }))}" data-base-panel="${escapeHtml(panel)}"${editable ? '' : ' disabled'}>${escapeHtml(label)}</button>`;
+}
+
+function createPropertyValuesCacheKey(entry, result = entry?.result) {
+  return JSON.stringify({
+    filters: getMeta(result).activeViewConfig?.filters ?? null,
+    path: entry?.payload?.path ?? '',
+    source: entry?.payload?.source ?? null,
+    sourcePath: entry?.payload?.sourcePath ?? '',
+    view: result?.view?.id ?? entry?.payload?.view ?? '',
+  });
+}
+
+function getCachedPropertyValueOptions(entry, propertyId = '', result = entry?.result) {
+  const cachedEntry = entry?.propertyValueOptions?.get(propertyId) ?? null;
+  if (!cachedEntry) {
+    return [];
+  }
+
+  return cachedEntry.cacheKey === createPropertyValuesCacheKey(entry, result)
+    ? (cachedEntry.values ?? [])
+    : [];
+}
+
+function renderActionButtons(result, entry) {
+  return [
+    buildToolbarButton('Sort', 'sort', entry, result),
+    buildToolbarButton('Filter', 'filter', entry, result),
+    buildToolbarButton('Properties', 'properties', entry, result),
+  ].join('');
+}
+
+function createSelectOptions(result, {
+  allowBlank = false,
+  selected = '',
+} = {}) {
+  const options = [];
+  if (allowBlank) {
+    options.push(`<option value=""${selected ? '' : ' selected'}>Property</option>`);
+  }
+
+  getAvailableProperties(result).forEach((property) => {
+    options.push(`<option value="${escapeHtml(property.id)}"${property.id === selected ? ' selected' : ''}>${escapeHtml(property.label)}</option>`);
+  });
+  return options.join('');
+}
+
+function renderSortPanel(result) {
+  const viewConfig = getEditableViewConfig(result);
+  const groupDirections = findPropertyMeta(result, viewConfig.groupBy?.property)?.sortDirections
+    ?? [
+      { id: 'asc', label: 'A → Z' },
+      { id: 'desc', label: 'Z → A' },
+    ];
+  const sorts = viewConfig.sort ?? [];
+
   return `
-    <section class="bases-shell" data-base-shell-key="${escapeHtml(state.key)}">
+    <section class="bases-panel-card">
+      <div class="bases-panel-section">
+        <div class="bases-panel-title">Group by</div>
+        <div class="bases-sort-row">
+          <select class="${escapeHtml(inputClassNames({ extra: 'bases-select bases-sort-property' }))}" data-base-group-by-property>
+            ${createSelectOptions(result, { allowBlank: true, selected: viewConfig.groupBy?.property ?? '' })}
+          </select>
+          <select class="${escapeHtml(inputClassNames({ extra: 'bases-select bases-sort-direction' }))}" data-base-group-by-direction${viewConfig.groupBy?.property ? '' : ' disabled'}>
+            ${groupDirections.map((direction) => `<option value="${escapeHtml(direction.id)}"${direction.id === (viewConfig.groupBy?.direction ?? 'asc') ? ' selected' : ''}>${escapeHtml(direction.label)}</option>`).join('')}
+          </select>
+          <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact' }))}" data-base-clear-group-by${viewConfig.groupBy?.property ? '' : ' disabled'}>Clear</button>
+        </div>
+      </div>
+      <div class="bases-panel-section">
+        <div class="bases-panel-title">Sort by</div>
+        <div class="bases-sort-list">
+          ${sorts.map((sortConfig, index) => {
+    const propertyMeta = findPropertyMeta(result, sortConfig.property);
+    const directions = propertyMeta?.sortDirections ?? [
+      { id: 'asc', label: 'A → Z' },
+      { id: 'desc', label: 'Z → A' },
+    ];
+    return `
+              <div class="bases-sort-row">
+                <select class="${escapeHtml(inputClassNames({ extra: 'bases-select bases-sort-property' }))}" data-base-sort-property="${index}">
+                  ${createSelectOptions(result, { selected: sortConfig.property })}
+                </select>
+                <select class="${escapeHtml(inputClassNames({ extra: 'bases-select bases-sort-direction' }))}" data-base-sort-direction="${index}">
+                  ${directions.map((direction) => `<option value="${escapeHtml(direction.id)}"${direction.id === sortConfig.direction ? ' selected' : ''}>${escapeHtml(direction.label)}</option>`).join('')}
+                </select>
+                <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact' }))}" data-base-sort-move="${index}:up"${index === 0 ? ' disabled' : ''}>↑</button>
+                <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact' }))}" data-base-sort-move="${index}:down"${index === sorts.length - 1 ? ' disabled' : ''}>↓</button>
+                <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact' }))}" data-base-sort-delete="${index}">Delete</button>
+              </div>
+            `;
+  }).join('')}
+        </div>
+        <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact' }))}" data-base-sort-add>Add sort</button>
+      </div>
+    </section>
+  `;
+}
+
+function encodePath(path = []) {
+  return path.join('.');
+}
+
+function decodePath(value = '') {
+  return String(value ?? '')
+    .split('.')
+    .filter((segment) => segment !== '')
+    .map((segment) => Number.parseInt(segment, 10))
+    .filter(Number.isFinite);
+}
+
+function escapeExpressionString(value = '') {
+  return JSON.stringify(String(value ?? ''));
+}
+
+function formatExpressionLiteral(value = '', valueType = 'text', operator = 'is') {
+  const normalized = String(value ?? '').trim();
+  if (!normalized && operator !== 'is' && operator !== 'is not') {
+    return '""';
+  }
+
+  if (valueType === 'boolean') {
+    return normalized === 'false' ? 'false' : 'true';
+  }
+
+  if (valueType === 'number') {
+    return Number.isFinite(Number(normalized))
+      ? String(Number(normalized))
+      : escapeExpressionString(normalized);
+  }
+
+  if (valueType === 'date') {
+    return escapeExpressionString(normalized);
+  }
+
+  return escapeExpressionString(normalized);
+}
+
+function compileFilterRule(rule, propertyMeta = null) {
+  if (!rule?.propertyId || !rule?.operator) {
+    return '';
+  }
+
+  const propertyId = rule.propertyId;
+  const valueType = propertyMeta?.valueType ?? 'text';
+
+  switch (rule.operator) {
+    case 'contains':
+      return `${propertyId}.contains(${formatExpressionLiteral(rule.value, valueType, rule.operator)})`;
+    case 'does not contain':
+      return `!${propertyId}.contains(${formatExpressionLiteral(rule.value, valueType, rule.operator)})`;
+    case 'starts with':
+      return `${propertyId}.startsWith(${formatExpressionLiteral(rule.value, valueType, rule.operator)})`;
+    case 'ends with':
+      return `${propertyId}.endsWith(${formatExpressionLiteral(rule.value, valueType, rule.operator)})`;
+    case 'is':
+      return `${propertyId} == ${formatExpressionLiteral(rule.value, valueType, rule.operator)}`;
+    case 'is not':
+      return `${propertyId} != ${formatExpressionLiteral(rule.value, valueType, rule.operator)}`;
+    case '>':
+    case '>=':
+    case '<':
+    case '<=':
+      return `${propertyId} ${rule.operator} ${formatExpressionLiteral(rule.value, valueType, rule.operator)}`;
+    case 'is empty':
+      return `${propertyId}.isEmpty()`;
+    case 'is not empty':
+      return `!${propertyId}.isEmpty()`;
+    default:
+      return '';
+  }
+}
+
+function compileFilterGroup(group, result) {
+  if (!group || group.type !== 'group') {
+    return null;
+  }
+
+  const compiledChildren = (group.children ?? [])
+    .map((child) => {
+      if (child?.type === 'group') {
+        return compileFilterGroup(child, result);
+      }
+
+      const propertyMeta = findPropertyMeta(result, child?.propertyId);
+      return compileFilterRule(child, propertyMeta);
+    })
+    .filter(Boolean);
+
+  if (compiledChildren.length === 0) {
+    return null;
+  }
+
+  if (group.conjunction === 'not') {
+    return {
+      not: {
+        or: compiledChildren,
+      },
+    };
+  }
+
+  return {
+    [group.conjunction]: compiledChildren,
+  };
+}
+
+function deserializeExpressionValue(value = '') {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  if (normalized === 'true' || normalized === 'false') {
+    return normalized;
+  }
+
+  if (normalized === 'null') {
+    return '';
+  }
+
+  if (/^-?\d+(?:\.\d+)?$/u.test(normalized)) {
+    return normalized;
+  }
+
+  if ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith('\'') && normalized.endsWith('\''))) {
+    return normalized.slice(1, -1).replace(/\\(["'])/gu, '$1');
+  }
+
+  return normalized;
+}
+
+function parseFilterRule(expression = '') {
+  const text = String(expression ?? '').trim();
+  const patterns = [
+    [/^!([A-Za-z0-9_.]+)\.isEmpty\(\)$/u, (_, propertyId) => ({ operator: 'is not empty', propertyId, type: 'rule', value: '' })],
+    [/^([A-Za-z0-9_.]+)\.isEmpty\(\)$/u, (_, propertyId) => ({ operator: 'is empty', propertyId, type: 'rule', value: '' })],
+    [/^!([A-Za-z0-9_.]+)\.contains\((.+)\)$/u, (_, propertyId, value) => ({ operator: 'does not contain', propertyId, type: 'rule', value: deserializeExpressionValue(value) })],
+    [/^([A-Za-z0-9_.]+)\.contains\((.+)\)$/u, (_, propertyId, value) => ({ operator: 'contains', propertyId, type: 'rule', value: deserializeExpressionValue(value) })],
+    [/^([A-Za-z0-9_.]+)\.startsWith\((.+)\)$/u, (_, propertyId, value) => ({ operator: 'starts with', propertyId, type: 'rule', value: deserializeExpressionValue(value) })],
+    [/^([A-Za-z0-9_.]+)\.endsWith\((.+)\)$/u, (_, propertyId, value) => ({ operator: 'ends with', propertyId, type: 'rule', value: deserializeExpressionValue(value) })],
+    [/^([A-Za-z0-9_.]+)\s*(==|!=|>=|<=|>|<)\s*(.+)$/u, (_, propertyId, operator, value) => ({
+      operator: {
+        '!=': 'is not',
+        '==': 'is',
+        '<': '<',
+        '<=': '<=',
+        '>': '>',
+        '>=': '>=',
+      }[operator] ?? operator,
+      propertyId,
+      type: 'rule',
+      value: deserializeExpressionValue(value),
+    })],
+  ];
+
+  for (const [pattern, build] of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return build(...match);
+    }
+  }
+
+  return null;
+}
+
+function parseFilterNode(filterNode) {
+  if (!filterNode) {
+    return createEmptyFilterGroup('and');
+  }
+
+  if (typeof filterNode === 'string') {
+    const rule = parseFilterRule(filterNode);
+    return rule
+      ? {
+        children: [rule],
+        conjunction: 'and',
+        type: 'group',
+      }
+      : null;
+  }
+
+  if (!isPlainObject(filterNode)) {
+    return null;
+  }
+
+  if (Array.isArray(filterNode.and)) {
+    const children = filterNode.and.map((child) => parseFilterNode(child)).flatMap((child) => (
+      child?.type === 'group' && child.conjunction === 'and' && child.children?.length === 1 && child.children[0]?.type === 'rule'
+        ? child.children
+        : [child]
+    ));
+    return children.every(Boolean)
+      ? { children, conjunction: 'and', type: 'group' }
+      : null;
+  }
+
+  if (Array.isArray(filterNode.or)) {
+    const children = filterNode.or.map((child) => parseFilterNode(child)).flatMap((child) => (
+      child?.type === 'group' && child.conjunction === 'and' && child.children?.length === 1 && child.children[0]?.type === 'rule'
+        ? child.children
+        : [child]
+    ));
+    return children.every(Boolean)
+      ? { children, conjunction: 'or', type: 'group' }
+      : null;
+  }
+
+  if (filterNode.not != null) {
+    const parsed = parseFilterNode(filterNode.not);
+    if (!parsed) {
+      return null;
+    }
+
+    return {
+      children: parsed.children ?? [parsed],
+      conjunction: 'not',
+      type: 'group',
+    };
+  }
+
+  return null;
+}
+
+function serializeRawFilterText(filters) {
+  if (!filters) {
+    return '';
+  }
+
+  return typeof filters === 'string'
+    ? filters
+    : JSON.stringify(filters, null, 2);
+}
+
+function parseRawFilterText(text = '') {
+  const normalized = String(text ?? '').trim();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.startsWith('{') || normalized.startsWith('[')) {
+    return JSON.parse(normalized);
+  }
+
+  return normalized;
+}
+
+function getNodeAtPath(group, path = []) {
+  let current = group;
+  for (const index of path) {
+    current = current?.children?.[index];
+  }
+  return current ?? null;
+}
+
+function updateNodeAtPath(group, path = [], updater) {
+  if (path.length === 0) {
+    return updater(group);
+  }
+
+  const [head, ...rest] = path;
+  return {
+    ...group,
+    children: (group.children ?? []).map((child, index) => (
+      index === head
+        ? updateNodeAtPath(child, rest, updater)
+        : child
+    )),
+  };
+}
+
+function removeNodeAtPath(group, path = []) {
+  if (path.length === 0) {
+    return group;
+  }
+
+  const parentPath = path.slice(0, -1);
+  const removeIndex = path[path.length - 1];
+  return updateNodeAtPath(group, parentPath, (node) => ({
+    ...node,
+    children: (node.children ?? []).filter((_, index) => index !== removeIndex),
+  }));
+}
+
+function addNodeAtPath(group, path = [], node) {
+  return updateNodeAtPath(group, path, (target) => ({
+    ...target,
+    children: [...(target.children ?? []), node],
+  }));
+}
+
+function getPropertyOptionsMarkup(result, selected = '') {
+  return createSelectOptions(result, { allowBlank: true, selected });
+}
+
+function renderFilterRule(result, rule, path, entry) {
+  const encodedPath = encodePath(path);
+  const propertyMeta = findPropertyMeta(result, rule.propertyId);
+  const operators = propertyMeta?.filterOperators ?? ['is', 'is not', 'contains', 'does not contain', 'is empty', 'is not empty'];
+  const valueSuggestions = getCachedPropertyValueOptions(entry, rule.propertyId, result);
+  const datalistId = `bases-filter-values-${escapeHtml(entry.key)}-${escapeHtml(encodedPath.replace(/\./g, '-'))}`;
+
+  return `
+    <div class="bases-filter-row">
+      <select class="${escapeHtml(inputClassNames({ extra: 'bases-select bases-filter-property' }))}" data-base-filter-property="${escapeHtml(encodedPath)}">
+        ${getPropertyOptionsMarkup(result, rule.propertyId)}
+      </select>
+      <select class="${escapeHtml(inputClassNames({ extra: 'bases-select bases-filter-operator' }))}" data-base-filter-operator="${escapeHtml(encodedPath)}">
+        ${operators.map((operator) => `<option value="${escapeHtml(operator)}"${operator === rule.operator ? ' selected' : ''}>${escapeHtml(operator)}</option>`).join('')}
+      </select>
+      <input class="${escapeHtml(inputClassNames({ extra: 'bases-filter-value' }))}" type="text" value="${escapeHtml(rule.value ?? '')}" data-base-filter-value="${escapeHtml(encodedPath)}" list="${datalistId}"${['is empty', 'is not empty'].includes(rule.operator) ? ' disabled' : ''}>
+      <datalist id="${datalistId}">
+        ${valueSuggestions.map((option) => `<option value="${escapeHtml(option.text)}">${escapeHtml(`${option.text} (${option.count})`)}</option>`).join('')}
+      </datalist>
+      <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact' }))}" data-base-filter-remove="${escapeHtml(encodedPath)}">Delete</button>
+    </div>
+  `;
+}
+
+function renderFilterGroup(result, group, path, entry, { isRoot = false } = {}) {
+  const encodedPath = encodePath(path);
+  return `
+    <div class="bases-filter-group"${isRoot ? ' data-base-filter-root' : ''}>
+      <div class="bases-filter-group-header">
+        <select class="${escapeHtml(inputClassNames({ extra: 'bases-select bases-filter-conjunction' }))}" data-base-filter-conjunction="${escapeHtml(encodedPath)}">
+          ${['and', 'or', 'not'].map((conjunction) => `<option value="${conjunction}"${group.conjunction === conjunction ? ' selected' : ''}>${escapeHtml({
+    and: 'All the following are true',
+    not: 'None of the following are true',
+    or: 'Any of the following are true',
+  }[conjunction])}</option>`).join('')}
+        </select>
+        ${isRoot ? '' : `<button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact' }))}" data-base-filter-remove="${escapeHtml(encodedPath)}">Delete group</button>`}
+      </div>
+      <div class="bases-filter-children">
+        ${(group.children ?? []).map((child, index) => (
+    child?.type === 'group'
+      ? renderFilterGroup(result, child, [...path, index], entry)
+      : renderFilterRule(result, child, [...path, index], entry)
+  )).join('')}
+      </div>
+      <div class="bases-filter-actions-row">
+        <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact' }))}" data-base-filter-add-rule="${escapeHtml(encodedPath)}">Add filter</button>
+        <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact' }))}" data-base-filter-add-group="${escapeHtml(encodedPath)}">Add filter group</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderFilterPanel(result, entry) {
+  const rawFilters = getEditableViewConfig(result).filters;
+  const parsed = parseFilterNode(rawFilters);
+  const mode = parsed ? (entry.ui.filterMode ?? 'builder') : 'advanced';
+  const rawText = entry.ui.rawFilterText ?? serializeRawFilterText(rawFilters);
+
+  return `
+    <section class="bases-panel-card">
+      <div class="bases-panel-title-row">
+        <div class="bases-panel-title">This view</div>
+        ${parsed ? `
+          <div class="bases-toggle-row">
+            <button type="button" class="${escapeHtml(buttonClassNames({ variant: mode === 'builder' ? 'primary' : 'secondary', size: 'compact' }))}" data-base-filter-mode="builder">Builder</button>
+            <button type="button" class="${escapeHtml(buttonClassNames({ variant: mode === 'advanced' ? 'primary' : 'secondary', size: 'compact' }))}" data-base-filter-mode="advanced">Advanced</button>
+          </div>
+        ` : ''}
+      </div>
+      ${mode === 'advanced'
+    ? `
+        <label class="bases-filter-advanced-label">
+          <textarea class="${escapeHtml(inputClassNames({ extra: 'bases-filter-advanced' }))}" data-base-filter-advanced>${escapeHtml(rawText)}</textarea>
+        </label>
+        <div class="bases-filter-actions-row">
+          <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'primary', size: 'compact' }))}" data-base-filter-save-advanced>Save filter</button>
+        </div>
+      `
+    : renderFilterGroup(result, parsed ?? createEmptyFilterGroup('and'), [], entry, { isRoot: true })}
+    </section>
+  `;
+}
+
+function renderPropertiesPanel(result, entry) {
+  const propertySearch = String(entry.ui.propertySearch ?? '').trim().toLowerCase();
+  const visibleIds = new Set(getVisiblePropertyIds(result));
+  const properties = getAvailableProperties(result).filter((property) => (
+    !propertySearch
+    || property.label.toLowerCase().includes(propertySearch)
+    || property.id.toLowerCase().includes(propertySearch)
+  ));
+
+  return `
+    <section class="bases-panel-card">
+      <label class="bases-properties-search">
+        <input class="${escapeHtml(inputClassNames({ extra: 'bases-properties-search-input' }))}" type="search" value="${escapeHtml(entry.ui.propertySearch ?? '')}" placeholder="Find property" data-base-properties-search>
+      </label>
+      <div class="bases-properties-list">
+        ${properties.map((property) => `
+          <label class="bases-property-option">
+            <input type="checkbox" data-base-property-toggle="${escapeHtml(property.id)}"${visibleIds.has(property.id) ? ' checked' : ''}>
+            <span class="bases-property-option-label">${escapeHtml(property.label)}</span>
+            <span class="bases-property-option-meta">${escapeHtml(property.kind)}</span>
+          </label>
+        `).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderPanel(result, entry) {
+  if (!entry.ui?.openPanel) {
+    return '';
+  }
+
+  if (!getMeta(result).editable) {
+    return '<section class="bases-panel-card"><div class="bases-readonly-note">Inline base previews are read-only. Open the .base file to edit its sort, filter, and properties.</div></section>';
+  }
+
+  switch (entry.ui.openPanel) {
+    case 'filter':
+      return renderFilterPanel(result, entry);
+    case 'properties':
+      return renderPropertiesPanel(result, entry);
+    case 'sort':
+    default:
+      return renderSortPanel(result);
+  }
+}
+
+function renderShellHtml(result, entry) {
+  return `
+    <section class="bases-shell" data-base-shell-key="${escapeHtml(entry.key)}">
       <header class="bases-toolbar">
         <div class="bases-toolbar-main">
           <div class="${escapeHtml(segmentedControlClassNames({ pill: true, extra: 'bases-tabs' }))}" data-base-tabs>
@@ -189,16 +771,18 @@ function renderShellHtml(result, state) {
           <div class="bases-meta" data-base-meta>${escapeHtml(String(result.totalRows ?? 0))} results</div>
         </div>
         <div class="bases-toolbar-actions">
+          <div class="bases-toolbar-edit-actions" data-base-action-slot>${renderActionButtons(result, entry)}</div>
           <label class="bases-search-shell" aria-label="Search this base">
             <svg class="bases-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <circle cx="11" cy="11" r="7"></circle>
               <path d="m20 20-3.5-3.5"></path>
             </svg>
-            <input class="${escapeHtml(inputClassNames({ extra: 'bases-search-input' }))}" type="search" value="${escapeHtml(state.search)}" placeholder="Search this base" aria-label="Search this base">
+            <input class="${escapeHtml(inputClassNames({ extra: 'bases-search-input' }))}" type="search" value="${escapeHtml(entry.search)}" placeholder="Search this base" aria-label="Search this base">
           </label>
           <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', pill: true, extra: 'bases-export-btn' }))}">Export CSV</button>
         </div>
       </header>
+      <div class="bases-panels" data-base-panel-slot>${renderPanel(result, entry)}</div>
       <div data-base-summary-slot>${renderSummaryBar(result.summaries)}</div>
       <div class="bases-content" data-base-content>${renderViewBody(result)}</div>
     </section>
@@ -241,6 +825,16 @@ function updateShellContent(entry, result) {
     meta.textContent = `${String(result.totalRows ?? 0)} results`;
   }
 
+  const actionSlot = shell.querySelector('[data-base-action-slot]');
+  if (actionSlot) {
+    actionSlot.innerHTML = renderActionButtons(result, entry);
+  }
+
+  const panelSlot = shell.querySelector('[data-base-panel-slot]');
+  if (panelSlot) {
+    panelSlot.innerHTML = renderPanel(result, entry);
+  }
+
   const summarySlot = shell.querySelector('[data-base-summary-slot]');
   if (summarySlot) {
     summarySlot.innerHTML = renderSummaryBar(result.summaries);
@@ -280,14 +874,18 @@ function parseDownloadFileName(contentDisposition = '') {
 export class BasesPreviewController {
   constructor({
     getActiveFilePath = () => '',
+    getSession = () => null,
     onOpenFile,
     previewElement,
+    replaceBaseSource = null,
     toastController,
     vaultApiClient,
   }) {
     this.getActiveFilePath = getActiveFilePath;
+    this.getSession = getSession;
     this.onOpenFile = onOpenFile;
     this.previewElement = previewElement;
+    this.replaceBaseSource = replaceBaseSource;
     this.toastController = toastController;
     this.vaultApiClient = vaultApiClient;
     this.entries = new Map();
@@ -301,58 +899,334 @@ export class BasesPreviewController {
         return;
       }
 
-      const tab = event.target.closest('.bases-view-tab');
-      if (tab) {
-        const shell = tab.closest('[data-base-shell-key]');
-        const entry = shell ? this.entries.get(shell.dataset.baseShellKey || '') : null;
-        if (!entry) {
-          return;
-        }
-
-        entry.payload.view = tab.dataset.baseView || '';
-        void this.renderEntry(entry);
-        return;
-      }
-
-      const exportButton = event.target.closest('.bases-export-btn');
-      if (exportButton) {
-        const shell = exportButton.closest('[data-base-shell-key]');
-        const entry = shell ? this.entries.get(shell.dataset.baseShellKey || '') : null;
-        if (!entry) {
-          return;
-        }
-
-        void this.exportEntry(entry);
-      }
-    };
-
-    this.handleInput = (event) => {
-      const input = event.target.closest('.bases-search-input');
-      if (!input) {
-        return;
-      }
-
-      const shell = input.closest('[data-base-shell-key]');
+      const shell = event.target.closest('[data-base-shell-key]');
       const entry = shell ? this.entries.get(shell.dataset.baseShellKey || '') : null;
       if (!entry) {
         return;
       }
 
-      entry.search = input.value || '';
-      clearTimeout(this.searchTimers.get(entry.key));
-      this.searchTimers.set(entry.key, setTimeout(() => {
-        entry.payload.search = entry.search;
+      const tab = event.target.closest('.bases-view-tab');
+      if (tab) {
+        entry.payload.view = tab.dataset.baseView || '';
+        entry.ui.openPanel = '';
         void this.renderEntry(entry);
-      }, 180));
+        return;
+      }
+
+      const panelButton = event.target.closest('[data-base-panel]');
+      if (panelButton) {
+        const panel = panelButton.dataset.basePanel || '';
+        entry.ui.openPanel = entry.ui.openPanel === panel ? '' : panel;
+        entry.ui.rawFilterText = serializeRawFilterText(getEditableViewConfig(entry.result).filters);
+        updateShellContent(entry, entry.result);
+        return;
+      }
+
+      const exportButton = event.target.closest('.bases-export-btn');
+      if (exportButton) {
+        void this.exportEntry(entry);
+        return;
+      }
+
+      if (event.target.closest('[data-base-sort-add]')) {
+        void this.updateViewConfig(entry, (config) => {
+          const used = new Set((config.sort ?? []).map((sort) => sort.property));
+          const nextProperty = getAvailableProperties(entry.result).find((property) => !used.has(property.id))?.id ?? 'file.name';
+          config.sort = [...(config.sort ?? []), { direction: 'asc', property: nextProperty }];
+          return config;
+        });
+        return;
+      }
+
+      const sortDelete = event.target.closest('[data-base-sort-delete]');
+      if (sortDelete) {
+        const index = Number.parseInt(sortDelete.dataset.baseSortDelete || '', 10);
+        void this.updateViewConfig(entry, (config) => {
+          config.sort = (config.sort ?? []).filter((_, sortIndex) => sortIndex !== index);
+          return config;
+        });
+        return;
+      }
+
+      const sortMove = event.target.closest('[data-base-sort-move]');
+      if (sortMove) {
+        const [indexText, direction] = String(sortMove.dataset.baseSortMove || '').split(':');
+        const index = Number.parseInt(indexText, 10);
+        void this.updateViewConfig(entry, (config) => {
+          const nextSorts = [...(config.sort ?? [])];
+          const targetIndex = direction === 'up' ? index - 1 : index + 1;
+          if (targetIndex < 0 || targetIndex >= nextSorts.length) {
+            return config;
+          }
+          [nextSorts[index], nextSorts[targetIndex]] = [nextSorts[targetIndex], nextSorts[index]];
+          config.sort = nextSorts;
+          return config;
+        });
+        return;
+      }
+
+      if (event.target.closest('[data-base-clear-group-by]')) {
+        void this.updateViewConfig(entry, (config) => {
+          config.groupBy = null;
+          return config;
+        });
+        return;
+      }
+
+      const filterModeButton = event.target.closest('[data-base-filter-mode]');
+      if (filterModeButton) {
+        entry.ui.filterMode = filterModeButton.dataset.baseFilterMode || 'builder';
+        if (entry.ui.filterMode === 'advanced') {
+          entry.ui.rawFilterText = serializeRawFilterText(getEditableViewConfig(entry.result).filters);
+        }
+        updateShellContent(entry, entry.result);
+        return;
+      }
+
+      if (event.target.closest('[data-base-filter-save-advanced]')) {
+        void this.saveAdvancedFilter(entry);
+        return;
+      }
+
+      const addFilterRule = event.target.closest('[data-base-filter-add-rule]');
+      if (addFilterRule) {
+        const path = decodePath(addFilterRule.dataset.baseFilterAddRule || '');
+        void this.updateBuilderFilter(entry, (group) => addNodeAtPath(group, path, {
+          operator: 'is',
+          propertyId: getAvailableProperties(entry.result)[0]?.id ?? 'file.name',
+          type: 'rule',
+          value: '',
+        }));
+        return;
+      }
+
+      const addFilterGroup = event.target.closest('[data-base-filter-add-group]');
+      if (addFilterGroup) {
+        const path = decodePath(addFilterGroup.dataset.baseFilterAddGroup || '');
+        void this.updateBuilderFilter(entry, (group) => addNodeAtPath(group, path, createEmptyFilterGroup('and')));
+        return;
+      }
+
+      const removeFilter = event.target.closest('[data-base-filter-remove]');
+      if (removeFilter) {
+        const path = decodePath(removeFilter.dataset.baseFilterRemove || '');
+        void this.updateBuilderFilter(entry, (group) => removeNodeAtPath(group, path));
+      }
+    };
+
+    this.handleInput = (event) => {
+      const input = event.target.closest('.bases-search-input');
+      if (input) {
+        const shell = input.closest('[data-base-shell-key]');
+        const entry = shell ? this.entries.get(shell.dataset.baseShellKey || '') : null;
+        if (!entry) {
+          return;
+        }
+
+        entry.search = input.value || '';
+        clearTimeout(this.searchTimers.get(entry.key));
+        this.searchTimers.set(entry.key, setTimeout(() => {
+          entry.payload.search = entry.search;
+          void this.renderEntry(entry);
+        }, 180));
+        return;
+      }
+
+      const propertiesSearch = event.target.closest('[data-base-properties-search]');
+      if (propertiesSearch) {
+        const shell = propertiesSearch.closest('[data-base-shell-key]');
+        const entry = shell ? this.entries.get(shell.dataset.baseShellKey || '') : null;
+        if (!entry) {
+          return;
+        }
+
+        entry.ui.propertySearch = propertiesSearch.value || '';
+        updateShellContent(entry, entry.result);
+        return;
+      }
+
+      const advancedFilter = event.target.closest('[data-base-filter-advanced]');
+      if (advancedFilter) {
+        const shell = advancedFilter.closest('[data-base-shell-key]');
+        const entry = shell ? this.entries.get(shell.dataset.baseShellKey || '') : null;
+        if (!entry) {
+          return;
+        }
+
+        entry.ui.rawFilterText = advancedFilter.value || '';
+      }
+    };
+
+    this.handleChange = (event) => {
+      const shell = event.target.closest('[data-base-shell-key]');
+      const entry = shell ? this.entries.get(shell.dataset.baseShellKey || '') : null;
+      if (!entry) {
+        return;
+      }
+
+      const groupByProperty = event.target.closest('[data-base-group-by-property]');
+      if (groupByProperty) {
+        void this.updateViewConfig(entry, (config) => {
+          config.groupBy = groupByProperty.value
+            ? {
+              direction: config.groupBy?.direction ?? 'asc',
+              property: groupByProperty.value,
+            }
+            : null;
+          return config;
+        });
+        return;
+      }
+
+      const groupByDirection = event.target.closest('[data-base-group-by-direction]');
+      if (groupByDirection) {
+        void this.updateViewConfig(entry, (config) => {
+          config.groupBy = config.groupBy?.property
+            ? {
+              direction: groupByDirection.value || 'asc',
+              property: config.groupBy.property,
+            }
+            : null;
+          return config;
+        });
+        return;
+      }
+
+      const sortProperty = event.target.closest('[data-base-sort-property]');
+      if (sortProperty) {
+        const index = Number.parseInt(sortProperty.dataset.baseSortProperty || '', 10);
+        void this.updateViewConfig(entry, (config) => {
+          config.sort = (config.sort ?? []).map((sortConfig, sortIndex) => (
+            sortIndex === index
+              ? { ...sortConfig, property: sortProperty.value }
+              : sortConfig
+          ));
+          return config;
+        });
+        return;
+      }
+
+      const sortDirection = event.target.closest('[data-base-sort-direction]');
+      if (sortDirection) {
+        const index = Number.parseInt(sortDirection.dataset.baseSortDirection || '', 10);
+        void this.updateViewConfig(entry, (config) => {
+          config.sort = (config.sort ?? []).map((sortConfig, sortIndex) => (
+            sortIndex === index
+              ? { ...sortConfig, direction: sortDirection.value || 'asc' }
+              : sortConfig
+          ));
+          return config;
+        });
+        return;
+      }
+
+      const propertyToggle = event.target.closest('[data-base-property-toggle]');
+      if (propertyToggle) {
+        const propertyId = propertyToggle.dataset.basePropertyToggle || '';
+        void this.updateViewConfig(entry, (config) => {
+          const nextOrder = config.order?.length > 0
+            ? [...config.order]
+            : getVisiblePropertyIds(entry.result);
+          const existingIndex = nextOrder.indexOf(propertyId);
+          if (propertyToggle.checked && existingIndex === -1) {
+            nextOrder.push(propertyId);
+          }
+          if (!propertyToggle.checked && existingIndex >= 0) {
+            nextOrder.splice(existingIndex, 1);
+          }
+          config.order = nextOrder;
+          return config;
+        });
+        return;
+      }
+
+      const filterConjunction = event.target.closest('[data-base-filter-conjunction]');
+      if (filterConjunction) {
+        const path = decodePath(filterConjunction.dataset.baseFilterConjunction || '');
+        void this.updateBuilderFilter(entry, (group) => updateNodeAtPath(group, path, (node) => ({
+          ...node,
+          conjunction: filterConjunction.value || 'and',
+        })));
+        return;
+      }
+
+      const filterProperty = event.target.closest('[data-base-filter-property]');
+      if (filterProperty) {
+        const path = decodePath(filterProperty.dataset.baseFilterProperty || '');
+        void this.ensurePropertyValues(entry, filterProperty.value);
+        void this.updateBuilderFilter(entry, (group) => updateNodeAtPath(group, path, (node) => ({
+          ...node,
+          propertyId: filterProperty.value,
+        })));
+        return;
+      }
+
+      const filterOperator = event.target.closest('[data-base-filter-operator]');
+      if (filterOperator) {
+        const path = decodePath(filterOperator.dataset.baseFilterOperator || '');
+        void this.updateBuilderFilter(entry, (group) => updateNodeAtPath(group, path, (node) => ({
+          ...node,
+          operator: filterOperator.value || 'is',
+        })));
+        return;
+      }
+
+      const filterValue = event.target.closest('[data-base-filter-value]');
+      if (filterValue) {
+        const path = decodePath(filterValue.dataset.baseFilterValue || '');
+        void this.updateBuilderFilter(entry, (group) => updateNodeAtPath(group, path, (node) => ({
+          ...node,
+          value: filterValue.value || '',
+        })));
+      }
+    };
+
+    this.handleFocusIn = (event) => {
+      const filterValue = event.target.closest('[data-base-filter-value]');
+      if (!filterValue) {
+        return;
+      }
+
+      const shell = filterValue.closest('[data-base-shell-key]');
+      const entry = shell ? this.entries.get(shell.dataset.baseShellKey || '') : null;
+      if (!entry) {
+        return;
+      }
+
+      const path = decodePath(filterValue.dataset.baseFilterValue || '');
+      const parsed = parseFilterNode(getEditableViewConfig(entry.result).filters);
+      const node = parsed ? getNodeAtPath(parsed, path) : null;
+      if (node?.propertyId) {
+        void this.ensurePropertyValues(entry, node.propertyId);
+      }
     };
 
     this.previewElement?.addEventListener('click', this.handleClick);
     this.previewElement?.addEventListener('input', this.handleInput);
+    this.previewElement?.addEventListener('change', this.handleChange);
+    this.previewElement?.addEventListener('focusin', this.handleFocusIn);
+  }
+
+  ensureEntryState(entry) {
+    if (!entry.ui) {
+      entry.ui = {
+        filterMode: 'builder',
+        openPanel: '',
+        propertySearch: '',
+        rawFilterText: '',
+      };
+    }
+
+    if (!entry.propertyValueOptions) {
+      entry.propertyValueOptions = new Map();
+    }
   }
 
   destroy() {
     this.previewElement?.removeEventListener('click', this.handleClick);
     this.previewElement?.removeEventListener('input', this.handleInput);
+    this.previewElement?.removeEventListener('change', this.handleChange);
+    this.previewElement?.removeEventListener('focusin', this.handleFocusIn);
     this.searchTimers.forEach((timer) => clearTimeout(timer));
     this.searchTimers.clear();
     this.entries.clear();
@@ -373,14 +1247,21 @@ export class BasesPreviewController {
         sourcePath: placeholder.dataset.baseSourcePath || '',
         view: placeholder.dataset.baseView || '',
       };
-    const entry = existing ?? {
-      key,
-      payload,
-      placeholder,
-      requestVersion: 0,
-      result: null,
-      search: '',
-    };
+      const entry = existing ?? {
+        key,
+        payload,
+        placeholder,
+        propertyValueOptions: new Map(),
+        requestVersion: 0,
+        result: null,
+        search: '',
+        ui: {
+          filterMode: 'builder',
+          openPanel: '',
+          propertySearch: '',
+          rawFilterText: '',
+        },
+      };
       entry.payload = payload;
       entry.placeholder = placeholder;
       this.entries.set(key, entry);
@@ -400,9 +1281,16 @@ export class BasesPreviewController {
         view: '',
       },
       placeholder: renderHost,
+      propertyValueOptions: new Map(),
       requestVersion: 0,
       result: null,
       search: '',
+      ui: {
+        filterMode: 'builder',
+        openPanel: '',
+        propertySearch: '',
+        rawFilterText: '',
+      },
     };
     entry.placeholder = renderHost;
     entry.payload.path = filePath;
@@ -413,6 +1301,7 @@ export class BasesPreviewController {
   }
 
   async renderEntry(entry) {
+    this.ensureEntryState(entry);
     if (!entry?.placeholder?.isConnected) {
       return;
     }
@@ -432,6 +1321,9 @@ export class BasesPreviewController {
         return;
       }
       entry.result = response.result;
+      if (!entry.ui.rawFilterText) {
+        entry.ui.rawFilterText = serializeRawFilterText(getEditableViewConfig(entry.result).filters);
+      }
       updateShellContent(entry, entry.result);
     } catch (error) {
       if (requestVersion !== entry.requestVersion || !entry?.placeholder?.isConnected) {
@@ -450,6 +1342,7 @@ export class BasesPreviewController {
   }
 
   async exportEntry(entry) {
+    this.ensureEntryState(entry);
     try {
       const response = await this.vaultApiClient.exportBaseCsv({
         activeFilePath: this.getActiveFilePath?.() ?? '',
@@ -458,6 +1351,107 @@ export class BasesPreviewController {
       downloadBlob(response.blob, parseDownloadFileName(response.contentDisposition));
     } catch (error) {
       this.toastController?.show?.(error.message || 'Failed to export base CSV');
+    }
+  }
+
+  async ensurePropertyValues(entry, propertyId = '') {
+    this.ensureEntryState(entry);
+    if (!propertyId) {
+      return;
+    }
+
+    const cacheKey = createPropertyValuesCacheKey(entry);
+    const cachedEntry = entry.propertyValueOptions.get(propertyId) ?? null;
+    if (cachedEntry?.cacheKey === cacheKey) {
+      return;
+    }
+
+    try {
+      const response = await this.vaultApiClient.queryBasePropertyValues({
+        activeFilePath: this.getActiveFilePath?.() ?? '',
+        ...entry.payload,
+        propertyId,
+      });
+      entry.propertyValueOptions.set(propertyId, {
+        cacheKey,
+        values: response.result?.values ?? [],
+      });
+      if (entry.result && entry.ui.openPanel === 'filter') {
+        updateShellContent(entry, entry.result);
+      }
+    } catch {
+      entry.propertyValueOptions.set(propertyId, {
+        cacheKey,
+        values: [],
+      });
+    }
+  }
+
+  async applyTransformedSource(entry, transformed) {
+    this.ensureEntryState(entry);
+    if (isStandaloneBaseEntry(entry)) {
+      entry.payload.source = transformed.source;
+      this.replaceBaseSource?.({
+        path: entry.payload.path,
+        source: transformed.source,
+      });
+      return;
+    }
+
+    await this.vaultApiClient.writeFile({
+      content: transformed.source,
+      path: entry.payload.path,
+    });
+    entry.payload.source = null;
+  }
+
+  async updateViewConfig(entry, updater) {
+    this.ensureEntryState(entry);
+    if (!entry?.result || !getMeta(entry.result).editable) {
+      return;
+    }
+
+    const nextConfig = updater(getEditableViewConfig(entry.result));
+    try {
+      const response = await this.vaultApiClient.transformBase({
+        activeFilePath: this.getActiveFilePath?.() ?? '',
+        mutation: {
+          config: nextConfig,
+          type: 'set-view-config',
+          view: entry.result.view.id,
+        },
+        ...entry.payload,
+      });
+      const transformed = response.result;
+      await this.applyTransformedSource(entry, transformed);
+      entry.result = transformed.result;
+      entry.ui.rawFilterText = serializeRawFilterText(getEditableViewConfig(entry.result).filters);
+      updateShellContent(entry, entry.result);
+    } catch (error) {
+      this.toastController?.show?.(error.message || 'Failed to update base');
+    }
+  }
+
+  async updateBuilderFilter(entry, updater) {
+    this.ensureEntryState(entry);
+    const parsed = parseFilterNode(getEditableViewConfig(entry.result).filters) ?? createEmptyFilterGroup('and');
+    const nextGroup = updater(parsed);
+    await this.updateViewConfig(entry, (config) => {
+      config.filters = compileFilterGroup(nextGroup, entry.result);
+      return config;
+    });
+  }
+
+  async saveAdvancedFilter(entry) {
+    this.ensureEntryState(entry);
+    try {
+      const parsed = parseRawFilterText(entry.ui.rawFilterText ?? '');
+      await this.updateViewConfig(entry, (config) => {
+        config.filters = parsed;
+        return config;
+      });
+    } catch (error) {
+      this.toastController?.show?.(error.message || 'Invalid advanced filter');
     }
   }
 }

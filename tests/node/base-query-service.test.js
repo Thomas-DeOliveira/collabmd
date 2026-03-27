@@ -249,6 +249,83 @@ test('BaseQueryService supports grouping and summaries for properties omitted fr
   );
 });
 
+test('BaseQueryService returns distinct values for hidden properties', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/a.md', [
+    '---',
+    'category: alpha',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('notes/b.md', [
+    '---',
+    'category: beta',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('views/suggestions.base', [
+    'filters: file.ext == "md"',
+    'properties:',
+    '  note.category: {}',
+    'views:',
+    '  - type: table',
+    '    name: Hidden values',
+    '    order: [file.name]',
+  ].join('\n'));
+
+  const result = await service.propertyValues({
+    basePath: 'views/suggestions.base',
+    propertyId: 'note.category',
+    view: 'Hidden values',
+  });
+
+  assert.deepEqual(
+    result.values.map((entry) => [entry.text, entry.count]),
+    [
+      ['alpha', 1],
+      ['beta', 1],
+    ],
+  );
+});
+
+test('BaseQueryService treats missing properties as empty for builder-style method filters', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/a.md', [
+    '---',
+    'category: foo',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('notes/b.md', '# No category\n');
+  await writeVaultFile('views/filters.base', [
+    'filters: file.ext == "md"',
+    'properties:',
+    '  note.category: {}',
+    'views:',
+    '  - type: table',
+    '    name: Contains',
+    '    filters: note.category.contains("foo")',
+    '    order: [file.name]',
+    '  - type: table',
+    '    name: Empty',
+    '    filters: note.category.isEmpty()',
+    '    order: [file.name]',
+  ].join('\n'));
+
+  const containsResult = await service.query({
+    basePath: 'views/filters.base',
+    view: 'Contains',
+  });
+  const emptyResult = await service.query({
+    basePath: 'views/filters.base',
+    view: 'Empty',
+  });
+
+  assert.deepEqual(containsResult.rows.map((row) => row.path), ['notes/a.md']);
+  assert.deepEqual(emptyResult.rows.map((row) => row.path), ['notes/b.md']);
+});
+
 test('BaseQueryService resolves relative image paths against the source note', async (t) => {
   const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
   t.after(cleanup);
@@ -505,4 +582,120 @@ test('BaseQueryService refreshes rename membership changes incrementally', async
   assert.equal(service.indexSnapshot.rowsByPath.has('archive/b.md'), true);
   assert.equal(service.indexSnapshot.rowsByPath.get('notes/a.md').file.links[0].path, 'archive/b.md');
   assert.deepEqual(new Set(readPaths), new Set(['archive/b.md', 'notes/a.md']));
+});
+
+test('BaseQueryService exposes property metadata and respects search before limit', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/a.md', [
+    '---',
+    'status: open',
+    'score: 1',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('notes/b.md', [
+    '---',
+    'status: done',
+    'score: 2',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('views/meta.base', [
+    'filters: file.ext == "md"',
+    'formulas:',
+    '  bucket: \'if(note.status == "done", "Closed", "Open")\'',
+    'properties:',
+    '  note.status:',
+    '    displayName: Status',
+    '  formula.bucket:',
+    '    displayName: Bucket',
+    'views:',
+    '  - type: table',
+    '    name: Table',
+    '    limit: 1',
+    '    order: [note.status, formula.bucket]',
+  ].join('\n'));
+
+  const result = await service.query({
+    basePath: 'views/meta.base',
+    search: 'Closed',
+    view: 'Table',
+  });
+
+  assert.equal(result.totalRows, 1);
+  assert.equal(result.rows[0].cells['formula.bucket'].value, 'Closed');
+  assert.equal(result.meta.editable, true);
+  assert.deepEqual(result.meta.activeViewConfig.order, ['note.status', 'formula.bucket']);
+  assert.ok(result.meta.availableProperties.some((property) => property.id === 'file.name'));
+  assert.ok(result.meta.availableProperties.some((property) => property.id === 'note.status' && property.visible));
+  assert.ok(result.meta.availableProperties.some((property) => property.id === 'formula.bucket' && property.kind === 'formula'));
+});
+
+test('BaseQueryService property values cap high-cardinality results', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await Promise.all(Array.from({ length: 120 }, (_, index) => (
+    writeVaultFile(`notes/${index}.md`, [
+      '---',
+      `status: status-${index}`,
+      '---',
+    ].join('\n'))
+  )));
+  await writeVaultFile('views/status.base', [
+    'filters: file.ext == "md"',
+    'properties:',
+    '  note.status: {}',
+    'views:',
+    '  - type: table',
+    '    order: [note.status]',
+  ].join('\n'));
+
+  const result = await service.propertyValues({
+    basePath: 'views/status.base',
+    propertyId: 'note.status',
+  });
+
+  assert.equal(result.values.length, 100);
+  assert.match(result.values[0].text, /status-/);
+});
+
+test('BaseQueryService transform rewrites legacy formulas into top-level formulas', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/a.md', [
+    '---',
+    'status: open',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('views/legacy.base', [
+    'properties:',
+    '  formula.bucket:',
+    '    displayName: Bucket',
+    '    formula: \'if(note.status == "done", "Closed", "Open")\'',
+    'views:',
+    '  - type: table',
+    '    name: Table',
+    '    order: [formula.bucket]',
+  ].join('\n'));
+
+  const transformed = await service.transform({
+    basePath: 'views/legacy.base',
+    mutation: {
+      config: {
+        filters: 'note.status == "open"',
+        groupBy: null,
+        order: ['formula.bucket'],
+        sort: [],
+      },
+      type: 'set-view-config',
+      view: 'Table',
+    },
+    view: 'Table',
+  });
+
+  assert.match(transformed.source, /formulas:\n {2}bucket:/);
+  assert.doesNotMatch(transformed.source, /formula:\s+'if\(note\.status/);
+  assert.match(transformed.source, /filters: note\.status == "open"/);
 });

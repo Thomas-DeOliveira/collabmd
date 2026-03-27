@@ -261,3 +261,28 @@ test('EditorSession delegates editor commands to the view adapter', () => {
 
   session.destroy();
 });
+
+test('EditorSession delegates replaceText to the view adapter', () => {
+  const session = new EditorSession({
+    editorContainer: null,
+    initialTheme: 'light',
+    lineInfoElement: null,
+    localUser: null,
+    onAwarenessChange: () => {},
+    onCommentsChange: () => {},
+    onConnectionChange: () => {},
+    onContentChange: () => {},
+    preferredUserName: 'Tester',
+  });
+
+  const replaced = [];
+  session.viewAdapter.replaceText = (text) => {
+    replaced.push(text);
+    return true;
+  };
+
+  assert.equal(session.replaceText('updated'), true);
+  assert.deepEqual(replaced, ['updated']);
+
+  session.destroy();
+});

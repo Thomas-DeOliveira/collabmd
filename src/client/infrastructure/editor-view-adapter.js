@@ -934,6 +934,29 @@ export class EditorViewAdapter {
     return true;
   }
 
+  replaceText(text) {
+    if (!this.editorView) {
+      return false;
+    }
+
+    const nextText = String(text ?? '');
+    const { state } = this.editorView;
+    this.editorView.dispatch({
+      changes: {
+        from: 0,
+        insert: nextText,
+        to: state.doc.length,
+      },
+      selection: {
+        anchor: 0,
+        head: 0,
+      },
+      userEvent: 'input',
+    });
+    this.editorView.focus();
+    return true;
+  }
+
   toggleTaskListItem(lineNumber) {
     const state = this.editorView?.state;
     if (!this.editorView || !state) {

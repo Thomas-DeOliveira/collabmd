@@ -250,6 +250,99 @@
   gap: var(--space-3);
 }
 
+.preview-content .bases-toolbar-edit-actions,
+.preview-content .bases-panel-title-row,
+.preview-content .bases-toggle-row,
+.preview-content .bases-sort-row,
+.preview-content .bases-filter-row,
+.preview-content .bases-filter-group-header,
+.preview-content .bases-filter-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.preview-content .bases-panels {
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+.preview-content .bases-panel-card {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--color-surface) 88%, var(--color-surface-offset));
+}
+
+.preview-content .bases-panel-section {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.preview-content .bases-panel-title,
+.preview-content .bases-readonly-note {
+  font-size: var(--text-ui-sm);
+  color: var(--color-text-muted);
+}
+
+.preview-content .bases-select,
+.preview-content .bases-filter-value,
+.preview-content .bases-properties-search-input,
+.preview-content .bases-filter-advanced {
+  min-width: 0;
+}
+
+.preview-content .bases-sort-row > .bases-select,
+.preview-content .bases-filter-row > .bases-select,
+.preview-content .bases-filter-row > .bases-filter-value {
+  flex: 1 1 150px;
+}
+
+.preview-content .bases-filter-group {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--color-surface) 96%, var(--color-surface-offset));
+}
+
+.preview-content .bases-filter-children {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.preview-content .bases-properties-list {
+  display: grid;
+  gap: var(--space-2);
+  max-height: 280px;
+  overflow: auto;
+}
+
+.preview-content .bases-property-option {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.preview-content .bases-property-option-meta {
+  font-size: var(--text-ui-sm);
+  color: var(--color-text-faint);
+  text-transform: capitalize;
+}
+
+.preview-content .bases-filter-advanced {
+  min-height: 160px;
+  resize: vertical;
+}
+
 .preview-content .bases-search-shell {
   position: relative;
   display: flex;

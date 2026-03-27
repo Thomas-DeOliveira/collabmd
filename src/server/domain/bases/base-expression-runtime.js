@@ -111,6 +111,10 @@ function normalizeDuration(duration) {
   return Number.isFinite(amount) && multiplier ? amount * multiplier : null;
 }
 
+function hasFormulaDefinition(definition, propertyId = '') {
+  return Boolean(definition?.formulas?.[propertyId]);
+}
+
 export function parseDateValue(value) {
   if (value instanceof Date) {
     return Number.isFinite(value.getTime()) ? value : null;
@@ -474,6 +478,26 @@ function invokeMethod(target, name, argNodes, scope, evaluate, rootContext) {
       throw new Error(`Formula namespace property "${name}" is not callable`);
     }
     return rootContext.resolveFormulaValue(name, target.row, target.evaluationState);
+  }
+
+  if (target == null) {
+    switch (name) {
+      case 'contains':
+      case 'containsAll':
+      case 'containsAny':
+      case 'endsWith':
+      case 'hasLink':
+      case 'hasProperty':
+      case 'hasTag':
+      case 'inFolder':
+      case 'linksTo':
+      case 'startsWith':
+        return false;
+      case 'isEmpty':
+        return true;
+      default:
+        break;
+    }
   }
 
   if (Array.isArray(target)) {
@@ -1062,10 +1086,9 @@ export function createEvaluationRootContext({
     evaluationState: nextEvaluationState,
     resolveFormulaValue: (name, row, state = nextEvaluationState) => {
       const formulaName = normalizeFormulaLookupName(name);
-      const formulaPropertyId = Object.keys(definition.properties).find((propertyId) => {
-        const config = definition.properties[propertyId];
-        return config?.formula && normalizeFormulaLookupName(propertyId) === formulaName;
-      });
+      const formulaPropertyId = Object.keys(definition.formulas ?? {}).find((propertyId) => (
+        normalizeFormulaLookupName(propertyId) === formulaName
+      ));
       if (!formulaPropertyId) {
         return null;
       }
@@ -1087,7 +1110,7 @@ export function createEvaluationRootContext({
         snapshot,
         thisFile,
       });
-      const result = evaluateExpression(definition.properties[formulaPropertyId].formula, nextContext);
+      const result = evaluateExpression(definition.formulas[formulaPropertyId].formula, nextContext);
       state.stack.delete(cacheKey);
       state.cache.set(cacheKey, result);
       return result;
@@ -1129,12 +1152,7 @@ export function getPropertyValue(propertyId, row, definition, snapshot, thisFile
     return propertyId.split('.').slice(1).reduce((acc, segment) => acc?.[segment], row.file);
   }
 
-  if (propertyId.startsWith('note.')) {
-    return row.noteProperties[propertyId.slice(5)] ?? null;
-  }
-
-  const propertyConfig = definition.properties[propertyId];
-  if (propertyConfig?.formula) {
+  if (hasFormulaDefinition(definition, propertyId)) {
     const context = createEvaluationRootContext({
       currentRow: row,
       definition,
@@ -1144,8 +1162,11 @@ export function getPropertyValue(propertyId, row, definition, snapshot, thisFile
     return context.resolveFormulaValue(propertyId, row, context.evaluationState);
   }
 
-  const formulaConfig = definition.properties[`formula.${propertyId}`];
-  if (formulaConfig?.formula) {
+  if (propertyId.startsWith('note.')) {
+    return row.noteProperties[propertyId.slice(5)] ?? null;
+  }
+
+  if (hasFormulaDefinition(definition, `formula.${propertyId}`)) {
     const context = createEvaluationRootContext({
       currentRow: row,
       definition,

@@ -306,8 +306,14 @@ export class CollabMdAppShell {
     });
     this.basesPreview = new BasesPreviewController({
       getActiveFilePath: () => this.currentFilePath,
+      getSession: () => this.session,
       onOpenFile: (filePath) => filePath && this.navigation.navigateToFile(filePath),
       previewElement: this.elements.previewContent,
+      replaceBaseSource: ({ path, source }) => {
+        if (path && path === this.currentFilePath) {
+          this.session?.replaceText?.(source);
+        }
+      },
       toastController: this.toastController,
       vaultApiClient: this.vaultApiClient,
     });

@@ -141,6 +141,54 @@ export class VaultApiClient {
     };
   }
 
+  async queryBasePropertyValues({
+    activeFilePath = '',
+    path = '',
+    propertyId = '',
+    query = '',
+    source = null,
+    sourcePath = '',
+    view = '',
+  } = {}) {
+    const response = await fetch(resolveApiUrl('/base/property-values'), {
+      body: JSON.stringify({
+        activeFilePath,
+        path,
+        propertyId,
+        query,
+        source,
+        sourcePath,
+        view,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    return parseApiResponse(response, 'Failed to load base property values');
+  }
+
+  async transformBase({
+    activeFilePath = '',
+    mutation = null,
+    path = '',
+    source = null,
+    sourcePath = '',
+    view = '',
+  } = {}) {
+    const response = await fetch(resolveApiUrl('/base/transform'), {
+      body: JSON.stringify({
+        activeFilePath,
+        mutation,
+        path,
+        source,
+        sourcePath,
+        view,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    return parseApiResponse(response, 'Failed to transform base');
+  }
+
   async createFile({ content, path, requestId = null }) {
     const response = await fetch(resolveApiUrl('/file'), {
       body: JSON.stringify({ content, path }),

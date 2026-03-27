@@ -149,6 +149,57 @@ export function createVaultApiQueryHandler({
       return true;
     }
 
+    if (requestUrl.pathname === '/api/base/property-values' && req.method === 'POST') {
+      try {
+        if (!baseQueryService?.propertyValues) {
+          jsonResponse(req, res, 503, { error: 'Bases query service is unavailable' });
+          return true;
+        }
+
+        const body = await parseJsonBody(req);
+        const result = await baseQueryService.propertyValues({
+          activeFilePath: body?.activeFilePath ?? '',
+          basePath: body?.path ?? '',
+          propertyId: body?.propertyId ?? '',
+          query: body?.query ?? '',
+          source: typeof body?.source === 'string' ? body.source : null,
+          sourcePath: body?.sourcePath ?? '',
+          view: body?.view ?? '',
+        });
+
+        jsonResponse(req, res, 200, { ok: true, result });
+      } catch (error) {
+        console.error('[api] Failed to read base property values:', error.message);
+        jsonResponse(req, res, 400, { error: error.message || 'Failed to read base property values' });
+      }
+      return true;
+    }
+
+    if (requestUrl.pathname === '/api/base/transform' && req.method === 'POST') {
+      try {
+        if (!baseQueryService?.transform) {
+          jsonResponse(req, res, 503, { error: 'Bases query service is unavailable' });
+          return true;
+        }
+
+        const body = await parseJsonBody(req);
+        const result = await baseQueryService.transform({
+          activeFilePath: body?.activeFilePath ?? '',
+          basePath: body?.path ?? '',
+          mutation: body?.mutation ?? null,
+          source: typeof body?.source === 'string' ? body.source : null,
+          sourcePath: body?.sourcePath ?? '',
+          view: body?.view ?? '',
+        });
+
+        jsonResponse(req, res, 200, { ok: true, result });
+      } catch (error) {
+        console.error('[api] Failed to transform base:', error.message);
+        jsonResponse(req, res, 400, { error: error.message || 'Failed to transform base' });
+      }
+      return true;
+    }
+
     if (requestUrl.pathname === '/api/base/export' && req.method === 'POST') {
       try {
         if (!baseQueryService?.query) {

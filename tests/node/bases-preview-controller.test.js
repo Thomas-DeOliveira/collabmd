@@ -24,12 +24,14 @@ function createPlaceholder() {
 
 function createBaseResult({
   cell,
+  columns = [{ id: 'note.value', label: 'Value' }],
   label = 'Row',
+  meta = null,
   totalRows = 1,
   type = 'table',
 } = {}) {
   return {
-    columns: [{ id: 'note.value', label: 'Value' }],
+    columns,
     groups: [{
       key: 'All',
       label: 'All',
@@ -45,6 +47,26 @@ function createBaseResult({
     rows: [],
     summaries: [],
     totalRows,
+    meta: meta ?? {
+      activeViewConfig: {
+        filters: null,
+        groupBy: null,
+        order: ['note.value'],
+        sort: [],
+      },
+      availableProperties: [{
+        filterOperators: ['is', 'is not'],
+        groupable: true,
+        id: 'note.value',
+        kind: 'note',
+        label: 'Value',
+        sortable: true,
+        sortDirections: [{ id: 'asc', label: 'A → Z' }],
+        valueType: 'text',
+        visible: true,
+      }],
+      editable: true,
+    },
     view: {
       id: 'view-0',
       name: 'Table',
@@ -477,4 +499,432 @@ test('BasesPreviewController preserves the shell during search rerenders', async
   assert.equal(secondContent, firstContent);
   assert.match(secondContent.innerHTML, /Filtered/);
   assert.equal(meta.textContent, '2 results');
+});
+
+test('BasesPreviewController applies transformed standalone base source through the session callback', async () => {
+  const transformed = {
+    result: createBaseResult({ label: 'Updated', totalRows: 2 }),
+    source: 'views:\n  - type: table\n',
+  };
+  const calls = [];
+  const controller = new BasesPreviewController({
+    replaceBaseSource(payload) {
+      calls.push(['replace', payload.path, payload.source]);
+    },
+    vaultApiClient: {
+      async transformBase() {
+        return { result: transformed };
+      },
+    },
+  });
+  const entry = {
+    key: 'standalone',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    requestVersion: 0,
+    result: createBaseResult({ label: 'Before' }),
+    search: '',
+    ui: {
+      filterMode: 'builder',
+      openPanel: '',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+
+  await controller.updateViewConfig(entry, (config) => config);
+
+  assert.deepEqual(calls, [['replace', 'views/tasks.base', 'views:\n  - type: table\n']]);
+  assert.equal(entry.payload.source, 'views:\n  - type: table\n');
+  assert.equal(entry.result.totalRows, 2);
+});
+
+test('BasesPreviewController renders inline base editing controls as read-only', async () => {
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return {
+          result: createBaseResult({
+            meta: {
+              activeViewConfig: {
+                filters: null,
+                groupBy: null,
+                order: ['note.value'],
+                sort: [],
+              },
+              availableProperties: [{
+                filterOperators: ['is', 'is not'],
+                groupable: true,
+                id: 'note.value',
+                kind: 'note',
+                label: 'Value',
+                sortable: true,
+                sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                valueType: 'text',
+                visible: true,
+              }],
+              editable: false,
+            },
+          }),
+        };
+      },
+    },
+  });
+  const placeholder = createPlaceholder();
+  const entry = {
+    key: 'inline-entry',
+    payload: {
+      path: '',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'notes/source.md',
+      view: '',
+    },
+    placeholder,
+    requestVersion: 0,
+    result: null,
+    search: '',
+    ui: {
+      filterMode: 'builder',
+      openPanel: 'sort',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+
+  await controller.renderEntry(entry);
+
+  assert.match(placeholder.innerHTML, /Inline base previews are read-only/);
+  assert.match(placeholder.innerHTML, /data-base-panel="sort" disabled/);
+});
+
+test('BasesPreviewController marks implicitly visible properties as checked in the properties panel', async () => {
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return {
+          result: createBaseResult({
+            columns: [
+              { id: 'file.name', label: 'Name' },
+              { id: 'note.value', label: 'Value' },
+            ],
+            meta: {
+              activeViewConfig: {
+                filters: null,
+                groupBy: null,
+                order: [],
+                sort: [],
+              },
+              availableProperties: [
+                {
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'file.name',
+                  kind: 'file',
+                  label: 'Name',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: true,
+                },
+                {
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'note.value',
+                  kind: 'note',
+                  label: 'Value',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: true,
+                },
+                {
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'note.extra',
+                  kind: 'note',
+                  label: 'Extra',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: false,
+                },
+              ],
+              editable: true,
+            },
+          }),
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'properties-entry',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: null,
+      sourcePath: '',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    requestVersion: 0,
+    result: null,
+    search: '',
+    ui: {
+      filterMode: 'builder',
+      openPanel: 'properties',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+
+  await controller.renderEntry(entry);
+
+  assert.match(entry.placeholder.innerHTML, /data-base-property-toggle="file\.name" checked/);
+  assert.match(entry.placeholder.innerHTML, /data-base-property-toggle="note\.value" checked/);
+  assert.doesNotMatch(entry.placeholder.innerHTML, /data-base-property-toggle="note\.extra" checked/);
+});
+
+test('BasesPreviewController preserves implicit columns when enabling a new property', async () => {
+  const transformCalls = [];
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async transformBase(payload) {
+        transformCalls.push(payload);
+        return {
+          result: createBaseResult({
+            columns: [
+              { id: 'file.name', label: 'Name' },
+              { id: 'note.value', label: 'Value' },
+              { id: 'note.extra', label: 'Extra' },
+            ],
+            meta: {
+              activeViewConfig: payload.mutation.config,
+              availableProperties: [
+                {
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'file.name',
+                  kind: 'file',
+                  label: 'Name',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: true,
+                },
+                {
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'note.value',
+                  kind: 'note',
+                  label: 'Value',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: true,
+                },
+                {
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'note.extra',
+                  kind: 'note',
+                  label: 'Extra',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: true,
+                },
+              ],
+              editable: true,
+            },
+          }),
+        };
+      },
+      async writeFile() {},
+    },
+  });
+  const entry = {
+    key: 'implicit-toggle',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: null,
+      sourcePath: '',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    propertyValueOptions: new Map(),
+    requestVersion: 0,
+    result: createBaseResult({
+      columns: [
+        { id: 'file.name', label: 'Name' },
+        { id: 'note.value', label: 'Value' },
+      ],
+      meta: {
+        activeViewConfig: {
+          filters: null,
+          groupBy: null,
+          order: [],
+          sort: [],
+        },
+        availableProperties: [
+          {
+            filterOperators: ['is', 'is not'],
+            groupable: true,
+            id: 'file.name',
+            kind: 'file',
+            label: 'Name',
+            sortable: true,
+            sortDirections: [{ id: 'asc', label: 'A → Z' }],
+            valueType: 'text',
+            visible: true,
+          },
+          {
+            filterOperators: ['is', 'is not'],
+            groupable: true,
+            id: 'note.value',
+            kind: 'note',
+            label: 'Value',
+            sortable: true,
+            sortDirections: [{ id: 'asc', label: 'A → Z' }],
+            valueType: 'text',
+            visible: true,
+          },
+          {
+            filterOperators: ['is', 'is not'],
+            groupable: true,
+            id: 'note.extra',
+            kind: 'note',
+            label: 'Extra',
+            sortable: true,
+            sortDirections: [{ id: 'asc', label: 'A → Z' }],
+            valueType: 'text',
+            visible: false,
+          },
+        ],
+        editable: true,
+      },
+    }),
+    search: '',
+    ui: {
+      filterMode: 'builder',
+      openPanel: 'properties',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+  controller.entries.set(entry.key, entry);
+
+  const shell = { dataset: { baseShellKey: entry.key } };
+  const propertyToggle = {
+    checked: true,
+    dataset: { basePropertyToggle: 'note.extra' },
+  };
+
+  controller.handleChange({
+    target: {
+      closest(selector) {
+        switch (selector) {
+          case '[data-base-shell-key]':
+            return shell;
+          case '[data-base-property-toggle]':
+            return propertyToggle;
+          default:
+            return null;
+        }
+      },
+    },
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(transformCalls[0].mutation.config.order, [
+    'file.name',
+    'note.value',
+    'note.extra',
+  ]);
+});
+
+test('BasesPreviewController does not render stale property suggestions after filters change', async () => {
+  const placeholder = createPlaceholder();
+  const initialResult = createBaseResult({
+    meta: {
+      activeViewConfig: {
+        filters: 'note.value == "before"',
+        groupBy: null,
+        order: ['note.value'],
+        sort: [],
+      },
+      availableProperties: [{
+        filterOperators: ['is', 'is not'],
+        groupable: true,
+        id: 'note.value',
+        kind: 'note',
+        label: 'Value',
+        sortable: true,
+        sortDirections: [{ id: 'asc', label: 'A → Z' }],
+        valueType: 'text',
+        visible: true,
+      }],
+      editable: true,
+    },
+  });
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async transformBase(payload) {
+        return {
+          result: {
+            result: createBaseResult({
+              meta: {
+                activeViewConfig: payload.mutation.config,
+                availableProperties: initialResult.meta.availableProperties,
+                editable: true,
+              },
+            }),
+            source: 'views:\n  - type: table\n',
+          },
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'stale-values',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder,
+    propertyValueOptions: new Map([
+      ['note.value', {
+        cacheKey: 'old-cache-key',
+        values: [{ count: 1, text: 'stale', value: 'stale' }],
+      }],
+    ]),
+    requestVersion: 0,
+    result: initialResult,
+    search: '',
+    ui: {
+      filterMode: 'builder',
+      openPanel: 'filter',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+
+  await controller.updateViewConfig(entry, (config) => ({
+    ...config,
+    filters: 'note.value == "after"',
+  }));
+
+  assert.doesNotMatch(placeholder.innerHTML, /<option value="stale">/);
 });

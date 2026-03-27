@@ -15,6 +15,25 @@ function capitalize(value = '') {
   return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
 }
 
+function normalizeDirection(value, fallback = 'asc') {
+  return String(value ?? fallback).toLowerCase() === 'desc' ? 'desc' : 'asc';
+}
+
+function normalizeFormulaPropertyId(value = '') {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  return normalized.startsWith('formula.')
+    ? normalized
+    : `formula.${normalized}`;
+}
+
+function bareFormulaName(value = '') {
+  return normalizeFormulaPropertyId(value).replace(/^formula\./u, '');
+}
+
 function normalizeBaseView(rawView, index) {
   const view = isPlainObject(rawView) ? rawView : {};
   const type = typeof view.type === 'string' ? view.type : 'table';
@@ -43,9 +62,7 @@ function normalizeBaseView(rawView, index) {
       return acc;
     }, {}),
     filters: view.filters ?? null,
-    groupBy: typeof view.groupBy === 'string'
-      ? view.groupBy
-      : (typeof view.group_by === 'string' ? view.group_by : null),
+    groupBy: normalizeViewGroupBy(view.groupBy ?? view.group_by),
     id: `view-${index}`,
     image: typeof view.image === 'string' ? view.image : null,
     limit: Number.isFinite(Number(view.limit)) ? Math.max(0, Number(view.limit)) : null,
@@ -80,6 +97,31 @@ function normalizeViewOrder(value) {
   return [];
 }
 
+function normalizeViewGroupBy(value) {
+  if (typeof value === 'string' && value.trim()) {
+    return {
+      direction: 'asc',
+      explicitDirection: false,
+      property: value.trim(),
+    };
+  }
+
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const property = value.property ?? value.id ?? value.name ?? null;
+  if (typeof property !== 'string' || !property.trim()) {
+    return null;
+  }
+
+  return {
+    direction: normalizeDirection(value.direction ?? value.order, 'asc'),
+    explicitDirection: Object.hasOwn(value, 'direction') || Object.hasOwn(value, 'order'),
+    property: property.trim(),
+  };
+}
+
 function normalizeViewSort(value) {
   if (typeof value === 'string' && value.trim()) {
     return [{ direction: 'asc', property: value.trim() }];
@@ -103,9 +145,7 @@ function normalizeViewSort(value) {
         return null;
       }
 
-      const direction = String(entry.direction ?? entry.order ?? 'asc').toLowerCase() === 'desc'
-        ? 'desc'
-        : 'asc';
+      const direction = normalizeDirection(entry.direction ?? entry.order, 'asc');
       return { direction, property: property.trim() };
     })
     .filter(Boolean);
@@ -183,20 +223,56 @@ function resolvePropertyLabel(propertyId, definition) {
   if (config?.displayName) {
     return config.displayName;
   }
+
+  if (propertyId.startsWith('formula.')) {
+    return bareFormulaName(propertyId);
+  }
+
   return propertyId.startsWith('file.')
     ? propertyId.slice(5)
     : propertyId.replace(/^note\./u, '');
+}
+
+function normalizeFormulaEntries(rawFormulas, rawProperties) {
+  const formulas = {};
+  const appendFormula = (propertyId, formula, { legacy = false } = {}) => {
+    const normalizedId = normalizeFormulaPropertyId(propertyId);
+    if (!normalizedId || typeof formula !== 'string') {
+      return;
+    }
+
+    formulas[normalizedId] = {
+      formula,
+      id: normalizedId,
+      legacy,
+      name: bareFormulaName(normalizedId),
+    };
+  };
+
+  if (isPlainObject(rawFormulas)) {
+    Object.entries(rawFormulas).forEach(([name, formula]) => {
+      appendFormula(name, formula);
+    });
+  }
+
+  Object.entries(rawProperties).forEach(([id, config]) => {
+    if (typeof config?.formula === 'string') {
+      appendFormula(id, config.formula, { legacy: true });
+    }
+  });
+
+  return formulas;
 }
 
 export function normalizeBaseDefinition(source = '') {
   const raw = yaml.load(String(source ?? '')) ?? {};
   const rawObject = isPlainObject(raw) ? raw : {};
   const rawProperties = isPlainObject(rawObject.properties) ? rawObject.properties : {};
+  const formulas = normalizeFormulaEntries(rawObject.formulas, rawProperties);
   const properties = Object.entries(rawProperties).reduce((acc, [id, config]) => {
     const normalizedConfig = isPlainObject(config) ? { ...config } : {};
     acc[id] = {
       displayName: typeof normalizedConfig.displayName === 'string' ? normalizedConfig.displayName : null,
-      formula: typeof normalizedConfig.formula === 'string' ? normalizedConfig.formula : null,
       id,
       raw: normalizedConfig,
     };
@@ -211,6 +287,7 @@ export function normalizeBaseDefinition(source = '') {
 
   return {
     filters: rawObject.filters ?? null,
+    formulas,
     properties,
     raw: rawObject,
     views,
@@ -220,7 +297,10 @@ export function normalizeBaseDefinition(source = '') {
 export function buildColumns(definition, view) {
   const order = view.order.length > 0
     ? view.order
-    : ['file.name', ...Object.keys(definition.properties)];
+    : ['file.name', ...new Set([
+      ...Object.keys(definition.properties),
+      ...Object.keys(definition.formulas),
+    ])];
   return order.map((propertyId) => ({
     id: propertyId,
     label: resolvePropertyLabel(propertyId, definition),
@@ -230,8 +310,8 @@ export function buildColumns(definition, view) {
 export function collectEvaluatedPropertyIds(columns, view) {
   const propertyIds = new Set(columns.map((column) => column.id));
 
-  if (view.groupBy) {
-    propertyIds.add(view.groupBy);
+  if (view.groupBy?.property) {
+    propertyIds.add(view.groupBy.property);
   }
 
   view.sort.forEach((sortConfig) => {
@@ -249,7 +329,39 @@ export function collectEvaluatedPropertyIds(columns, view) {
   return [...propertyIds];
 }
 
+export function findView(definition, requestedView = '') {
+  return definition.views.find((entry) => entry.name === requestedView || entry.id === requestedView) ?? definition.views[0];
+}
+
+export function normalizeRawDefinitionForWrite(definition) {
+  const rawDefinition = isPlainObject(definition?.raw)
+    ? structuredClone(definition.raw)
+    : structuredClone(isPlainObject(definition) ? definition : {});
+  const rawProperties = isPlainObject(rawDefinition.properties) ? rawDefinition.properties : {};
+  const formulas = isPlainObject(rawDefinition.formulas)
+    ? { ...rawDefinition.formulas }
+    : {};
+
+  Object.entries(rawProperties).forEach(([propertyId, config]) => {
+    if (!isPlainObject(config) || typeof config.formula !== 'string') {
+      return;
+    }
+
+    formulas[bareFormulaName(propertyId)] = config.formula;
+    delete config.formula;
+  });
+
+  rawDefinition.properties = rawProperties;
+  if (Object.keys(formulas).length > 0) {
+    rawDefinition.formulas = formulas;
+  } else {
+    delete rawDefinition.formulas;
+  }
+
+  return rawDefinition;
+}
+
 export function serializeBaseDefinition(definition) {
-  const raw = definition?.raw ?? definition ?? {};
+  const raw = normalizeRawDefinitionForWrite(definition);
   return `${yaml.dump(raw, { lineWidth: -1, noRefs: true }).trim()}\n`;
 }

@@ -272,6 +272,10 @@ export class EditorSession {
     return this.viewAdapter.insertText(text);
   }
 
+  replaceText(text) {
+    return this.viewAdapter.replaceText(text);
+  }
+
   toggleTaskListItem(lineNumber) {
     if (!this.collaborationClient.initialSyncComplete) {
       return false;

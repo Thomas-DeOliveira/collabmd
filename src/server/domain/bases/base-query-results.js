@@ -123,10 +123,10 @@ export function rowMatchesSearch(row, columns, query) {
     return true;
   }
 
-  const haystack = [
-    row.file.path,
-    ...columns.map((column) => toDisplayText(row.rawCells[column.id])),
-  ].join('\n').toLowerCase();
+  const haystack = columns
+    .map((column) => toDisplayText(row.rawCells[column.id]))
+    .join('\n')
+    .toLowerCase();
   return haystack.includes(normalizedQuery);
 }
 
@@ -139,13 +139,14 @@ export function buildQueryResultPayload({
   thisFile,
 }) {
   const groupsByKey = new Map();
-  if (activeView.groupBy) {
+  if (activeView.groupBy?.property) {
     rows.forEach((row) => {
-      const groupValue = row.rawCells[activeView.groupBy];
+      const groupValue = row.rawCells[activeView.groupBy.property];
       const groupKey = toDisplayText(groupValue) || 'Empty';
       const entry = groupsByKey.get(groupKey) ?? {
         key: groupKey,
         label: groupKey,
+        rawValue: groupValue,
         rows: [],
         value: serializeBaseValue(groupValue, {
           rowFilePath: row.file.path,
@@ -183,7 +184,15 @@ export function buildQueryResultPayload({
   }));
   const rowsByPath = new Map(serializedRows.map((row) => [row.path, row]));
 
-  const groups = Array.from(groupsByKey.values()).map((group) => ({
+  let groups = Array.from(groupsByKey.values());
+  if (activeView.groupBy?.explicitDirection) {
+    groups = groups.sort((left, right) => {
+      const delta = compareValues(left.rawValue, right.rawValue);
+      return activeView.groupBy.direction === 'desc' ? -delta : delta;
+    });
+  }
+
+  groups = groups.map((group) => ({
     key: group.key,
     label: group.label,
     summaries: createSummaryPayload(columns, group.rows, activeView.summaries, definition, snapshot, thisFile),

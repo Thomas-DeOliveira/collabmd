@@ -293,6 +293,88 @@ test('HTTP server queries and exports Obsidian base results', async (t) => {
   assert.match(exportResponse.body, /done\.md,done,5/);
 });
 
+test('HTTP server returns base metadata, property values, and transformed source', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  await writeFile(join(app.vaultDir, 'notes.md'), [
+    '---',
+    'status: open',
+    'points: 3',
+    '---',
+  ].join('\n'), 'utf8');
+  await writeFile(join(app.vaultDir, 'done.md'), [
+    '---',
+    'status: done',
+    'points: 5',
+    '---',
+  ].join('\n'), 'utf8');
+  await writeFile(join(app.vaultDir, 'tasks.base'), [
+    'filters: file.ext == "md"',
+    'formulas:',
+    '  bucket: \'if(note.status == "done", "Closed", "Open")\'',
+    'properties:',
+    '  note.status: {}',
+    '  note.points: {}',
+    '  formula.bucket:',
+    '    displayName: Bucket',
+    'views:',
+    '  - type: table',
+    '    name: Board',
+    '    order: [note.status, formula.bucket]',
+  ].join('\n'), 'utf8');
+
+  const queryResponse = await httpRequest(`${app.baseUrl}/api/base/query`, {
+    body: JSON.stringify({ path: 'tasks.base', view: 'Board' }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+  const queryPayload = JSON.parse(queryResponse.body);
+
+  assert.equal(queryPayload.result.meta.editable, true);
+  assert.ok(queryPayload.result.meta.availableProperties.some((property) => property.id === 'formula.bucket'));
+
+  const valuesResponse = await httpRequest(`${app.baseUrl}/api/base/property-values`, {
+    body: JSON.stringify({ path: 'tasks.base', propertyId: 'note.points', view: 'Board' }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+  const valuesPayload = JSON.parse(valuesResponse.body);
+
+  assert.equal(valuesResponse.statusCode, 200);
+  assert.deepEqual(valuesPayload.result.values.map((entry) => entry.text), ['3', '5']);
+
+  const transformResponse = await httpRequest(`${app.baseUrl}/api/base/transform`, {
+    body: JSON.stringify({
+      mutation: {
+        config: {
+          filters: 'note.status == "done"',
+          groupBy: null,
+          order: ['note.status', 'formula.bucket'],
+          sort: [],
+        },
+        type: 'set-view-config',
+        view: 'Board',
+      },
+      path: 'tasks.base',
+      view: 'Board',
+    }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+  const transformPayload = JSON.parse(transformResponse.body);
+
+  assert.equal(transformResponse.statusCode, 200);
+  assert.match(transformPayload.result.source, /filters: note\.status == "done"/);
+  assert.equal(transformPayload.result.result.totalRows, 1);
+});
+
 test('HTTP base queries flush pending external file changes before serving cached snapshots', async (t) => {
   const app = await startTestServer();
   t.after(() => app.close());
