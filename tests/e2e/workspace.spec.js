@@ -223,6 +223,13 @@ test('export pdf uses the export page and prints the rendered snapshot html', as
   await expect.poll(() => popup.evaluate(() => window.__collabmdPrinted)).toBe(true);
   await expect(popup.locator('#exportContent')).toContainText('My Vault');
   await expect(popup.locator('#exportStatus')).toContainText('Print dialog opened.');
+  await expect.poll(() => popup.evaluate(() => ({
+    bodyMatchesViewport: document.body.clientWidth === window.innerWidth,
+    htmlMatchesViewport: document.documentElement.clientWidth === window.innerWidth,
+  }))).toEqual({
+    bodyMatchesViewport: true,
+    htmlMatchesViewport: true,
+  });
 });
 
 test('shows provisional content before delayed websocket sync and upgrades to collaborative editing', async ({ page }) => {

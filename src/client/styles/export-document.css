@@ -2,17 +2,24 @@ html[data-surface='export-document'] {
   height: auto;
   min-height: 100%;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   overscroll-behavior: auto;
+  scrollbar-width: none;
 }
 
 body[data-surface='export-document'] {
   height: auto;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   overscroll-behavior: auto;
   background: var(--color-bg);
   color: var(--color-text);
+  scrollbar-width: none;
+}
+
+html[data-surface='export-document']::-webkit-scrollbar,
+body[data-surface='export-document']::-webkit-scrollbar {
+  display: none;
 }
 
 .export-page-shell {
@@ -78,8 +85,20 @@ body[data-surface='export-document'] {
   overflow: visible;
 }
 
+.export-content .bases-table-shell,
+.export-content pre {
+  overflow: visible;
+}
+
 .export-content table {
   white-space: normal;
+}
+
+.export-content pre code {
+  width: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .export-diagram {
@@ -197,8 +216,18 @@ body[data-surface='export-document'] {
 }
 
 @media print {
+  html[data-surface='export-document'],
   body[data-surface='export-document'] {
+    height: auto;
+    overflow: hidden !important;
     background: var(--color-surface);
+    scrollbar-width: none;
+  }
+
+  html[data-surface='export-document']::-webkit-scrollbar,
+  body[data-surface='export-document']::-webkit-scrollbar,
+  .export-content *::-webkit-scrollbar {
+    display: none;
   }
 
   .export-page-shell {
@@ -218,6 +247,20 @@ body[data-surface='export-document'] {
     border: 0;
     border-radius: 0;
     box-shadow: none;
+    overflow: visible;
+  }
+
+  .export-content pre,
+  .export-content .table-wrapper,
+  .export-content .bases-table-shell {
+    overflow: visible !important;
+  }
+
+  .export-content pre code {
+    width: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
   }
 
   .export-content h1,
