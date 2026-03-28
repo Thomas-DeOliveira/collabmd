@@ -353,6 +353,98 @@
   min-width: 0;
 }
 
+.preview-content .bases-select,
+.preview-content .bases-filter-value,
+.preview-content .bases-filter-value-combobox {
+  min-height: var(--control-h-md);
+}
+
+.preview-content .bases-select {
+  appearance: none;
+  padding-right: calc(var(--space-6) + var(--space-3));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M4 6l4 4 4-4' stroke='%23838ea4' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right var(--space-3) center;
+  background-repeat: no-repeat;
+  background-size: 16px 16px;
+}
+
+.preview-content .bases-filter-value-combobox {
+  position: relative;
+  min-width: 0;
+}
+
+.preview-content .bases-filter-value {
+  padding-right: var(--space-3);
+}
+
+.preview-content .bases-filter-value--suggestions {
+  padding-right: calc(var(--space-6) + var(--space-3));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M4 6l4 4 4-4' stroke='%23838ea4' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right var(--space-3) center;
+  background-repeat: no-repeat;
+  background-size: 16px 16px;
+}
+
+.preview-content .bases-filter-suggestion-list {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: grid;
+  gap: 2px;
+  max-height: 224px;
+  overflow: auto;
+  padding: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.preview-content .bases-filter-suggestion {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.preview-content .bases-filter-suggestion:hover,
+.preview-content .bases-filter-suggestion:focus-visible {
+  background: var(--surface-fill-subtle);
+  outline: none;
+}
+
+.preview-content .bases-filter-suggestion[aria-selected='true'] {
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--color-surface));
+  color: var(--color-primary);
+}
+
+.preview-content .bases-filter-suggestion-label,
+.preview-content .bases-filter-suggestion-meta {
+  min-width: 0;
+}
+
+.preview-content .bases-filter-suggestion-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-content .bases-filter-suggestion-meta {
+  color: var(--color-text-muted);
+  font-size: var(--text-ui-sm);
+}
+
 .preview-content .bases-filter-group {
   display: grid;
   gap: var(--space-3);
