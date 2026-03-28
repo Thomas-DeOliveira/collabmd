@@ -1511,6 +1511,138 @@ test('BasesPreviewController parses nested not filter objects into builder state
   });
 });
 
+test('BasesPreviewController renders custom filter value suggestions and applies selection', async () => {
+  const transformCalls = [];
+  const baseResult = createBaseResult({
+    meta: {
+      activeViewConfig: {
+        filters: 'note.value == "Do"',
+        groupBy: null,
+        order: ['note.value'],
+        sort: [],
+      },
+      availableProperties: [{
+        filterOperators: ['is', 'is not'],
+        groupable: true,
+        id: 'note.value',
+        kind: 'note',
+        label: 'Value',
+        sortable: true,
+        sortDirections: [{ id: 'asc', label: 'A → Z' }],
+        valueType: 'text',
+        visible: true,
+      }],
+      editable: true,
+    },
+  });
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return { result: baseResult };
+      },
+      async transformBase(payload) {
+        transformCalls.push(payload);
+        return {
+          result: {
+            result: createBaseResult({
+              meta: {
+                activeViewConfig: payload.mutation.config,
+                availableProperties: [{
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'note.value',
+                  kind: 'note',
+                  label: 'Value',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: true,
+                }],
+                editable: true,
+              },
+            }),
+            source: 'views:\n  - type: table\n',
+          },
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'filter-suggestions',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    propertyValueOptions: new Map([
+      ['note.value', {
+        cacheKey: JSON.stringify({
+          filters: 'note.value == "Do"',
+          path: 'views/tasks.base',
+          source: 'views:\n  - type: table\n',
+          sourcePath: 'views/tasks.base',
+          view: 'view-0',
+        }),
+        values: [
+          { count: 4, text: 'Done', value: 'Done' },
+          { count: 2, text: 'Doing', value: 'Doing' },
+        ],
+      }],
+    ]),
+    requestVersion: 0,
+    result: null,
+    search: '',
+    ui: {
+      builderFilter: null,
+      filterMode: 'builder',
+      openPanel: 'filter',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+  controller.entries.set(entry.key, entry);
+
+  await controller.renderEntry(entry);
+
+  assert.match(entry.placeholder.innerHTML, /bases-filter-suggestion-list/);
+  assert.match(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Done"/);
+  assert.match(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Doing"/);
+  assert.doesNotMatch(entry.placeholder.innerHTML, /<datalist/);
+
+  const shell = { dataset: { baseShellKey: entry.key } };
+  const filterSuggestion = {
+    dataset: {
+      baseFilterSuggestion: '0',
+      baseFilterSuggestionValue: 'Doing',
+    },
+  };
+
+  controller.handleClick({
+    target: {
+      closest(selector) {
+        switch (selector) {
+          case '[data-base-shell-key]':
+            return shell;
+          case '[data-base-filter-suggestion]':
+            return filterSuggestion;
+          default:
+            return null;
+        }
+      },
+    },
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(transformCalls.at(-1).mutation.config.filters, {
+    and: ['note.value == "Doing"'],
+  });
+});
+
 test('BasesPreviewController does not render stale property suggestions after filters change', async () => {
   const placeholder = createPlaceholder();
   const initialResult = createBaseResult({
@@ -1573,6 +1705,16 @@ test('BasesPreviewController does not render stale property suggestions after fi
     result: initialResult,
     search: '',
     ui: {
+      builderFilter: {
+        children: [{
+          operator: 'is',
+          propertyId: 'note.value',
+          type: 'rule',
+          value: 'sta',
+        }],
+        conjunction: 'and',
+        type: 'group',
+      },
       filterMode: 'builder',
       openPanel: 'filter',
       propertySearch: '',
@@ -1585,5 +1727,7 @@ test('BasesPreviewController does not render stale property suggestions after fi
     filters: 'note.value == "after"',
   }));
 
-  assert.doesNotMatch(placeholder.innerHTML, /<option value="stale">/);
+  assert.doesNotMatch(placeholder.innerHTML, /data-base-filter-suggestion-value="stale"/);
 });
+
+

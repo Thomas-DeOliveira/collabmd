@@ -640,12 +640,32 @@ function getPropertyOptionsMarkup(result, selected = '') {
   return createSelectOptions(result, { allowBlank: true, selected });
 }
 
+function getPropertyValueOptionText(option = {}) {
+  return String(option?.text ?? option?.value ?? '').trim();
+}
+
 function renderFilterRule(result, rule, path, entry) {
   const encodedPath = encodePath(path);
   const propertyMeta = findPropertyMeta(result, rule.propertyId);
   const operators = propertyMeta?.filterOperators ?? ['is', 'is not', 'contains', 'does not contain', 'is empty', 'is not empty'];
-  const valueSuggestions = getCachedPropertyValueOptions(entry, rule.propertyId, result);
-  const datalistId = `bases-filter-values-${escapeHtml(entry.key)}-${escapeHtml(encodedPath.replace(/\./g, '-'))}`;
+  const suggestionQuery = String(rule.value ?? '').trim().toLowerCase();
+  const valueSuggestions = getCachedPropertyValueOptions(entry, rule.propertyId, result)
+    .map((option) => ({
+      count: option?.count,
+      text: getPropertyValueOptionText(option),
+    }))
+    .filter((option, index, items) => (
+      option.text
+      && (!suggestionQuery || option.text.toLowerCase().includes(suggestionQuery))
+      && items.findIndex((candidate) => candidate.text === option.text) === index
+    ));
+  const suggestionsEnabled = suggestionQuery.length > 0 && valueSuggestions.length > 0 && !['is empty', 'is not empty'].includes(rule.operator);
+  const suggestionListId = `bases-filter-suggestions-${escapeHtml(entry.key)}-${escapeHtml(encodedPath.replace(/\./g, '-'))}`;
+  const valueInputClasses = inputClassNames({
+    extra: suggestionsEnabled
+      ? 'bases-filter-value bases-filter-value--suggestions'
+      : 'bases-filter-value',
+  });
 
   return `
     <div class="bases-filter-row">
@@ -655,10 +675,26 @@ function renderFilterRule(result, rule, path, entry) {
       <select class="${escapeHtml(inputClassNames({ extra: 'bases-select bases-filter-operator' }))}" data-base-filter-operator="${escapeHtml(encodedPath)}">
         ${operators.map((operator) => `<option value="${escapeHtml(operator)}"${operator === rule.operator ? ' selected' : ''}>${escapeHtml(operator)}</option>`).join('')}
       </select>
-      <input class="${escapeHtml(inputClassNames({ extra: 'bases-filter-value' }))}" type="text" value="${escapeHtml(rule.value ?? '')}" data-base-filter-value="${escapeHtml(encodedPath)}" list="${datalistId}"${['is empty', 'is not empty'].includes(rule.operator) ? ' disabled' : ''}>
-      <datalist id="${datalistId}">
-        ${valueSuggestions.map((option) => `<option value="${escapeHtml(option.text)}">${escapeHtml(`${option.text} (${option.count})`)}</option>`).join('')}
-      </datalist>
+      <div class="bases-filter-value-combobox${suggestionsEnabled ? ' has-suggestions' : ''}">
+        <input class="${escapeHtml(valueInputClasses)}" type="text" value="${escapeHtml(rule.value ?? '')}" data-base-filter-value="${escapeHtml(encodedPath)}"${suggestionsEnabled ? ` aria-controls="${suggestionListId}" aria-haspopup="listbox" aria-autocomplete="list" autocomplete="off"` : ''}${['is empty', 'is not empty'].includes(rule.operator) ? ' disabled' : ''}>
+        ${suggestionsEnabled ? `
+          <div class="bases-filter-suggestion-list" id="${suggestionListId}" role="listbox">
+            ${valueSuggestions.slice(0, 8).map((option) => `
+              <button
+                type="button"
+                class="bases-filter-suggestion"
+                data-base-filter-suggestion="${escapeHtml(encodedPath)}"
+                data-base-filter-suggestion-value="${escapeHtml(option.text)}"
+                role="option"
+                aria-selected="${option.text === String(rule.value ?? '') ? 'true' : 'false'}"
+              >
+                <span class="bases-filter-suggestion-label">${escapeHtml(option.text)}</span>
+                ${option.count == null ? '' : `<span class="bases-filter-suggestion-meta">${escapeHtml(String(option.count))}</span>`}
+              </button>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
       <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact' }))}" data-base-filter-remove="${escapeHtml(encodedPath)}">Delete</button>
     </div>
   `;
@@ -1075,6 +1111,17 @@ export class BasesPreviewController {
       if (removeFilter) {
         const path = decodePath(removeFilter.dataset.baseFilterRemove || '');
         void this.updateBuilderFilter(entry, (group) => removeNodeAtPath(group, path));
+        return;
+      }
+
+      const filterSuggestion = event.target.closest('[data-base-filter-suggestion]');
+      if (filterSuggestion) {
+        const path = decodePath(filterSuggestion.dataset.baseFilterSuggestion || '');
+        const nextValue = filterSuggestion.dataset.baseFilterSuggestionValue || '';
+        void this.updateBuilderFilter(entry, (group) => updateNodeAtPath(group, path, (node) => ({
+          ...node,
+          value: nextValue,
+        })));
       }
     };
 
