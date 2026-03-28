@@ -852,6 +852,89 @@ test('BasesPreviewController preserves implicit columns when enabling a new prop
   ]);
 });
 
+test('BasesPreviewController preserves empty filter group conjunction selections in the builder UI', async () => {
+  const transformCalls = [];
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async transformBase(payload) {
+        transformCalls.push(payload);
+        return {
+          result: {
+            result: createBaseResult({
+              meta: {
+                activeViewConfig: payload.mutation.config,
+                availableProperties: [{
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'note.value',
+                  kind: 'note',
+                  label: 'Value',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: true,
+                }],
+                editable: true,
+              },
+            }),
+            source: 'views:\n  - type: table\n',
+          },
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'empty-filter-conjunction',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    propertyValueOptions: new Map(),
+    requestVersion: 0,
+    result: createBaseResult(),
+    search: '',
+    ui: {
+      builderFilter: null,
+      filterMode: 'builder',
+      openPanel: 'filter',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+  controller.entries.set(entry.key, entry);
+
+  const shell = { dataset: { baseShellKey: entry.key } };
+  const filterConjunction = {
+    dataset: { baseFilterConjunction: '' },
+    value: 'or',
+  };
+
+  controller.handleChange({
+    target: {
+      closest(selector) {
+        switch (selector) {
+          case '[data-base-shell-key]':
+            return shell;
+          case '[data-base-filter-conjunction]':
+            return filterConjunction;
+          default:
+            return null;
+        }
+      },
+    },
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(transformCalls[0].mutation.config.filters, null);
+  assert.match(entry.placeholder.innerHTML, /<option value="or" selected>Any of the following are true<\/option>/);
+});
+
 test('BasesPreviewController does not render stale property suggestions after filters change', async () => {
   const placeholder = createPlaceholder();
   const initialResult = createBaseResult({

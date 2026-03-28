@@ -684,7 +684,10 @@ function renderFilterGroup(result, group, path, entry, { isRoot = false } = {}) 
 
 function renderFilterPanel(result, entry) {
   const rawFilters = getEditableViewConfig(result).filters;
-  const parsed = parseFilterNode(rawFilters);
+  const parsed = entry.ui.builderFilter ?? parseFilterNode(rawFilters);
+  if (entry.ui.builderFilter == null) {
+    entry.ui.builderFilter = parsed;
+  }
   const mode = parsed ? (entry.ui.filterMode ?? 'builder') : 'advanced';
   const rawText = entry.ui.rawFilterText ?? serializeRawFilterText(rawFilters);
 
@@ -978,6 +981,7 @@ export class BasesPreviewController {
         entry.ui.filterMode = filterModeButton.dataset.baseFilterMode || 'builder';
         if (entry.ui.filterMode === 'advanced') {
           entry.ui.rawFilterText = serializeRawFilterText(getEditableViewConfig(entry.result).filters);
+          entry.ui.builderFilter = null;
         }
         updateShellContent(entry, entry.result);
         return;
@@ -1210,11 +1214,16 @@ export class BasesPreviewController {
   ensureEntryState(entry) {
     if (!entry.ui) {
       entry.ui = {
+        builderFilter: null,
         filterMode: 'builder',
         openPanel: '',
         propertySearch: '',
         rawFilterText: '',
       };
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(entry.ui, 'builderFilter')) {
+      entry.ui.builderFilter = null;
     }
 
     if (!entry.propertyValueOptions) {
@@ -1256,6 +1265,7 @@ export class BasesPreviewController {
         result: null,
         search: '',
         ui: {
+          builderFilter: null,
           filterMode: 'builder',
           openPanel: '',
           propertySearch: '',
@@ -1286,6 +1296,7 @@ export class BasesPreviewController {
       result: null,
       search: '',
       ui: {
+        builderFilter: null,
         filterMode: 'builder',
         openPanel: '',
         propertySearch: '',
@@ -1321,6 +1332,7 @@ export class BasesPreviewController {
         return;
       }
       entry.result = response.result;
+      entry.ui.builderFilter = parseFilterNode(getEditableViewConfig(entry.result).filters);
       if (!entry.ui.rawFilterText) {
         entry.ui.rawFilterText = serializeRawFilterText(getEditableViewConfig(entry.result).filters);
       }
@@ -1434,8 +1446,9 @@ export class BasesPreviewController {
 
   async updateBuilderFilter(entry, updater) {
     this.ensureEntryState(entry);
-    const parsed = parseFilterNode(getEditableViewConfig(entry.result).filters) ?? createEmptyFilterGroup('and');
+    const parsed = entry.ui.builderFilter ?? parseFilterNode(getEditableViewConfig(entry.result).filters) ?? createEmptyFilterGroup('and');
     const nextGroup = updater(parsed);
+    entry.ui.builderFilter = nextGroup;
     await this.updateViewConfig(entry, (config) => {
       config.filters = compileFilterGroup(nextGroup, entry.result);
       return config;
@@ -1446,6 +1459,7 @@ export class BasesPreviewController {
     this.ensureEntryState(entry);
     try {
       const parsed = parseRawFilterText(entry.ui.rawFilterText ?? '');
+      entry.ui.builderFilter = parseFilterNode(parsed);
       await this.updateViewConfig(entry, (config) => {
         config.filters = parsed;
         return config;
