@@ -697,6 +697,101 @@ test('BaseQueryService property values cap high-cardinality results', async (t) 
   assert.match(result.values[0].text, /status-/);
 });
 
+test('BaseQueryService property values ignore self-filters for the requested property', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/a.md', [
+    '---',
+    'tags:',
+    '  - alpha',
+    '  - beta',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('notes/b.md', [
+    '---',
+    'tags:',
+    '  - beta',
+    '  - gamma',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('views/tags.base', [
+    'properties:',
+    '  note.tags: {}',
+    'views:',
+    '  - type: table',
+    '    name: Tags',
+    '    filters:',
+    '      and:',
+    '        - note.tags.contains("beta")',
+    '    order: [file.name, note.tags]',
+  ].join('\n'));
+
+  const result = await service.propertyValues({
+    basePath: 'views/tags.base',
+    propertyId: 'note.tags',
+    view: 'Tags',
+  });
+
+  assert.deepEqual(
+    result.values.map((entry) => [entry.text, entry.count]),
+    [
+      ['beta', 2],
+      ['alpha', 1],
+      ['gamma', 1],
+    ],
+  );
+});
+
+test('BaseQueryService property values preserve unrelated filters', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/a.md', [
+    '---',
+    'status: open',
+    'tags:',
+    '  - alpha',
+    '  - beta',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('notes/b.md', [
+    '---',
+    'status: done',
+    'tags:',
+    '  - beta',
+    '  - gamma',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('views/tags-status.base', [
+    'properties:',
+    '  note.status: {}',
+    '  note.tags: {}',
+    'views:',
+    '  - type: table',
+    '    name: Tags',
+    '    filters:',
+    '      and:',
+    '        - note.status == "open"',
+    '        - note.tags.contains("beta")',
+    '    order: [file.name, note.status, note.tags]',
+  ].join('\n'));
+
+  const result = await service.propertyValues({
+    basePath: 'views/tags-status.base',
+    propertyId: 'note.tags',
+    view: 'Tags',
+  });
+
+  assert.deepEqual(
+    result.values.map((entry) => [entry.text, entry.count]),
+    [
+      ['alpha', 1],
+      ['beta', 1],
+    ],
+  );
+});
+
 test('BaseQueryService transform rewrites legacy formulas into top-level formulas', async (t) => {
   const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
   t.after(cleanup);

@@ -913,6 +913,142 @@ test('BasesPreviewController preserves implicit columns when enabling a new prop
   ]);
 });
 
+test('BasesPreviewController updates filter operator immediately when switching to a property with different operators', async () => {
+  const transformCalls = [];
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBasePropertyValues() {
+        return { result: { values: [] } };
+      },
+      async transformBase(payload) {
+        transformCalls.push(payload);
+        return {
+          result: {
+            result: createBaseResult({
+              meta: {
+                activeViewConfig: payload.mutation.config,
+                availableProperties: [
+                  {
+                    filterOperators: ['contains', 'does not contain'],
+                    groupable: true,
+                    id: 'note.title',
+                    kind: 'note',
+                    label: 'Title',
+                    sortable: true,
+                    sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                    valueType: 'text',
+                    visible: true,
+                  },
+                  {
+                    filterOperators: ['>', '<', 'is empty'],
+                    groupable: true,
+                    id: 'note.score',
+                    kind: 'note',
+                    label: 'Score',
+                    sortable: true,
+                    sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                    valueType: 'number',
+                    visible: true,
+                  },
+                ],
+                editable: true,
+              },
+            }),
+            source: 'views:\n  - type: table\n',
+          },
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'filter-property-operator-sync',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    propertyValueOptions: new Map(),
+    requestVersion: 0,
+    result: createBaseResult({
+      meta: {
+        activeViewConfig: {
+          filters: 'note.title.contains("done")',
+          groupBy: null,
+          order: ['note.title'],
+          sort: [],
+        },
+        availableProperties: [
+          {
+            filterOperators: ['contains', 'does not contain'],
+            groupable: true,
+            id: 'note.title',
+            kind: 'note',
+            label: 'Title',
+            sortable: true,
+            sortDirections: [{ id: 'asc', label: 'A → Z' }],
+            valueType: 'text',
+            visible: true,
+          },
+          {
+            filterOperators: ['>', '<', 'is empty'],
+            groupable: true,
+            id: 'note.score',
+            kind: 'note',
+            label: 'Score',
+            sortable: true,
+            sortDirections: [{ id: 'asc', label: 'A → Z' }],
+            valueType: 'number',
+            visible: true,
+          },
+        ],
+        editable: true,
+      },
+    }),
+    search: '',
+    ui: {
+      builderFilter: null,
+      filterMode: 'builder',
+      openPanel: 'filter',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+  controller.entries.set(entry.key, entry);
+
+  const shell = { dataset: { baseShellKey: entry.key } };
+  const filterProperty = {
+    dataset: { baseFilterProperty: '0' },
+    value: 'note.score',
+  };
+
+  controller.handleChange({
+    target: {
+      closest(selector) {
+        switch (selector) {
+          case '[data-base-shell-key]':
+            return shell;
+          case '[data-base-filter-property]':
+            return filterProperty;
+          default:
+            return null;
+        }
+      },
+    },
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(transformCalls.at(-1).mutation.config.filters, {
+    and: ['note.score > "done"'],
+  });
+  assert.equal(entry.ui.builderFilter.children[0].propertyId, 'note.score');
+  assert.equal(entry.ui.builderFilter.children[0].operator, '>');
+});
+
 test('BasesPreviewController preserves properties search focus while typing', async () => {
   const previousDocument = globalThis.document;
   globalThis.document = { activeElement: null };
@@ -1580,7 +1716,7 @@ test('BasesPreviewController renders custom filter value suggestions and applies
     propertyValueOptions: new Map([
       ['note.value', {
         cacheKey: JSON.stringify({
-          filters: 'note.value == "Do"',
+          filters: null,
           path: 'views/tasks.base',
           source: 'views:\n  - type: table\n',
           sourcePath: 'views/tasks.base',
@@ -1641,6 +1777,96 @@ test('BasesPreviewController renders custom filter value suggestions and applies
   assert.deepEqual(transformCalls.at(-1).mutation.config.filters, {
     and: ['note.value == "Doing"'],
   });
+});
+
+test('BasesPreviewController reuses property suggestions while typing the same property filter', async () => {
+  let currentResult = createBaseResult({
+    meta: {
+      activeViewConfig: {
+        filters: 'note.value == "Do"',
+        groupBy: null,
+        order: ['note.value'],
+        sort: [],
+      },
+      availableProperties: [{
+        filterOperators: ['is', 'is not'],
+        groupable: true,
+        id: 'note.value',
+        kind: 'note',
+        label: 'Value',
+        sortable: true,
+        sortDirections: [{ id: 'asc', label: 'A → Z' }],
+        valueType: 'text',
+        visible: true,
+      }],
+      editable: true,
+    },
+  });
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return { result: currentResult };
+      },
+    },
+  });
+  const entry = {
+    key: 'stable-filter-suggestions',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    propertyValueOptions: new Map([
+      ['note.value', {
+        cacheKey: JSON.stringify({
+          filters: null,
+          path: 'views/tasks.base',
+          source: 'views:\n  - type: table\n',
+          sourcePath: 'views/tasks.base',
+          view: 'view-0',
+        }),
+        values: [
+          { count: 4, text: 'Done', value: 'Done' },
+          { count: 2, text: 'Doing', value: 'Doing' },
+        ],
+      }],
+    ]),
+    requestVersion: 0,
+    result: null,
+    search: '',
+    ui: {
+      builderFilter: null,
+      filterMode: 'builder',
+      openPanel: 'filter',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+
+  await controller.renderEntry(entry);
+  assert.match(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Done"/);
+  assert.match(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Doing"/);
+
+  currentResult = createBaseResult({
+    meta: {
+      activeViewConfig: {
+        filters: 'note.value == "Doi"',
+        groupBy: null,
+        order: ['note.value'],
+        sort: [],
+      },
+      availableProperties: currentResult.meta.availableProperties,
+      editable: true,
+    },
+  });
+
+  await controller.renderEntry(entry);
+
+  assert.match(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Doing"/);
+  assert.doesNotMatch(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Done"/);
 });
 
 test('BasesPreviewController does not render stale property suggestions after filters change', async () => {

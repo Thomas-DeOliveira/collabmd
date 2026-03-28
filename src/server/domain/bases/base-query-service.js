@@ -53,6 +53,53 @@ function sortRows(rows, sortChain = []) {
   });
 }
 
+function escapeRegExp(value = '') {
+  return String(value ?? '').replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+function pruneFilterNodeForProperty(filterNode, propertyId = '') {
+  if (!propertyId || !filterNode) {
+    return filterNode;
+  }
+
+  if (typeof filterNode === 'string') {
+    const escapedPropertyId = escapeRegExp(propertyId);
+    const propertyFilterPattern = new RegExp(
+      `^!?${escapedPropertyId}(?:\\.(?:contains|startsWith|endsWith|isEmpty)\\(.*\\)|\\s*(?:==|!=|>=|<=|>|<)\\s*.+)$`,
+      'u',
+    );
+    return propertyFilterPattern.test(String(filterNode ?? '').trim()) ? null : filterNode;
+  }
+
+  if (Array.isArray(filterNode?.and)) {
+    const children = filterNode.and
+      .map((child) => pruneFilterNodeForProperty(child, propertyId))
+      .filter(Boolean);
+    return children.length > 0 ? { and: children } : null;
+  }
+
+  if (Array.isArray(filterNode?.or)) {
+    const children = filterNode.or
+      .map((child) => pruneFilterNodeForProperty(child, propertyId))
+      .filter(Boolean);
+    return children.length > 0 ? { or: children } : null;
+  }
+
+  if (filterNode?.not != null) {
+    if (Array.isArray(filterNode.not)) {
+      const children = filterNode.not
+        .map((child) => pruneFilterNodeForProperty(child, propertyId))
+        .filter(Boolean);
+      return children.length > 0 ? { not: children } : null;
+    }
+
+    const child = pruneFilterNodeForProperty(filterNode.not, propertyId);
+    return child ? { not: child } : null;
+  }
+
+  return filterNode;
+}
+
 export class BaseQueryService {
   constructor({
     vaultFileStore,
@@ -375,8 +422,19 @@ export class BaseQueryService {
       sourcePath,
       view: requestedView,
     });
-    const rows = this.collectCandidateRows({
+    const propertyValueContext = {
       ...context,
+      activeView: {
+        ...context.activeView,
+        filters: pruneFilterNodeForProperty(context.activeView?.filters, propertyId),
+      },
+      definition: {
+        ...context.definition,
+        filters: pruneFilterNodeForProperty(context.definition?.filters, propertyId),
+      },
+    };
+    const rows = this.collectCandidateRows({
+      ...propertyValueContext,
       evaluatedPropertyIds: [...new Set([
         ...(context.evaluatedPropertyIds ?? []),
         propertyId,

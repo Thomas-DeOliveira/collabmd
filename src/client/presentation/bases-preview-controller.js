@@ -213,6 +213,11 @@ function findPropertyMeta(result, propertyId = '') {
   return getAvailableProperties(result).find((entry) => entry.id === propertyId) ?? null;
 }
 
+function getPropertyFilterOperators(result, propertyId = '') {
+  return findPropertyMeta(result, propertyId)?.filterOperators
+    ?? ['is', 'is not', 'contains', 'does not contain', 'is empty', 'is not empty'];
+}
+
 function getEditableViewConfig(result) {
   const config = getMeta(result).activeViewConfig ?? {};
   return {
@@ -237,9 +242,34 @@ function buildToolbarButton(label, panel, entry, result) {
   return `<button type="button" class="${escapeHtml(buttonClassNames({ variant: active ? 'primary' : 'secondary', pill: true, extra: ['bases-toolbar-btn', active ? 'is-active' : ''] }))}" data-base-panel="${escapeHtml(panel)}"${editable ? '' : ' disabled'}>${escapeHtml(label)}</button>`;
 }
 
-function createPropertyValuesCacheKey(entry, result = entry?.result) {
+function pruneFilterGroupByProperty(group, propertyId = '') {
+  if (!group || group.type !== 'group' || !propertyId) {
+    return group;
+  }
+
+  const children = (group.children ?? []).flatMap((child) => {
+    if (child?.type === 'group') {
+      const nextGroup = pruneFilterGroupByProperty(child, propertyId);
+      return nextGroup ? [nextGroup] : [];
+    }
+
+    return child?.propertyId === propertyId ? [] : [child];
+  });
+
+  return {
+    ...group,
+    children,
+  };
+}
+
+function createPropertyValuesCacheKey(entry, propertyId = '', result = entry?.result) {
+  const rawFilters = getMeta(result).activeViewConfig?.filters ?? null;
+  const parsedFilters = parseFilterNode(rawFilters);
+  const cacheFilters = propertyId && parsedFilters
+    ? compileFilterGroup(pruneFilterGroupByProperty(parsedFilters, propertyId), result)
+    : rawFilters;
   return JSON.stringify({
-    filters: getMeta(result).activeViewConfig?.filters ?? null,
+    filters: cacheFilters,
     path: entry?.payload?.path ?? '',
     source: entry?.payload?.source ?? null,
     sourcePath: entry?.payload?.sourcePath ?? '',
@@ -253,7 +283,7 @@ function getCachedPropertyValueOptions(entry, propertyId = '', result = entry?.r
     return [];
   }
 
-  return cachedEntry.cacheKey === createPropertyValuesCacheKey(entry, result)
+  return cachedEntry.cacheKey === createPropertyValuesCacheKey(entry, propertyId, result)
     ? (cachedEntry.values ?? [])
     : [];
 }
@@ -647,7 +677,7 @@ function getPropertyValueOptionText(option = {}) {
 function renderFilterRule(result, rule, path, entry) {
   const encodedPath = encodePath(path);
   const propertyMeta = findPropertyMeta(result, rule.propertyId);
-  const operators = propertyMeta?.filterOperators ?? ['is', 'is not', 'contains', 'does not contain', 'is empty', 'is not empty'];
+  const operators = getPropertyFilterOperators(result, rule.propertyId);
   const suggestionQuery = String(rule.value ?? '').trim().toLowerCase();
   const valueSuggestions = getCachedPropertyValueOptions(entry, rule.propertyId, result)
     .map((option) => ({
@@ -1265,10 +1295,18 @@ export class BasesPreviewController {
       if (filterProperty) {
         const path = decodePath(filterProperty.dataset.baseFilterProperty || '');
         void this.ensurePropertyValues(entry, filterProperty.value);
-        void this.updateBuilderFilter(entry, (group) => updateNodeAtPath(group, path, (node) => ({
-          ...node,
-          propertyId: filterProperty.value,
-        })));
+        void this.updateBuilderFilter(entry, (group) => updateNodeAtPath(group, path, (node) => {
+          const nextOperators = getPropertyFilterOperators(entry.result, filterProperty.value);
+          const nextOperator = nextOperators.includes(node.operator)
+            ? node.operator
+            : (nextOperators[0] ?? 'is');
+          return {
+            ...node,
+            operator: nextOperator,
+            propertyId: filterProperty.value,
+            value: ['is empty', 'is not empty'].includes(nextOperator) ? '' : (node.value ?? ''),
+          };
+        }));
         return;
       }
 
@@ -1479,7 +1517,7 @@ export class BasesPreviewController {
       return;
     }
 
-    const cacheKey = createPropertyValuesCacheKey(entry);
+    const cacheKey = createPropertyValuesCacheKey(entry, propertyId);
     const cachedEntry = entry.propertyValueOptions.get(propertyId) ?? null;
     if (cachedEntry?.cacheKey === cacheKey) {
       return;
