@@ -138,12 +138,14 @@ class FakeInputNode {
 class FakePanelSlotNode {
   constructor() {
     this._innerHTML = '';
+    this.filterValues = new Map();
     this.propertiesList = null;
     this.propertiesSearch = null;
   }
 
   set innerHTML(value) {
     this._innerHTML = String(value);
+    this.filterValues = new Map();
     if (this._innerHTML.includes('data-base-properties-list')) {
       this.propertiesList = { scrollTop: 0 };
       const search = new FakeInputNode();
@@ -154,6 +156,18 @@ class FakePanelSlotNode {
     } else {
       this.propertiesList = null;
       this.propertiesSearch = null;
+    }
+
+    const filterInputMatches = this._innerHTML.matchAll(/<input[^>]*data-base-filter-value="([^"]+)"[^>]*>/gu);
+    for (const match of filterInputMatches) {
+      const tag = match[0] ?? '';
+      const path = match[1] ?? '';
+      const input = new FakeInputNode();
+      input.dataset = { baseFilterValue: path };
+      input.value = tag.match(/value="([^"]*)"/u)?.[1] ?? '';
+      input.selectionStart = input.value.length;
+      input.selectionEnd = input.value.length;
+      this.filterValues.set(path, input);
     }
   }
 
@@ -167,6 +181,13 @@ class FakePanelSlotNode {
     }
     if (selector === '[data-base-properties-search]') {
       return this.propertiesSearch;
+    }
+    if (selector === '[data-base-filter-value]') {
+      return this.filterValues.values().next().value ?? null;
+    }
+    const filterValueMatch = selector.match(/^\[data-base-filter-value="([^"]+)"\]$/u);
+    if (filterValueMatch) {
+      return this.filterValues.get(filterValueMatch[1]) ?? null;
     }
     return null;
   }
@@ -1167,6 +1188,232 @@ test('BasesPreviewController preserves properties search focus while typing', as
   }
 });
 
+test('BasesPreviewController filters property suggestions while typing a filter value', async () => {
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return {
+          result: createBaseResult({
+            meta: {
+              activeViewConfig: {
+                filters: 'note.value == ""',
+                groupBy: null,
+                order: ['note.value'],
+                sort: [],
+              },
+              availableProperties: [{
+                filterOperators: ['is', 'is not'],
+                groupable: true,
+                id: 'note.value',
+                kind: 'note',
+                label: 'Value',
+                sortable: true,
+                sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                valueType: 'text',
+                visible: true,
+              }],
+              editable: true,
+            },
+          }),
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'typing-filter-suggestions',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    propertyValueOptions: new Map([
+      ['note.value', {
+        cacheKey: JSON.stringify({
+          filters: null,
+          path: 'views/tasks.base',
+          source: 'views:\n  - type: table\n',
+          sourcePath: 'views/tasks.base',
+          view: 'view-0',
+        }),
+        values: [
+          { count: 4, text: 'Done', value: 'Done' },
+          { count: 2, text: 'Doing', value: 'Doing' },
+          { count: 1, text: 'Todo', value: 'Todo' },
+        ],
+      }],
+    ]),
+    requestVersion: 0,
+    result: null,
+    search: '',
+    ui: {
+      builderFilter: null,
+      filterMode: 'builder',
+      openPanel: 'filter',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+  controller.entries.set(entry.key, entry);
+
+  await controller.renderEntry(entry);
+
+  const shell = { dataset: { baseShellKey: entry.key } };
+  const filterInput = {
+    dataset: { baseFilterValue: '0' },
+    value: 'doi',
+    closest(selector) {
+      return selector === '[data-base-shell-key]' ? shell : null;
+    },
+  };
+
+  controller.handleInput({
+    target: {
+      closest(selector) {
+        switch (selector) {
+          case '.bases-search-input':
+            return null;
+          case '[data-base-properties-search]':
+            return null;
+          case '[data-base-filter-advanced]':
+            return null;
+          case '[data-base-filter-value]':
+            return filterInput;
+          default:
+            return null;
+        }
+      },
+    },
+  });
+
+  assert.equal(entry.ui.builderFilter.children[0].value, 'doi');
+  assert.match(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Doing"/);
+  assert.doesNotMatch(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Done"/);
+  assert.doesNotMatch(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Todo"/);
+});
+
+test('BasesPreviewController preserves filter value focus and selection while typing', async () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = { activeElement: null };
+  try {
+    const controller = new BasesPreviewController({
+      vaultApiClient: {
+        async queryBase() {
+          return {
+            result: createBaseResult({
+              meta: {
+                activeViewConfig: {
+                  filters: 'note.value == ""',
+                  groupBy: null,
+                  order: ['note.value'],
+                  sort: [],
+                },
+                availableProperties: [{
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'note.value',
+                  kind: 'note',
+                  label: 'Value',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: true,
+                }],
+                editable: true,
+              },
+            }),
+          };
+        },
+      },
+    });
+    const placeholder = new FakeRenderedPlaceholder();
+    const entry = {
+      key: 'filter-value-focus',
+      payload: {
+        path: 'views/tasks.base',
+        search: '',
+        source: 'views:\n  - type: table\n',
+        sourcePath: 'views/tasks.base',
+        view: '',
+      },
+      placeholder,
+      propertyValueOptions: new Map([
+        ['note.value', {
+          cacheKey: JSON.stringify({
+            filters: null,
+            path: 'views/tasks.base',
+            source: 'views:\n  - type: table\n',
+            sourcePath: 'views/tasks.base',
+            view: 'view-0',
+          }),
+          values: [
+            { count: 4, text: 'Done', value: 'Done' },
+            { count: 2, text: 'Doing', value: 'Doing' },
+          ],
+        }],
+      ]),
+      requestVersion: 0,
+      result: null,
+      search: '',
+      ui: {
+        builderFilter: null,
+        filterMode: 'builder',
+        openPanel: 'filter',
+        propertySearch: '',
+        rawFilterText: '',
+      },
+    };
+    controller.entries.set(entry.key, entry);
+
+    await controller.renderEntry(entry);
+
+    const panelSlot = placeholder.querySelector('[data-base-shell-key="filter-value-focus"]').querySelector('[data-base-panel-slot]');
+    const filterInput = panelSlot.querySelector('[data-base-filter-value="0"]');
+    filterInput.value = 'doi';
+    filterInput.selectionStart = 3;
+    filterInput.selectionEnd = 3;
+    filterInput.focus();
+
+    const shell = {
+      dataset: { baseShellKey: entry.key },
+      closest(selector) {
+        return selector === '[data-base-shell-key]' ? this : null;
+      },
+    };
+    filterInput.closest = (selector) => (selector === '[data-base-shell-key]' ? shell : null);
+
+    controller.handleInput({
+      target: {
+        closest(selector) {
+          switch (selector) {
+            case '.bases-search-input':
+              return null;
+            case '[data-base-properties-search]':
+              return null;
+            case '[data-base-filter-advanced]':
+              return null;
+            case '[data-base-filter-value]':
+              return filterInput;
+            default:
+              return null;
+          }
+        },
+      },
+    });
+
+    const nextFilterInput = panelSlot.querySelector('[data-base-filter-value="0"]');
+    assert.equal(entry.ui.builderFilter.children[0].value, 'doi');
+    assert.equal(globalThis.document.activeElement, nextFilterInput);
+    assert.equal(nextFilterInput.selectionStart, 3);
+    assert.equal(nextFilterInput.selectionEnd, 3);
+    assert.match(panelSlot.innerHTML, /data-base-filter-suggestion-value="Doing"/);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
 test('BasesPreviewController preserves properties-list scroll position when toggling a property', async () => {
   const transformCalls = [];
   const controller = new BasesPreviewController({
@@ -1764,6 +2011,308 @@ test('BasesPreviewController renders custom filter value suggestions and applies
             return shell;
           case '[data-base-filter-suggestion]':
             return filterSuggestion;
+          default:
+            return null;
+        }
+      },
+    },
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(transformCalls.at(-1).mutation.config.filters, {
+    and: ['note.value == "Doing"'],
+  });
+});
+
+test('BasesPreviewController applies filter suggestions on pointer down before blur can consume the first click', async () => {
+  const transformCalls = [];
+  const baseResult = createBaseResult({
+    meta: {
+      activeViewConfig: {
+        filters: 'note.value == "Do"',
+        groupBy: null,
+        order: ['note.value'],
+        sort: [],
+      },
+      availableProperties: [{
+        filterOperators: ['is', 'is not'],
+        groupable: true,
+        id: 'note.value',
+        kind: 'note',
+        label: 'Value',
+        sortable: true,
+        sortDirections: [{ id: 'asc', label: 'A → Z' }],
+        valueType: 'text',
+        visible: true,
+      }],
+      editable: true,
+    },
+  });
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return { result: baseResult };
+      },
+      async transformBase(payload) {
+        transformCalls.push(payload);
+        return {
+          result: {
+            result: createBaseResult({
+              meta: {
+                activeViewConfig: payload.mutation.config,
+                availableProperties: [{
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'note.value',
+                  kind: 'note',
+                  label: 'Value',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: true,
+                }],
+                editable: true,
+              },
+            }),
+            source: 'views:\n  - type: table\n',
+          },
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'pointerdown-filter-suggestions',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    propertyValueOptions: new Map([
+      ['note.value', {
+        cacheKey: JSON.stringify({
+          filters: null,
+          path: 'views/tasks.base',
+          source: 'views:\n  - type: table\n',
+          sourcePath: 'views/tasks.base',
+          view: 'view-0',
+        }),
+        values: [
+          { count: 4, text: 'Done', value: 'Done' },
+          { count: 2, text: 'Doing', value: 'Doing' },
+        ],
+      }],
+    ]),
+    requestVersion: 0,
+    result: null,
+    search: '',
+    ui: {
+      builderFilter: null,
+      filterMode: 'builder',
+      openPanel: 'filter',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+  controller.entries.set(entry.key, entry);
+
+  await controller.renderEntry(entry);
+
+  const shell = { dataset: { baseShellKey: entry.key } };
+  const filterSuggestion = {
+    dataset: {
+      baseFilterSuggestion: '0',
+      baseFilterSuggestionValue: 'Doing',
+    },
+  };
+  let prevented = false;
+
+  controller.handlePointerDown({
+    preventDefault() {
+      prevented = true;
+    },
+    target: {
+      closest(selector) {
+        switch (selector) {
+          case '[data-base-shell-key]':
+            return shell;
+          case '[data-base-filter-suggestion]':
+            return filterSuggestion;
+          default:
+            return null;
+        }
+      },
+    },
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(prevented, true);
+  assert.deepEqual(transformCalls.at(-1).mutation.config.filters, {
+    and: ['note.value == "Doing"'],
+  });
+});
+
+test('BasesPreviewController does not let a stale filter input change override a clicked suggestion', async () => {
+  const transformCalls = [];
+  const baseResult = createBaseResult({
+    meta: {
+      activeViewConfig: {
+        filters: 'note.value == ""',
+        groupBy: null,
+        order: ['note.value'],
+        sort: [],
+      },
+      availableProperties: [{
+        filterOperators: ['is', 'is not'],
+        groupable: true,
+        id: 'note.value',
+        kind: 'note',
+        label: 'Value',
+        sortable: true,
+        sortDirections: [{ id: 'asc', label: 'A → Z' }],
+        valueType: 'text',
+        visible: true,
+      }],
+      editable: true,
+    },
+  });
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return { result: baseResult };
+      },
+      async transformBase(payload) {
+        transformCalls.push(payload);
+        return {
+          result: {
+            result: createBaseResult({
+              meta: {
+                activeViewConfig: payload.mutation.config,
+                availableProperties: [{
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'note.value',
+                  kind: 'note',
+                  label: 'Value',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: true,
+                }],
+                editable: true,
+              },
+            }),
+            source: 'views:\n  - type: table\n',
+          },
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'stale-change-after-suggestion',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    propertyValueOptions: new Map([
+      ['note.value', {
+        cacheKey: JSON.stringify({
+          filters: null,
+          path: 'views/tasks.base',
+          source: 'views:\n  - type: table\n',
+          sourcePath: 'views/tasks.base',
+          view: 'view-0',
+        }),
+        values: [
+          { count: 4, text: 'Done', value: 'Done' },
+          { count: 2, text: 'Doing', value: 'Doing' },
+        ],
+      }],
+    ]),
+    requestVersion: 0,
+    result: null,
+    search: '',
+    ui: {
+      builderFilter: null,
+      filterMode: 'builder',
+      openPanel: 'filter',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+  controller.entries.set(entry.key, entry);
+
+  await controller.renderEntry(entry);
+
+  const shell = { dataset: { baseShellKey: entry.key } };
+  const filterInput = {
+    dataset: { baseFilterValue: '0' },
+    value: 'Do',
+    closest(selector) {
+      return selector === '[data-base-shell-key]' ? shell : null;
+    },
+  };
+
+  controller.handleInput({
+    target: {
+      closest(selector) {
+        switch (selector) {
+          case '.bases-search-input':
+            return null;
+          case '[data-base-properties-search]':
+            return null;
+          case '[data-base-filter-advanced]':
+            return null;
+          case '[data-base-filter-value]':
+            return filterInput;
+          default:
+            return null;
+        }
+      },
+    },
+  });
+
+  const filterSuggestion = {
+    dataset: {
+      baseFilterSuggestion: '0',
+      baseFilterSuggestionValue: 'Doing',
+    },
+  };
+
+  controller.handlePointerDown({
+    preventDefault() {},
+    target: {
+      closest(selector) {
+        switch (selector) {
+          case '[data-base-shell-key]':
+            return shell;
+          case '[data-base-filter-suggestion]':
+            return filterSuggestion;
+          default:
+            return null;
+        }
+      },
+    },
+  });
+
+  controller.handleChange({
+    target: {
+      closest(selector) {
+        switch (selector) {
+          case '[data-base-shell-key]':
+            return shell;
+          case '[data-base-filter-value]':
+            return filterInput;
           default:
             return null;
         }

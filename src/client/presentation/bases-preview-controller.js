@@ -674,7 +674,13 @@ function getPropertyValueOptionText(option = {}) {
   return String(option?.text ?? option?.value ?? '').trim();
 }
 
-function renderFilterRule(result, rule, path, entry) {
+function getBuilderFilterState(entry, result) {
+  return entry.ui.builderFilter
+    ?? parseFilterNode(getEditableViewConfig(result).filters)
+    ?? createEmptyFilterGroup('and');
+}
+
+function buildFilterValuePresentation(result, rule, path, entry) {
   const encodedPath = encodePath(path);
   const operators = getPropertyFilterOperators(result, rule.propertyId);
   const suggestionQuery = String(rule.value ?? '').trim().toLowerCase();
@@ -705,38 +711,127 @@ function renderFilterRule(result, rule, path, entry) {
       ? 'bases-filter-value bases-filter-value--suggestions'
       : 'bases-filter-value',
   });
+  return {
+    encodedPath,
+    operators,
+    suggestionListId,
+    suggestionsEnabled,
+    valueInputClasses,
+    valueSuggestions,
+    valueDisabled: ['is empty', 'is not empty'].includes(rule.operator),
+  };
+}
+
+function renderFilterSuggestionList(presentation, currentValue = '') {
+  if (!presentation.suggestionsEnabled) {
+    return '';
+  }
+
+  return `
+    <div class="bases-filter-suggestion-list" id="${presentation.suggestionListId}" role="listbox">
+      ${presentation.valueSuggestions.slice(0, 8).map((option) => `
+        <button
+          type="button"
+          class="bases-filter-suggestion"
+          data-base-filter-suggestion="${escapeHtml(presentation.encodedPath)}"
+          data-base-filter-suggestion-value="${escapeHtml(option.text)}"
+          role="option"
+          aria-selected="${option.text === String(currentValue ?? '') ? 'true' : 'false'}"
+        >
+          <span class="bases-filter-suggestion-label">${escapeHtml(option.text)}</span>
+          ${option.count == null ? '' : `<span class="bases-filter-suggestion-meta">${escapeHtml(String(option.count))}</span>`}
+        </button>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderFilterValueCombobox(result, rule, path, entry) {
+  const presentation = buildFilterValuePresentation(result, rule, path, entry);
+  return `
+    <div class="bases-filter-value-combobox${presentation.suggestionsEnabled ? ' has-suggestions' : ''}">
+      <input class="${escapeHtml(presentation.valueInputClasses)}" type="text" value="${escapeHtml(rule.value ?? '')}" data-base-filter-value="${escapeHtml(presentation.encodedPath)}"${presentation.suggestionsEnabled ? ` aria-controls="${presentation.suggestionListId}" aria-haspopup="listbox" aria-autocomplete="list" autocomplete="off"` : ''}${presentation.valueDisabled ? ' disabled' : ''}>
+      ${renderFilterSuggestionList(presentation, rule.value ?? '')}
+    </div>
+  `;
+}
+
+function renderFilterRule(result, rule, path, entry) {
+  const presentation = buildFilterValuePresentation(result, rule, path, entry);
 
   return `
     <div class="bases-filter-row">
-      <select class="${escapeHtml(inputClassNames({ extra: 'bases-select bases-filter-property' }))}" data-base-filter-property="${escapeHtml(encodedPath)}">
+      <select class="${escapeHtml(inputClassNames({ extra: 'bases-select bases-filter-property' }))}" data-base-filter-property="${escapeHtml(presentation.encodedPath)}">
         ${getPropertyOptionsMarkup(result, rule.propertyId)}
       </select>
-      <select class="${escapeHtml(inputClassNames({ extra: 'bases-select bases-filter-operator' }))}" data-base-filter-operator="${escapeHtml(encodedPath)}">
-        ${operators.map((operator) => `<option value="${escapeHtml(operator)}"${operator === rule.operator ? ' selected' : ''}>${escapeHtml(operator)}</option>`).join('')}
+      <select class="${escapeHtml(inputClassNames({ extra: 'bases-select bases-filter-operator' }))}" data-base-filter-operator="${escapeHtml(presentation.encodedPath)}">
+        ${presentation.operators.map((operator) => `<option value="${escapeHtml(operator)}"${operator === rule.operator ? ' selected' : ''}>${escapeHtml(operator)}</option>`).join('')}
       </select>
-      <div class="bases-filter-value-combobox${suggestionsEnabled ? ' has-suggestions' : ''}">
-        <input class="${escapeHtml(valueInputClasses)}" type="text" value="${escapeHtml(rule.value ?? '')}" data-base-filter-value="${escapeHtml(encodedPath)}"${suggestionsEnabled ? ` aria-controls="${suggestionListId}" aria-haspopup="listbox" aria-autocomplete="list" autocomplete="off"` : ''}${['is empty', 'is not empty'].includes(rule.operator) ? ' disabled' : ''}>
-        ${suggestionsEnabled ? `
-          <div class="bases-filter-suggestion-list" id="${suggestionListId}" role="listbox">
-            ${valueSuggestions.slice(0, 8).map((option) => `
-              <button
-                type="button"
-                class="bases-filter-suggestion"
-                data-base-filter-suggestion="${escapeHtml(encodedPath)}"
-                data-base-filter-suggestion-value="${escapeHtml(option.text)}"
-                role="option"
-                aria-selected="${option.text === String(rule.value ?? '') ? 'true' : 'false'}"
-              >
-                <span class="bases-filter-suggestion-label">${escapeHtml(option.text)}</span>
-                ${option.count == null ? '' : `<span class="bases-filter-suggestion-meta">${escapeHtml(String(option.count))}</span>`}
-              </button>
-            `).join('')}
-          </div>
-        ` : ''}
-      </div>
-      <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact' }))}" data-base-filter-remove="${escapeHtml(encodedPath)}">Delete</button>
+      ${renderFilterValueCombobox(result, rule, path, entry)}
+      <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact' }))}" data-base-filter-remove="${escapeHtml(presentation.encodedPath)}">Delete</button>
     </div>
   `;
+}
+
+function syncFilterValueCombobox(entry, result, path, { fallbackToFullRender = true } = {}) {
+  const shell = findShellElement(entry);
+  const panelSlot = shell?.querySelector?.('[data-base-panel-slot]') ?? null;
+  const encodedPath = encodePath(path);
+  const input = panelSlot?.querySelector?.(`[data-base-filter-value="${encodedPath}"]`) ?? null;
+  const combobox = input?.parentElement?.classList?.contains('bases-filter-value-combobox')
+    ? input.parentElement
+    : null;
+  const rule = getNodeAtPath(getBuilderFilterState(entry, result), path);
+
+  if (!input || !combobox || !rule || rule.type !== 'rule' || typeof input.insertAdjacentHTML !== 'function') {
+    if (fallbackToFullRender) {
+      updateShellContent(entry, result);
+    }
+    return false;
+  }
+
+  const presentation = buildFilterValuePresentation(result, rule, path, entry);
+  combobox.classList.toggle('has-suggestions', presentation.suggestionsEnabled);
+  input.className = presentation.valueInputClasses;
+  input.disabled = presentation.valueDisabled;
+  if (input.value !== String(rule.value ?? '')) {
+    input.value = String(rule.value ?? '');
+  }
+
+  if (presentation.suggestionsEnabled) {
+    input.setAttribute('aria-controls', presentation.suggestionListId);
+    input.setAttribute('aria-haspopup', 'listbox');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('autocomplete', 'off');
+  } else {
+    input.removeAttribute('aria-controls');
+    input.removeAttribute('aria-haspopup');
+    input.removeAttribute('aria-autocomplete');
+    input.removeAttribute('autocomplete');
+  }
+
+  const suggestionList = combobox.querySelector('.bases-filter-suggestion-list');
+  suggestionList?.remove?.();
+  if (presentation.suggestionsEnabled) {
+    input.insertAdjacentHTML('afterend', renderFilterSuggestionList(presentation, rule.value ?? ''));
+  }
+
+  return true;
+}
+
+function forEachFilterRule(node, callback, path = []) {
+  if (!node) {
+    return;
+  }
+
+  if (node.type === 'rule') {
+    callback(node, path);
+    return;
+  }
+
+  (node.children ?? []).forEach((child, index) => {
+    forEachFilterRule(child, callback, [...path, index]);
+  });
 }
 
 function renderFilterGroup(result, group, path, entry, { isRoot = false } = {}) {
@@ -833,17 +928,42 @@ function capturePanelState(panelSlot) {
   const propertiesList = panelSlot?.querySelector?.('[data-base-properties-list]') ?? null;
   const propertiesSearch = panelSlot?.querySelector?.('[data-base-properties-search]') ?? null;
   const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
-  const selectionStart = typeof propertiesSearch?.selectionStart === 'number'
-    ? propertiesSearch.selectionStart
-    : null;
-  const selectionEnd = typeof propertiesSearch?.selectionEnd === 'number'
-    ? propertiesSearch.selectionEnd
-    : selectionStart;
+  let focusedControl = null;
+
+  if (propertiesSearch && activeElement === propertiesSearch) {
+    const selectionStart = typeof propertiesSearch.selectionStart === 'number'
+      ? propertiesSearch.selectionStart
+      : null;
+    const selectionEnd = typeof propertiesSearch.selectionEnd === 'number'
+      ? propertiesSearch.selectionEnd
+      : selectionStart;
+    focusedControl = {
+      selectionEnd,
+      selectionStart,
+      type: 'properties-search',
+    };
+  } else if (activeElement?.dataset?.baseFilterValue != null) {
+    const filterPath = String(activeElement.dataset.baseFilterValue);
+    const filterValue = panelSlot?.querySelector?.(`[data-base-filter-value="${filterPath}"]`) ?? null;
+    if (filterValue && activeElement === filterValue) {
+      const selectionStart = typeof filterValue.selectionStart === 'number'
+        ? filterValue.selectionStart
+        : null;
+      const selectionEnd = typeof filterValue.selectionEnd === 'number'
+        ? filterValue.selectionEnd
+        : selectionStart;
+      focusedControl = {
+        path: filterPath,
+        selectionEnd,
+        selectionStart,
+        type: 'filter-value',
+      };
+    }
+  }
+
   return {
+    focusedControl,
     propertiesListScrollTop: propertiesList ? propertiesList.scrollTop : null,
-    propertiesSearchFocused: Boolean(propertiesSearch && activeElement === propertiesSearch),
-    propertiesSearchSelectionEnd: selectionEnd,
-    propertiesSearchSelectionStart: selectionStart,
   };
 }
 
@@ -859,17 +979,34 @@ function restorePanelState(panelSlot, panelState) {
     }
   }
 
-  if (panelState.propertiesSearchFocused) {
+  if (panelState.focusedControl?.type === 'properties-search') {
     const propertiesSearch = panelSlot?.querySelector?.('[data-base-properties-search]') ?? null;
     if (propertiesSearch) {
       propertiesSearch.focus?.();
       if (
         typeof propertiesSearch.setSelectionRange === 'function'
-        && panelState.propertiesSearchSelectionStart != null
+        && panelState.focusedControl.selectionStart != null
       ) {
         propertiesSearch.setSelectionRange(
-          panelState.propertiesSearchSelectionStart,
-          panelState.propertiesSearchSelectionEnd ?? panelState.propertiesSearchSelectionStart,
+          panelState.focusedControl.selectionStart,
+          panelState.focusedControl.selectionEnd ?? panelState.focusedControl.selectionStart,
+        );
+      }
+    }
+    return;
+  }
+
+  if (panelState.focusedControl?.type === 'filter-value' && panelState.focusedControl.path != null) {
+    const filterValue = panelSlot?.querySelector?.(`[data-base-filter-value="${panelState.focusedControl.path}"]`) ?? null;
+    if (filterValue) {
+      filterValue.focus?.();
+      if (
+        typeof filterValue.setSelectionRange === 'function'
+        && panelState.focusedControl.selectionStart != null
+      ) {
+        filterValue.setSelectionRange(
+          panelState.focusedControl.selectionStart,
+          panelState.focusedControl.selectionEnd ?? panelState.focusedControl.selectionStart,
         );
       }
     }
@@ -1029,6 +1166,40 @@ export class BasesPreviewController {
     this.entries = new Map();
     this.searchTimers = new Map();
 
+    this.applyFilterSuggestion = (entry, path, nextValue) => {
+      void this.updateBuilderFilter(entry, (group) => updateNodeAtPath(group, path, (node) => ({
+        ...node,
+        value: nextValue,
+      })));
+    };
+
+    this.persistBuilderFilter = (entry) => {
+      const nextGroup = getBuilderFilterState(entry, entry.result);
+      entry.ui.builderFilter = nextGroup;
+      void this.updateViewConfig(entry, (config) => {
+        config.filters = compileFilterGroup(nextGroup, entry.result);
+        return config;
+      });
+    };
+
+    this.handlePointerDown = (event) => {
+      const filterSuggestion = event.target.closest('[data-base-filter-suggestion]');
+      if (!filterSuggestion) {
+        return;
+      }
+
+      const shell = event.target.closest('[data-base-shell-key]');
+      const entry = shell ? this.entries.get(shell.dataset.baseShellKey || '') : null;
+      if (!entry) {
+        return;
+      }
+
+      event.preventDefault();
+      const path = decodePath(filterSuggestion.dataset.baseFilterSuggestion || '');
+      const nextValue = filterSuggestion.dataset.baseFilterSuggestionValue || '';
+      this.applyFilterSuggestion(entry, path, nextValue);
+    };
+
     this.handleClick = (event) => {
       const openButton = event.target.closest('[data-base-open-file]');
       if (openButton) {
@@ -1155,12 +1326,13 @@ export class BasesPreviewController {
 
       const filterSuggestion = event.target.closest('[data-base-filter-suggestion]');
       if (filterSuggestion) {
+        event.preventDefault?.();
+        if (event.detail != null && event.detail !== 0) {
+          return;
+        }
         const path = decodePath(filterSuggestion.dataset.baseFilterSuggestion || '');
         const nextValue = filterSuggestion.dataset.baseFilterSuggestionValue || '';
-        void this.updateBuilderFilter(entry, (group) => updateNodeAtPath(group, path, (node) => ({
-          ...node,
-          value: nextValue,
-        })));
+        this.applyFilterSuggestion(entry, path, nextValue);
       }
     };
 
@@ -1204,6 +1376,26 @@ export class BasesPreviewController {
         }
 
         entry.ui.rawFilterText = advancedFilter.value || '';
+        return;
+      }
+
+      const filterValue = event.target.closest('[data-base-filter-value]');
+      if (filterValue) {
+        const shell = filterValue.closest('[data-base-shell-key]');
+        const entry = shell ? this.entries.get(shell.dataset.baseShellKey || '') : null;
+        if (!entry) {
+          return;
+        }
+
+        const path = decodePath(filterValue.dataset.baseFilterValue || '');
+        const parsed = entry.ui.builderFilter
+          ?? parseFilterNode(getEditableViewConfig(entry.result).filters)
+          ?? createEmptyFilterGroup('and');
+        entry.ui.builderFilter = updateNodeAtPath(parsed, path, (node) => ({
+          ...node,
+          value: filterValue.value || '',
+        }));
+        syncFilterValueCombobox(entry, entry.result, path);
       }
     };
 
@@ -1333,11 +1525,7 @@ export class BasesPreviewController {
 
       const filterValue = event.target.closest('[data-base-filter-value]');
       if (filterValue) {
-        const path = decodePath(filterValue.dataset.baseFilterValue || '');
-        void this.updateBuilderFilter(entry, (group) => updateNodeAtPath(group, path, (node) => ({
-          ...node,
-          value: filterValue.value || '',
-        })));
+        this.persistBuilderFilter(entry);
       }
     };
 
@@ -1361,6 +1549,7 @@ export class BasesPreviewController {
       }
     };
 
+    this.previewElement?.addEventListener('pointerdown', this.handlePointerDown);
     this.previewElement?.addEventListener('click', this.handleClick);
     this.previewElement?.addEventListener('input', this.handleInput);
     this.previewElement?.addEventListener('change', this.handleChange);
@@ -1388,6 +1577,7 @@ export class BasesPreviewController {
   }
 
   destroy() {
+    this.previewElement?.removeEventListener('pointerdown', this.handlePointerDown);
     this.previewElement?.removeEventListener('click', this.handleClick);
     this.previewElement?.removeEventListener('input', this.handleInput);
     this.previewElement?.removeEventListener('change', this.handleChange);
@@ -1545,7 +1735,15 @@ export class BasesPreviewController {
         values: response.result?.values ?? [],
       });
       if (entry.result && entry.ui.openPanel === 'filter') {
-        updateShellContent(entry, entry.result);
+        let synced = false;
+        forEachFilterRule(getBuilderFilterState(entry, entry.result), (rule, path) => {
+          if (rule.propertyId === propertyId) {
+            synced = syncFilterValueCombobox(entry, entry.result, path, { fallbackToFullRender: false }) || synced;
+          }
+        });
+        if (!synced) {
+          updateShellContent(entry, entry.result);
+        }
       }
     } catch {
       entry.propertyValueOptions.set(propertyId, {
