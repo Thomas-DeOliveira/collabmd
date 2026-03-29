@@ -1498,14 +1498,12 @@ export class BasesPreviewController {
         void (async () => {
           await this.updateBuilderFilter(entry, (group) => updateNodeAtPath(group, path, (node) => {
             const nextOperators = getPropertyFilterOperators(entry.result, filterProperty.value);
-            const nextOperator = nextOperators.includes(node.operator)
-              ? node.operator
-              : (nextOperators[0] ?? 'is');
+            const nextOperator = nextOperators[0] ?? 'is';
             return {
               ...node,
               operator: nextOperator,
               propertyId: filterProperty.value,
-              value: ['is empty', 'is not empty'].includes(nextOperator) ? '' : (node.value ?? ''),
+              value: '',
             };
           }));
           await this.ensurePropertyValues(entry, filterProperty.value);

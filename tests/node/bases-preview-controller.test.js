@@ -934,7 +934,7 @@ test('BasesPreviewController preserves implicit columns when enabling a new prop
   ]);
 });
 
-test('BasesPreviewController updates filter operator immediately when switching to a property with different operators', async () => {
+test('BasesPreviewController resets filter operator and value when switching properties', async () => {
   const transformCalls = [];
   const controller = new BasesPreviewController({
     vaultApiClient: {
@@ -1064,10 +1064,157 @@ test('BasesPreviewController updates filter operator immediately when switching 
   await Promise.resolve();
 
   assert.deepEqual(transformCalls.at(-1).mutation.config.filters, {
-    and: ['note.score > "done"'],
+    and: ['note.score > ""'],
   });
   assert.equal(entry.ui.builderFilter.children[0].propertyId, 'note.score');
   assert.equal(entry.ui.builderFilter.children[0].operator, '>');
+  assert.equal(entry.ui.builderFilter.children[0].value, '');
+});
+
+test('BasesPreviewController resets filter state even when the next property supports the same operator', async () => {
+  const transformCalls = [];
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBasePropertyValues() {
+        return { result: { values: [] } };
+      },
+      async transformBase(payload) {
+        transformCalls.push(payload);
+        return {
+          result: {
+            result: createBaseResult({
+              meta: {
+                activeViewConfig: payload.mutation.config,
+                availableProperties: [
+                  {
+                    filterOperators: ['contains', 'does not contain'],
+                    groupable: true,
+                    id: 'note.title',
+                    kind: 'note',
+                    label: 'Title',
+                    sortable: true,
+                    sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                    valueType: 'text',
+                    visible: true,
+                  },
+                  {
+                    filterOperators: ['contains', 'does not contain'],
+                    groupable: true,
+                    id: 'note.tags',
+                    kind: 'note',
+                    label: 'Tags',
+                    sortable: true,
+                    sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                    valueType: 'text',
+                    visible: true,
+                  },
+                ],
+                editable: true,
+              },
+            }),
+            source: 'views:\n  - type: table\n',
+          },
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'filter-property-reset-same-operator',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    propertyValueOptions: new Map(),
+    requestVersion: 0,
+    result: createBaseResult({
+      meta: {
+        activeViewConfig: {
+          filters: 'note.title.contains("done")',
+          groupBy: null,
+          order: ['note.title'],
+          sort: [],
+        },
+        availableProperties: [
+          {
+            filterOperators: ['contains', 'does not contain'],
+            groupable: true,
+            id: 'note.title',
+            kind: 'note',
+            label: 'Title',
+            sortable: true,
+            sortDirections: [{ id: 'asc', label: 'A → Z' }],
+            valueType: 'text',
+            visible: true,
+          },
+          {
+            filterOperators: ['contains', 'does not contain'],
+            groupable: true,
+            id: 'note.tags',
+            kind: 'note',
+            label: 'Tags',
+            sortable: true,
+            sortDirections: [{ id: 'asc', label: 'A → Z' }],
+            valueType: 'text',
+            visible: true,
+          },
+        ],
+        editable: true,
+      },
+    }),
+    search: '',
+    ui: {
+      builderFilter: {
+        children: [{
+          operator: 'does not contain',
+          propertyId: 'note.title',
+          type: 'rule',
+          value: 'done',
+        }],
+        conjunction: 'and',
+        type: 'group',
+      },
+      filterMode: 'builder',
+      openPanel: 'filter',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+  controller.entries.set(entry.key, entry);
+
+  const shell = { dataset: { baseShellKey: entry.key } };
+  const filterProperty = {
+    dataset: { baseFilterProperty: '0' },
+    value: 'note.tags',
+  };
+
+  controller.handleChange({
+    target: {
+      closest(selector) {
+        switch (selector) {
+          case '[data-base-shell-key]':
+            return shell;
+          case '[data-base-filter-property]':
+            return filterProperty;
+          default:
+            return null;
+        }
+      },
+    },
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(transformCalls.at(-1).mutation.config.filters, {
+    and: ['note.tags.contains("")'],
+  });
+  assert.equal(entry.ui.builderFilter.children[0].propertyId, 'note.tags');
+  assert.equal(entry.ui.builderFilter.children[0].operator, 'contains');
+  assert.equal(entry.ui.builderFilter.children[0].value, '');
 });
 
 test('BasesPreviewController preserves properties search focus while typing', async () => {
