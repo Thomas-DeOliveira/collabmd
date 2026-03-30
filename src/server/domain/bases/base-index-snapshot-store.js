@@ -66,8 +66,8 @@ function extractReferences(markdownText = '', wikiTargetIndex) {
   return { embeds, links };
 }
 
-function isWorkspaceFileEntry(entry = {}) {
-  return entry?.nodeType === 'file' || entry?.type !== 'directory';
+function isWorkspaceFileEntry(entry = null) {
+  return Boolean(entry) && (entry.nodeType === 'file' || entry.type !== 'directory');
 }
 
 function listWorkspaceFilePaths(workspaceState = {}) {
@@ -112,6 +112,13 @@ function collectWikiTargetKeysForFilePath(filePath = '') {
   }
 
   return [...new Set(keys)];
+}
+
+function createBacklinkEntry(sourcePath = '') {
+  return createLinkValue(sourcePath, {
+    display: basename(sourcePath),
+    exists: true,
+  });
 }
 
 export class BaseIndexSnapshotStore {
@@ -185,25 +192,76 @@ export class BaseIndexSnapshotStore {
   }
 
   rebuildBacklinks(snapshot) {
-    const backlinksByTarget = new Map(snapshot.filePaths.map((filePath) => [filePath, []]));
+    snapshot.backlinkSourcesByTarget = new Map();
+    snapshot.backlinksByPath = new Map(snapshot.filePaths.map((filePath) => [filePath, []]));
 
     snapshot.rowsByPath.forEach((row, filePath) => {
       const forwardLinks = snapshot.forwardLinksByPath.get(filePath) ?? new Set();
       forwardLinks.forEach((targetPath) => {
-        if (!backlinksByTarget.has(targetPath) || targetPath === row.file.path) {
+        if (!snapshot.rowsByPath.has(targetPath) || targetPath === row.file.path) {
           return;
         }
 
-        backlinksByTarget.get(targetPath).push(createLinkValue(row.file.path, {
-          display: basename(row.file.path),
-          exists: true,
-        }));
+        const sources = snapshot.backlinkSourcesByTarget.get(targetPath) ?? new Set();
+        sources.add(filePath);
+        snapshot.backlinkSourcesByTarget.set(targetPath, sources);
       });
     });
 
-    snapshot.backlinksByPath = backlinksByTarget;
-    snapshot.rowsByPath.forEach((row, filePath) => {
-      row.file.backlinks = dedupeLinkValues(backlinksByTarget.get(filePath) ?? []);
+    this.refreshSerializedBacklinks(snapshot, snapshot.filePaths);
+  }
+
+  removeSourceBacklinkContributions(snapshot, sourcePath, affectedTargetPaths = new Set()) {
+    const forwardLinks = snapshot.forwardLinksByPath.get(sourcePath) ?? new Set();
+    forwardLinks.forEach((targetPath) => {
+      const sources = snapshot.backlinkSourcesByTarget.get(targetPath);
+      if (!sources) {
+        return;
+      }
+
+      sources.delete(sourcePath);
+      if (sources.size === 0) {
+        snapshot.backlinkSourcesByTarget.delete(targetPath);
+      }
+      affectedTargetPaths.add(targetPath);
+    });
+  }
+
+  addSourceBacklinkContributions(snapshot, sourcePath, affectedTargetPaths = new Set()) {
+    if (!snapshot.rowsByPath.has(sourcePath)) {
+      return;
+    }
+
+    const forwardLinks = snapshot.forwardLinksByPath.get(sourcePath) ?? new Set();
+    forwardLinks.forEach((targetPath) => {
+      if (!snapshot.rowsByPath.has(targetPath) || targetPath === sourcePath) {
+        return;
+      }
+
+      const sources = snapshot.backlinkSourcesByTarget.get(targetPath) ?? new Set();
+      sources.add(sourcePath);
+      snapshot.backlinkSourcesByTarget.set(targetPath, sources);
+      affectedTargetPaths.add(targetPath);
+    });
+  }
+
+  refreshSerializedBacklinks(snapshot, targetPaths = []) {
+    Array.from(new Set(targetPaths)).forEach((targetPath) => {
+      if (!snapshot.rowsByPath.has(targetPath)) {
+        snapshot.backlinkSourcesByTarget.delete(targetPath);
+        snapshot.backlinksByPath.delete(targetPath);
+        return;
+      }
+
+      const sources = snapshot.backlinkSourcesByTarget.get(targetPath) ?? new Set();
+      const backlinks = dedupeLinkValues(
+        Array.from(sources, (sourcePath) => createBacklinkEntry(sourcePath)),
+      );
+      snapshot.backlinksByPath.set(targetPath, backlinks);
+      const row = snapshot.rowsByPath.get(targetPath);
+      if (row?.file) {
+        row.file.backlinks = backlinks;
+      }
     });
   }
 
@@ -227,6 +285,7 @@ export class BaseIndexSnapshotStore {
     });
 
     const snapshot = {
+      backlinkSourcesByTarget: new Map(),
       backlinksByPath: new Map(),
       filePaths: fileEntries,
       forwardLinksByPath,
@@ -248,6 +307,7 @@ export class BaseIndexSnapshotStore {
   removeSnapshotPath(snapshot, filePath) {
     snapshot.rowsByPath.delete(filePath);
     snapshot.forwardLinksByPath.delete(filePath);
+    snapshot.backlinkSourcesByTarget.delete(filePath);
     snapshot.backlinksByPath.delete(filePath);
     snapshot.filePaths = snapshot.filePaths.filter((candidatePath) => candidatePath !== filePath);
   }
@@ -377,6 +437,8 @@ export class BaseIndexSnapshotStore {
     }
 
     const snapshot = this.indexSnapshot;
+    const affectedTargetPaths = new Set();
+    const affectedSourcePaths = new Set(markdownPathsToRefresh);
     if (membershipChanged) {
       const membershipAffectedPaths = [
         ...deletedFilePaths,
@@ -385,6 +447,33 @@ export class BaseIndexSnapshotStore {
         ...renamedFileEntries.flatMap((entry) => [entry.oldPath, entry.newPath]),
       ];
       const impactedSourcePaths = this.collectImpactedSourcesForMembershipChanges(snapshot, membershipAffectedPaths);
+      impactedSourcePaths.forEach((pathValue) => affectedSourcePaths.add(pathValue));
+      [...deletedFilePaths, ...removedChangedFilePaths].forEach((pathValue) => {
+        if (isMarkdownFilePath(pathValue)) {
+          affectedSourcePaths.add(pathValue);
+        }
+        affectedTargetPaths.add(pathValue);
+      });
+      renamedFileEntries.forEach((entry) => {
+        if (isMarkdownFilePath(entry.oldPath)) {
+          affectedSourcePaths.add(entry.oldPath);
+        }
+        if (isMarkdownFilePath(entry.newPath)) {
+          affectedSourcePaths.add(entry.newPath);
+        }
+        affectedTargetPaths.add(entry.oldPath);
+        affectedTargetPaths.add(entry.newPath);
+      });
+      createdFilePaths.forEach((pathValue) => {
+        if (isMarkdownFilePath(pathValue)) {
+          affectedSourcePaths.add(pathValue);
+        }
+        affectedTargetPaths.add(pathValue);
+      });
+
+      affectedSourcePaths.forEach((pathValue) => {
+        this.removeSourceBacklinkContributions(snapshot, pathValue, affectedTargetPaths);
+      });
 
       [...deletedFilePaths, ...removedChangedFilePaths].forEach((pathValue) => {
         this.removeSnapshotPath(snapshot, pathValue);
@@ -401,18 +490,26 @@ export class BaseIndexSnapshotStore {
 
       snapshot.wikiTargetIndex = createWikiTargetIndex(snapshot.filePaths);
       await this.refreshSnapshotRows(snapshot, nextState, [
-        ...markdownPathsToRefresh,
         ...createdFilePaths,
         ...renamedFileEntries.map((entry) => entry.newPath),
-        ...impactedSourcePaths,
+        ...affectedSourcePaths,
       ]);
     } else {
-      await this.refreshSnapshotRows(snapshot, nextState, markdownPathsToRefresh);
+      affectedSourcePaths.forEach((pathValue) => {
+        this.removeSourceBacklinkContributions(snapshot, pathValue, affectedTargetPaths);
+      });
+      await this.refreshSnapshotRows(snapshot, nextState, [...affectedSourcePaths]);
     }
 
+    affectedSourcePaths.forEach((pathValue) => {
+      this.addSourceBacklinkContributions(snapshot, pathValue, affectedTargetPaths);
+    });
     snapshot.workspaceState = nextState;
     snapshot.scannedAt = nextState?.scannedAt ?? snapshot.scannedAt;
-    this.rebuildBacklinks(snapshot);
+    this.refreshSerializedBacklinks(snapshot, [
+      ...snapshot.filePaths.filter((filePath) => !snapshot.backlinksByPath.has(filePath)),
+      ...affectedTargetPaths,
+    ]);
     return snapshot;
   }
 }

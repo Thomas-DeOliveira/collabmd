@@ -134,6 +134,7 @@ export function buildQueryResultPayload({
   activeView,
   columns,
   definition,
+  includeCsv = false,
   rows,
   snapshot,
   thisFile,
@@ -201,7 +202,7 @@ export function buildQueryResultPayload({
   }));
 
   return {
-    csv: createCsv(rows, columns),
+    ...(includeCsv ? { csv: createCsv(rows, columns) } : {}),
     groups,
     rows: serializedRows,
     summaries: createSummaryPayload(columns, rows, activeView.summaries, definition, snapshot, thisFile),

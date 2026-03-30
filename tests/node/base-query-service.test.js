@@ -24,7 +24,7 @@ async function createBaseWorkspace() {
   };
 }
 
-test('BaseQueryService evaluates base filters, formulas, groups, summaries, and csv output', async (t) => {
+test('BaseQueryService evaluates base filters, formulas, groups, summaries, and optional csv output', async (t) => {
   const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
   t.after(cleanup);
 
@@ -82,6 +82,7 @@ test('BaseQueryService evaluates base filters, formulas, groups, summaries, and 
 
   const result = await service.query({
     basePath: 'views/tasks.base',
+    includeCsv: true,
     view: 'Board',
   });
 
@@ -104,6 +105,24 @@ test('BaseQueryService evaluates base filters, formulas, groups, summaries, and 
   assert.match(result.csv, /task-b\.md,done,Closed,5/);
   assert.equal(result.view.name, 'Board');
   assert.equal(result.view.supported, true);
+});
+
+test('BaseQueryService omits csv output by default', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/task-a.md', '# Task A\n');
+  await writeVaultFile('views/tasks.base', [
+    'views:',
+    '  - type: table',
+    '    order: [file.name]',
+  ].join('\n'));
+
+  const result = await service.query({
+    basePath: 'views/tasks.base',
+  });
+
+  assert.equal('csv' in result, false);
 });
 
 test('BaseQueryService resolves this from the embedding source file and preserves unsupported views', async (t) => {
@@ -601,6 +620,9 @@ test('BaseQueryService refreshes rename membership changes incrementally', async
     readPaths.push(filePath);
     return originalReadMarkdownFile(filePath, ...args);
   };
+  service.snapshotStore.rebuildBacklinks = () => {
+    throw new Error('full backlink rebuild should not run for incremental rename updates');
+  };
 
   await mkdir(join(vaultDir, 'archive'), { recursive: true });
   await rename(join(vaultDir, 'notes', 'b.md'), join(vaultDir, 'archive', 'b.md'));
@@ -618,6 +640,10 @@ test('BaseQueryService refreshes rename membership changes incrementally', async
   assert.equal(service.indexSnapshot.rowsByPath.has('notes/b.md'), false);
   assert.equal(service.indexSnapshot.rowsByPath.has('archive/b.md'), true);
   assert.equal(service.indexSnapshot.rowsByPath.get('notes/a.md').file.links[0].path, 'archive/b.md');
+  assert.deepEqual(
+    service.indexSnapshot.rowsByPath.get('archive/b.md').file.backlinks.map((item) => item.path),
+    ['notes/a.md'],
+  );
   assert.deepEqual(new Set(readPaths), new Set(['archive/b.md', 'notes/a.md']));
 });
 

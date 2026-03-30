@@ -211,6 +211,7 @@ export function createVaultApiQueryHandler({
         const result = await baseQueryService.query({
           activeFilePath: body?.activeFilePath ?? '',
           basePath: body?.path ?? '',
+          includeCsv: true,
           search: body?.search ?? '',
           source: typeof body?.source === 'string' ? body.source : null,
           sourcePath: body?.sourcePath ?? '',

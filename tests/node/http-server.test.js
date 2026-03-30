@@ -277,6 +277,7 @@ test('HTTP server queries and exports Obsidian base results', async (t) => {
   assert.equal(queryPayload.result.totalRows, 2);
   assert.deepEqual(queryPayload.result.rows.map((row) => row.path), ['done.md', 'notes.md']);
   assert.equal(queryPayload.result.view.name, 'Board');
+  assert.equal('csv' in queryPayload.result, false);
 
   const exportResponse = await httpRequest(`${app.baseUrl}/api/base/export`, {
     body: JSON.stringify({ path: 'tasks.base', view: 'Board' }),

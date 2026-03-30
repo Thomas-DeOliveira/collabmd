@@ -347,6 +347,7 @@ export class BaseQueryService {
   async query({
     activeFilePath = '',
     basePath = '',
+    includeCsv = false,
     search = '',
     source = null,
     sourcePath = '',
@@ -372,6 +373,7 @@ export class BaseQueryService {
       activeView: context.activeView,
       columns: context.columns,
       definition: context.definition,
+      includeCsv,
       rows,
       snapshot: context.snapshot,
       thisFile: context.thisFile,
