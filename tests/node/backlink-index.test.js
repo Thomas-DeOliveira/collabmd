@@ -134,6 +134,27 @@ test('BacklinkIndex full builds source file lists from scanWorkspaceState instea
   ]);
 });
 
+test('BacklinkIndex honors provided markdownPaths without reading non-markdown targets', async () => {
+  const vaultFileStore = new StubVaultStore([
+    ['source.md', '# Source\n\nSee [[target]].'],
+    ['target.md', '# Target'],
+    ['diagram.mmd', 'graph TD;'],
+  ]);
+  const index = new BacklinkIndex({ vaultFileStore });
+
+  await index.build({
+    workspaceState: {
+      filePaths: ['diagram.mmd', 'source.md', 'target.md'],
+      markdownPaths: ['source.md', 'target.md'],
+    },
+  });
+
+  assert.equal(vaultFileStore.scanCount, 0);
+  assert.equal(vaultFileStore.treeCount, 0);
+  assert.equal(vaultFileStore.readCount, 2);
+  assert.deepEqual(index._sourceFileList, ['source.md', 'target.md']);
+});
+
 test('BacklinkIndex resolves markdown embeds that target non-markdown vault files', async () => {
   const vaultFileStore = new StubVaultStore([
     ['notes/source.md', '# Source\n\n![[diagrams/flow.mmd]]'],

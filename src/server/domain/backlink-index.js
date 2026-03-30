@@ -143,10 +143,11 @@ export class BacklinkIndex {
 
     const snapshot = workspaceState ?? await this._resolveWorkspaceState();
     this._fileList = Array.from(snapshot?.filePaths ?? snapshot?.markdownPaths ?? []);
-    this._sourceFileList = Array.from(
-      snapshot?.markdownPaths ?? this._fileList.filter((filePath) => isMarkdownFilePath(filePath)),
-    ).filter((filePath) => this._fileList.includes(filePath));
     this._fileSet = new Set(this._fileList);
+    this._sourceFileList = Array.from(
+      snapshot?.markdownPaths
+        ?? this._fileList.filter((filePath) => isMarkdownFilePath(filePath)),
+    ).filter((filePath) => this._fileSet.has(filePath));
     this._refreshWikiTargetIndex();
 
     const fileContents = await mapWithConcurrency(
