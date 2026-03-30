@@ -11,7 +11,7 @@
  */
 
 import { createWikiTargetIndex, resolveWikiTargetWithIndex } from '../../domain/wiki-link-resolver.js';
-import { isMarkdownFilePath } from '../../domain/file-kind.js';
+import { getVaultFileExtension, isMarkdownFilePath } from '../../domain/file-kind.js';
 import { mapWithConcurrency } from '../shared/async-utils.js';
 
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
@@ -25,6 +25,39 @@ function createDeferred() {
     reject = nextReject;
   });
   return { promise, reject, resolve };
+}
+
+function normalizeWikiTargetKey(target = '') {
+  const normalizedTarget = String(target ?? '').trim();
+  if (!normalizedTarget) {
+    return '';
+  }
+
+  return getVaultFileExtension(normalizedTarget)
+    ? normalizedTarget
+    : `${normalizedTarget}.md`;
+}
+
+function collectWikiTargetKeysForFilePath(filePath = '') {
+  const normalizedPath = String(filePath ?? '').trim();
+  if (!normalizedPath) {
+    return [];
+  }
+
+  const segments = normalizedPath.split('/').filter(Boolean);
+  const keys = [];
+  for (let index = 0; index < segments.length; index += 1) {
+    keys.push(segments.slice(index).join('/'));
+  }
+
+  if (isMarkdownFilePath(normalizedPath)) {
+    const rawSegments = normalizedPath.replace(/\.md$/i, '').split('/').filter(Boolean);
+    for (let index = 0; index < rawSegments.length; index += 1) {
+      keys.push(rawSegments.slice(index).join('/'));
+    }
+  }
+
+  return [...new Set(keys)];
 }
 
 export class BacklinkIndex {
@@ -44,6 +77,10 @@ export class BacklinkIndex {
     this.reverse = new Map();
     /** @type {Map<string, Map<string, string[]>>} sourcePath → targetPath → contexts[] */
     this.contextsBySource = new Map();
+    /** @type {Map<string, Set<string>>} sourcePath → normalized raw target keys */
+    this.rawTargetKeysBySource = new Map();
+    /** @type {Map<string, Set<string>>} normalized raw target key → source paths */
+    this.rawTargetSources = new Map();
     /** @type {string[]} cached flat target file list for link resolution */
     this._fileList = [];
     /** @type {string[]} cached markdown source file list for content scans */
@@ -140,6 +177,8 @@ export class BacklinkIndex {
     this.forward.clear();
     this.reverse.clear();
     this.contextsBySource.clear();
+    this.rawTargetKeysBySource.clear();
+    this.rawTargetSources.clear();
 
     const snapshot = workspaceState ?? await this._resolveWorkspaceState();
     this._fileList = Array.from(snapshot?.filePaths ?? snapshot?.markdownPaths ?? []);
@@ -257,6 +296,21 @@ export class BacklinkIndex {
       this.contextsBySource.set(newPath, sourceContexts);
     }
 
+    if (this.rawTargetKeysBySource.has(oldPath)) {
+      const rawTargetKeys = this.rawTargetKeysBySource.get(oldPath);
+      this.rawTargetKeysBySource.delete(oldPath);
+      this.rawTargetKeysBySource.set(newPath, rawTargetKeys);
+      rawTargetKeys.forEach((rawTargetKey) => {
+        const sources = this.rawTargetSources.get(rawTargetKey);
+        if (!sources) {
+          return;
+        }
+
+        sources.delete(oldPath);
+        sources.add(newPath);
+      });
+    }
+
     // Move forward links
     const oldForward = this.forward.get(oldPath);
     if (oldForward) {
@@ -320,6 +374,25 @@ export class BacklinkIndex {
     let refreshIndex = false;
     const previousEntries = previousState?.entries ?? new Map();
     const nextEntries = nextState?.entries ?? new Map();
+    const changedPaths = Array.from(new Set(workspaceChange.changedPaths ?? []));
+    const createdPaths = changedPaths.filter((pathValue) => (
+      nextEntries.has(pathValue) && !previousEntries.has(pathValue)
+    ));
+    const removedChangedPaths = changedPaths.filter((pathValue) => (
+      !nextEntries.has(pathValue) && previousEntries.has(pathValue)
+    ));
+    const membershipAffectedPaths = [
+      ...(workspaceChange.deletedPaths ?? []),
+      ...removedChangedPaths,
+      ...createdPaths,
+      ...(workspaceChange.renamedPaths ?? []).flatMap((entry) => [entry?.oldPath, entry?.newPath]).filter(Boolean),
+    ];
+    const impactedSources = this._collectImpactedSourcesForMembershipChanges(membershipAffectedPaths);
+    const renameMap = new Map(
+      (workspaceChange.renamedPaths ?? [])
+        .filter((entry) => entry?.oldPath && entry?.newPath)
+        .map((entry) => [entry.oldPath, entry.newPath]),
+    );
 
     for (const pathValue of workspaceChange.deletedPaths ?? []) {
       refreshIndex = this.onFileDeleted(pathValue, { refreshIndex: false }) || refreshIndex;
@@ -332,7 +405,7 @@ export class BacklinkIndex {
       refreshIndex = this.onFileRenamed(entry.oldPath, entry.newPath, { refreshIndex: false }) || refreshIndex;
     }
 
-    for (const pathValue of new Set(workspaceChange.changedPaths ?? [])) {
+    for (const pathValue of changedPaths) {
       const existsNow = nextEntries.has(pathValue);
       const existedBefore = previousEntries.has(pathValue);
       if (!existsNow) {
@@ -362,7 +435,23 @@ export class BacklinkIndex {
     }
 
     if (refreshIndex) {
+      const sourcesToRefresh = new Set(impactedSources);
+      changedPaths.forEach((pathValue) => {
+        if (nextEntries.has(pathValue) && isMarkdownFilePath(pathValue)) {
+          sourcesToRefresh.add(pathValue);
+        }
+      });
+      (workspaceChange.renamedPaths ?? []).forEach((entry) => {
+        if (entry?.newPath && isMarkdownFilePath(entry.newPath)) {
+          sourcesToRefresh.add(entry.newPath);
+        }
+      });
+
       this._refreshWikiTargetIndex();
+      await this._refreshImpactedSources(sourcesToRefresh, {
+        nextEntries,
+        renameMap,
+      });
     }
   }
 
@@ -409,6 +498,7 @@ export class BacklinkIndex {
   _indexFile(filePath, content) {
     const resolvedTargets = new Set();
     const contextsByTarget = new Map();
+    const rawTargetKeys = new Set();
     const lines = content.split('\n');
 
     for (const line of lines) {
@@ -418,6 +508,11 @@ export class BacklinkIndex {
         const target = match[1].trim();
         if (!target) {
           continue;
+        }
+
+        const rawTargetKey = normalizeWikiTargetKey(target);
+        if (rawTargetKey) {
+          rawTargetKeys.add(rawTargetKey);
         }
 
         const resolved = this._resolveTarget(target);
@@ -435,6 +530,17 @@ export class BacklinkIndex {
     }
 
     this.contextsBySource.delete(filePath);
+    this._removeRawTargetSourceContributions(filePath);
+
+    if (rawTargetKeys.size > 0) {
+      this.rawTargetKeysBySource.set(filePath, rawTargetKeys);
+      rawTargetKeys.forEach((rawTargetKey) => {
+        if (!this.rawTargetSources.has(rawTargetKey)) {
+          this.rawTargetSources.set(rawTargetKey, new Set());
+        }
+        this.rawTargetSources.get(rawTargetKey).add(filePath);
+      });
+    }
 
     if (resolvedTargets.size > 0) {
       this.contextsBySource.set(filePath, contextsByTarget);
@@ -451,6 +557,7 @@ export class BacklinkIndex {
 
   _removeForwardLinks(filePath) {
     this.contextsBySource.delete(filePath);
+    this._removeRawTargetSourceContributions(filePath);
 
     const oldTargets = this.forward.get(filePath);
     if (!oldTargets) return;
@@ -478,6 +585,70 @@ export class BacklinkIndex {
 
   _refreshWikiTargetIndex() {
     this._wikiTargetIndex = createWikiTargetIndex(this._fileList);
+  }
+
+  _removeRawTargetSourceContributions(filePath) {
+    const rawTargetKeys = this.rawTargetKeysBySource.get(filePath);
+    if (!rawTargetKeys) {
+      return;
+    }
+
+    rawTargetKeys.forEach((rawTargetKey) => {
+      const sources = this.rawTargetSources.get(rawTargetKey);
+      if (!sources) {
+        return;
+      }
+
+      sources.delete(filePath);
+      if (sources.size === 0) {
+        this.rawTargetSources.delete(rawTargetKey);
+      }
+    });
+    this.rawTargetKeysBySource.delete(filePath);
+  }
+
+  _collectImpactedSourcesForMembershipChanges(pathValues = []) {
+    const affectedTargetKeys = new Set();
+    pathValues.forEach((pathValue) => {
+      collectWikiTargetKeysForFilePath(pathValue).forEach((targetKey) => {
+        affectedTargetKeys.add(targetKey);
+      });
+    });
+
+    const impactedSources = new Set();
+    affectedTargetKeys.forEach((targetKey) => {
+      this.rawTargetSources.get(targetKey)?.forEach((sourcePath) => {
+        impactedSources.add(sourcePath);
+      });
+    });
+    return impactedSources;
+  }
+
+  async _refreshImpactedSources(impactedSources = new Set(), {
+    nextEntries = new Map(),
+    renameMap = new Map(),
+  } = {}) {
+    const refreshedSources = new Set();
+
+    for (const sourcePath of impactedSources) {
+      const livePath = renameMap.get(sourcePath) ?? sourcePath;
+      if (
+        refreshedSources.has(livePath)
+        || !livePath
+        || !isMarkdownFilePath(livePath)
+        || !nextEntries.has(livePath)
+      ) {
+        continue;
+      }
+
+      const content = await this.vaultFileStore.readMarkdownFile(livePath);
+      if (content === null) {
+        continue;
+      }
+
+      refreshedSources.add(livePath);
+      this.updateFile(livePath, content, { refreshIndex: false });
+    }
   }
 }
 

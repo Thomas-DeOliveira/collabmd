@@ -192,7 +192,7 @@ test('BacklinkIndex remaps backlinks when a non-markdown target file is renamed'
   ]);
 });
 
-test('BacklinkIndex applies non-markdown target membership changes without reading non-markdown content', async () => {
+test('BacklinkIndex applies non-markdown target membership changes by reindexing impacted markdown sources', async () => {
   const vaultFileStore = new StubVaultStore([
     ['notes/source.md', '![[diagrams/flow.mmd]]'],
   ]);
@@ -220,8 +220,51 @@ test('BacklinkIndex applies non-markdown target membership changes without readi
     },
   });
 
-  assert.equal(vaultFileStore.readCount, readsAfterBuild);
-  assert.deepEqual(await index.getBacklinks('diagrams/flow.mmd'), []);
+  assert.equal(vaultFileStore.readCount, readsAfterBuild + 1);
+  assert.deepEqual(await index.getBacklinks('diagrams/flow.mmd'), [
+    {
+      contexts: ['![[diagrams/flow.mmd]]'],
+      file: 'notes/source.md',
+    },
+  ]);
+});
+
+test('BacklinkIndex reindexes impacted sources when a target rename makes a raw link resolvable', async () => {
+  const vaultFileStore = new StubVaultStore([
+    ['notes/source.md', '[[archive/b]]'],
+    ['notes/b.md', '# B'],
+  ]);
+  const index = new BacklinkIndex({ vaultFileStore });
+
+  await index.build();
+  vaultFileStore.files.delete('notes/b.md');
+  vaultFileStore.files.set('archive/b.md', '# B');
+
+  await index.applyWorkspaceChange({
+    changedPaths: [],
+    deletedPaths: [],
+    renamedPaths: [{ oldPath: 'notes/b.md', newPath: 'archive/b.md' }],
+  }, {
+    previousState: {
+      entries: new Map([
+        ['notes/b.md', { path: 'notes/b.md', type: 'file' }],
+        ['notes/source.md', { path: 'notes/source.md', type: 'file' }],
+      ]),
+    },
+    nextState: {
+      entries: new Map([
+        ['archive/b.md', { path: 'archive/b.md', type: 'file' }],
+        ['notes/source.md', { path: 'notes/source.md', type: 'file' }],
+      ]),
+    },
+  });
+
+  assert.deepEqual(await index.getBacklinks('archive/b.md'), [
+    {
+      contexts: ['[[archive/b]]'],
+      file: 'notes/source.md',
+    },
+  ]);
 });
 
 test('BacklinkIndex batches workspace changes behind a single wiki-target refresh', async () => {
