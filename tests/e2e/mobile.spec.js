@@ -236,6 +236,47 @@ test.describe('mobile bases preview', () => {
     expect(Math.abs(metrics.buttons[2].left - metrics.buttons[0].left)).toBeLessThanOrEqual(2);
     expect(metrics.buttons[2].width).toBeGreaterThan(metrics.buttons[0].width);
   });
+
+  test('clips the base shell corners cleanly on mobile', async ({ page }) => {
+    await writeVaultFileAndResetCollab(page, {
+      path: 'notes/mobile-base-item.md',
+      content: '# Mobile Base Item\n\n#mobiletest\n',
+    });
+    await writeVaultFileAndResetCollab(page, {
+      path: 'views/mobile-toolbar.base',
+      content: [
+        'filters: file.ext == "md" && file.hasTag("mobiletest")',
+        'views:',
+        '  - type: table',
+        '    name: All',
+        '    order: [file.name]',
+      ].join('\n'),
+    });
+
+    await openFile(page, 'views/mobile-toolbar.base', { waitFor: 'preview' });
+
+    const shellMetrics = await page.locator('.bases-shell').evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        borderTopLeftRadius: style.borderTopLeftRadius,
+        borderTopRightRadius: style.borderTopRightRadius,
+        overflow: style.overflow,
+      };
+    });
+    const toolbarMetrics = await page.locator('.bases-toolbar').evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        borderTopLeftRadius: style.borderTopLeftRadius,
+        borderTopRightRadius: style.borderTopRightRadius,
+      };
+    });
+
+    expect(shellMetrics.overflow).toBe('hidden');
+    expect(shellMetrics.borderTopLeftRadius).not.toBe('0px');
+    expect(shellMetrics.borderTopRightRadius).not.toBe('0px');
+    expect(toolbarMetrics.borderTopLeftRadius).not.toBe('0px');
+    expect(toolbarMetrics.borderTopRightRadius).not.toBe('0px');
+  });
 });
 
 test.describe('mobile editor commands', () => {
