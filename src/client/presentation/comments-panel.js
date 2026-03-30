@@ -37,6 +37,47 @@ function sortThreads(threads = []) {
   ));
 }
 
+export function countThreadsForSourceBlocks(blocks = [], threads = []) {
+  const normalizedBlocks = blocks
+    .map((block, index) => {
+      const startLine = Number(block?.startLine);
+      const endLine = Number(block?.endLine ?? startLine);
+      if (!Number.isFinite(startLine) || startLine <= 0) {
+        return null;
+      }
+
+      return {
+        endExclusive: Math.max(endLine, startLine + 1),
+        index,
+        startLine,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => (
+      left.startLine - right.startLine
+        || left.endExclusive - right.endExclusive
+        || left.index - right.index
+    ));
+  const counts = new Array(blocks.length).fill(0);
+  let threadIndex = 0;
+
+  normalizedBlocks.forEach((block) => {
+    while (threadIndex < threads.length && (threads[threadIndex]?.anchor?.startLine ?? 0) < block.startLine) {
+      threadIndex += 1;
+    }
+
+    let countIndex = threadIndex;
+    while (countIndex < threads.length && (threads[countIndex]?.anchor?.startLine ?? 0) < block.endExclusive) {
+      countIndex += 1;
+    }
+
+    counts[block.index] = countIndex - threadIndex;
+    threadIndex = countIndex;
+  });
+
+  return counts;
+}
+
 export class CommentsPanel {
   constructor({
     panelElement,
@@ -236,18 +277,22 @@ export class CommentsPanel {
 
     const blocks = Array.from(this.previewElement.querySelectorAll('[data-source-line]'))
       .filter((element) => isLeafSourceBlock(element) && isCommentablePreviewBlock(element));
+    const threadCounts = countThreadsForSourceBlocks(
+      blocks.map((block) => ({
+        endLine: parseLineNumber(block.getAttribute('data-source-line-end')) ?? parseLineNumber(block.getAttribute('data-source-line')) ?? 1,
+        startLine: parseLineNumber(block.getAttribute('data-source-line')),
+      })),
+      this.threads,
+    );
 
-    blocks.forEach((block) => {
+    blocks.forEach((block, index) => {
       const startLine = parseLineNumber(block.getAttribute('data-source-line'));
       const endLine = parseLineNumber(block.getAttribute('data-source-line-end')) ?? (startLine ?? 1);
       if (!startLine) {
         return;
       }
 
-      const matchingThreads = this.threads.filter((thread) => (
-        thread.anchor?.startLine >= startLine && thread.anchor?.startLine < Math.max(endLine, startLine + 1)
-      ));
-      const totalCount = matchingThreads.length;
+      const totalCount = threadCounts[index] ?? 0;
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'comment-anchor-btn';
