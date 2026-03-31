@@ -232,6 +232,48 @@ export const gitFeature = {
     await this.fileHistoryView.openFileHistory({ filePath });
   },
 
+  async _loadGitFileSnapshot({ hash, filePath, resolvedCurrentFilePath }) {
+    const data = await this.gitApiClient.readFileSnapshot({
+      hash,
+      path: filePath,
+    });
+    this.setStaticPreviewDocument?.({
+      ...data,
+      currentFilePath: resolvedCurrentFilePath,
+    });
+    this.resetPreviewMode();
+    this.elements.markdownToolbar?.classList.add('hidden');
+    this.elements.outlineToggle?.classList.toggle('hidden', data.fileKind !== 'markdown');
+
+    if (data.fileKind === 'markdown' || data.fileKind === 'mermaid' || data.fileKind === 'plantuml') {
+      if (data.fileKind === 'mermaid') {
+        this.elements.previewContent?.classList.add('is-mermaid-file-preview');
+      } else if (data.fileKind === 'plantuml') {
+        this.elements.previewContent?.classList.add('is-plantuml-file-preview');
+      }
+      this.previewRenderer.beginDocumentLoad();
+      this.previewRenderer.queueRender();
+      return;
+    }
+
+    this.elements.outlineToggle?.classList.add('hidden');
+    this.renderTextFilePreview?.({
+      content: data.content,
+      filePath: resolvedCurrentFilePath,
+    });
+  },
+
+  _handleGitFilePreviewError(error, resolvedCurrentFilePath) {
+    console.error('[git-preview] Failed to load file snapshot:', error);
+    this.clearStaticPreviewDocument?.();
+    this.toastController.show('Failed to load historical file preview');
+    this.renderTextFilePreview?.({
+      content: 'Failed to load historical file preview.',
+      filePath: resolvedCurrentFilePath,
+    });
+    this.elements.outlineToggle?.classList.add('hidden');
+  },
+
   async showGitFilePreview({ hash, filePath = null, currentFilePath = null } = {}) {
     const resolvedCurrentFilePath = String(currentFilePath ?? '').trim() || filePath;
     if (!hash || !filePath || !resolvedCurrentFilePath) {
@@ -256,43 +298,9 @@ export const gitFeature = {
     this.syncFileHistoryButton({ filePath: resolvedCurrentFilePath, mode: 'history-preview' });
 
     try {
-      const data = await this.gitApiClient.readFileSnapshot({
-        hash,
-        path: filePath,
-      });
-      this.setStaticPreviewDocument?.({
-        ...data,
-        currentFilePath: resolvedCurrentFilePath,
-      });
-      this.resetPreviewMode();
-      this.elements.markdownToolbar?.classList.add('hidden');
-      this.elements.outlineToggle?.classList.toggle('hidden', data.fileKind !== 'markdown');
-
-      if (data.fileKind === 'markdown' || data.fileKind === 'mermaid' || data.fileKind === 'plantuml') {
-        if (data.fileKind === 'mermaid') {
-          this.elements.previewContent?.classList.add('is-mermaid-file-preview');
-        } else if (data.fileKind === 'plantuml') {
-          this.elements.previewContent?.classList.add('is-plantuml-file-preview');
-        }
-        this.previewRenderer.beginDocumentLoad();
-        this.previewRenderer.queueRender();
-        return;
-      }
-
-      this.elements.outlineToggle?.classList.add('hidden');
-      this.renderTextFilePreview?.({
-        content: data.content,
-        filePath: resolvedCurrentFilePath,
-      });
+      await this._loadGitFileSnapshot({ hash, filePath, resolvedCurrentFilePath });
     } catch (error) {
-      console.error('[git-preview] Failed to load file snapshot:', error);
-      this.clearStaticPreviewDocument?.();
-      this.toastController.show('Failed to load historical file preview');
-      this.renderTextFilePreview?.({
-        content: 'Failed to load historical file preview.',
-        filePath: resolvedCurrentFilePath,
-      });
-      this.elements.outlineToggle?.classList.add('hidden');
+      this._handleGitFilePreviewError(error, resolvedCurrentFilePath);
     }
   },
 

@@ -371,10 +371,23 @@ export class BacklinkIndex {
     previousState = null,
     nextState = null,
   } = {}) {
-    let refreshIndex = false;
     const previousEntries = previousState?.entries ?? new Map();
     const nextEntries = nextState?.entries ?? new Map();
     const changedPaths = Array.from(new Set(workspaceChange.changedPaths ?? []));
+    const { impactedSources, renameMap } = this._computeWorkspaceChangeMeta(workspaceChange, changedPaths, previousEntries, nextEntries);
+
+    let refreshIndex = this._applyDeletedPaths(workspaceChange.deletedPaths);
+    refreshIndex = this._applyRenamedPaths(workspaceChange.renamedPaths, refreshIndex);
+    refreshIndex = await this._applyChangedPaths(changedPaths, previousEntries, nextEntries, refreshIndex);
+
+    if (refreshIndex) {
+      const sourcesToRefresh = this._collectRefreshSources(impactedSources, changedPaths, workspaceChange.renamedPaths, nextEntries);
+      this._refreshWikiTargetIndex();
+      await this._refreshImpactedSources(sourcesToRefresh, { nextEntries, renameMap });
+    }
+  }
+
+  _computeWorkspaceChangeMeta(workspaceChange, changedPaths, previousEntries, nextEntries) {
     const createdPaths = changedPaths.filter((pathValue) => (
       nextEntries.has(pathValue) && !previousEntries.has(pathValue)
     ));
@@ -393,18 +406,28 @@ export class BacklinkIndex {
         .filter((entry) => entry?.oldPath && entry?.newPath)
         .map((entry) => [entry.oldPath, entry.newPath]),
     );
+    return { impactedSources, renameMap };
+  }
 
-    for (const pathValue of workspaceChange.deletedPaths ?? []) {
+  _applyDeletedPaths(deletedPaths) {
+    let refreshIndex = false;
+    for (const pathValue of deletedPaths ?? []) {
       refreshIndex = this.onFileDeleted(pathValue, { refreshIndex: false }) || refreshIndex;
     }
+    return refreshIndex;
+  }
 
-    for (const entry of workspaceChange.renamedPaths ?? []) {
+  _applyRenamedPaths(renamedPaths, refreshIndex) {
+    for (const entry of renamedPaths ?? []) {
       if (!entry?.oldPath || !entry?.newPath) {
         continue;
       }
       refreshIndex = this.onFileRenamed(entry.oldPath, entry.newPath, { refreshIndex: false }) || refreshIndex;
     }
+    return refreshIndex;
+  }
 
+  async _applyChangedPaths(changedPaths, previousEntries, nextEntries, refreshIndex) {
     for (const pathValue of changedPaths) {
       const existsNow = nextEntries.has(pathValue);
       const existedBefore = previousEntries.has(pathValue);
@@ -433,26 +456,22 @@ export class BacklinkIndex {
         refreshIndex = this.onFileCreated(pathValue, content, { refreshIndex: false }) || refreshIndex;
       }
     }
+    return refreshIndex;
+  }
 
-    if (refreshIndex) {
-      const sourcesToRefresh = new Set(impactedSources);
-      changedPaths.forEach((pathValue) => {
-        if (nextEntries.has(pathValue) && isMarkdownFilePath(pathValue)) {
-          sourcesToRefresh.add(pathValue);
-        }
-      });
-      (workspaceChange.renamedPaths ?? []).forEach((entry) => {
-        if (entry?.newPath && isMarkdownFilePath(entry.newPath)) {
-          sourcesToRefresh.add(entry.newPath);
-        }
-      });
-
-      this._refreshWikiTargetIndex();
-      await this._refreshImpactedSources(sourcesToRefresh, {
-        nextEntries,
-        renameMap,
-      });
-    }
+  _collectRefreshSources(impactedSources, changedPaths, renamedPaths, nextEntries) {
+    const sourcesToRefresh = new Set(impactedSources);
+    changedPaths.forEach((pathValue) => {
+      if (nextEntries.has(pathValue) && isMarkdownFilePath(pathValue)) {
+        sourcesToRefresh.add(pathValue);
+      }
+    });
+    (renamedPaths ?? []).forEach((entry) => {
+      if (entry?.newPath && isMarkdownFilePath(entry.newPath)) {
+        sourcesToRefresh.add(entry.newPath);
+      }
+    });
+    return sourcesToRefresh;
   }
 
   /**

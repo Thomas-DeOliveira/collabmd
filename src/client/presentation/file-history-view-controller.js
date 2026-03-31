@@ -516,9 +516,15 @@ export class FileHistoryViewController {
         additions: Number(selectedEntry.additions || 0),
         deletions: Number(selectedEntry.deletions || 0),
       } : null);
+    const hasSelection = Boolean(selectedEntry);
+
+    this.syncToolbarIndicators(selectedEntry, selectedSummary, hasSelection);
+    this.syncToolbarButtonStates(hasSelection);
+  }
+
+  syncToolbarIndicators(selectedEntry, selectedSummary, hasSelection) {
     const additions = Number(selectedSummary?.additions || 0);
     const deletions = Number(selectedSummary?.deletions || 0);
-    const hasSelection = Boolean(selectedEntry);
 
     if (this.fileIndicator) {
       this.fileIndicator.textContent = selectedEntry?.type === 'commit'
@@ -535,7 +541,9 @@ export class FileHistoryViewController {
       `;
       this.stats.classList.toggle('hidden', !hasSelection);
     }
+  }
 
+  syncToolbarButtonStates(hasSelection) {
     this.backToHistoryButton?.classList.add('hidden');
     this.gitActionsGroup?.classList.add('hidden');
     this.layoutToggle?.classList.add('hidden');

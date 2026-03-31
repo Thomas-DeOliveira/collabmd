@@ -136,31 +136,7 @@ function promptForVersionReload(payload = null) {
 }
 
 /** @this {UiShellContext} */
-function bindEvents() {
-  this.elements.emptyStateNewFileBtn?.addEventListener('click', () => {
-    this.fileExplorer.actionController.openRootCreateMenu({
-      anchor: this.elements.emptyStateNewFileBtn,
-    });
-  });
-
-  this.elements.emptyStateSearchBtn?.addEventListener('click', () => {
-    void this.toggleQuickSwitcher();
-  });
-
-  this.elements.chatToggleButton?.addEventListener('click', () => {
-    this.toggleChatPanel();
-    this.closeToolbarOverflowMenu?.();
-  });
-
-  this.elements.chatForm?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    this.handleChatSubmit();
-  });
-
-  this.elements.chatNotificationButton?.addEventListener('click', () => {
-    void this.handleChatNotificationToggle();
-  });
-
+function bindToolbarEvents() {
   this.elements.shareButton?.addEventListener('click', () => {
     void this.copyCurrentLink();
     this.closeToolbarOverflowMenu?.();
@@ -197,7 +173,10 @@ function bindEvents() {
     this.openDisplayNameDialog();
     this.closeToolbarOverflowMenu?.();
   });
+}
 
+/** @this {UiShellContext} */
+function bindDialogEvents() {
   this.elements.displayNameCancel?.addEventListener('click', () => {
     this.elements.displayNameDialog?.close();
   });
@@ -233,14 +212,6 @@ function bindEvents() {
     }
   });
 
-  this.elements.markdownToolbar?.addEventListener('click', (event) => {
-    this.handleMarkdownToolbarClick?.(event);
-  });
-
-  this.elements.markdownToolbar?.addEventListener('keydown', (event) => {
-    this.handleMarkdownToolbarKeydown?.(event);
-  });
-
   this.elements.displayNameForm?.addEventListener('submit', (event) => {
     event.preventDefault();
     this.handleDisplayNameSubmit();
@@ -249,6 +220,44 @@ function bindEvents() {
   this.elements.gitCommitForm?.addEventListener('submit', (event) => {
     event.preventDefault();
     void this.handleGitCommitSubmit();
+  });
+}
+
+/** @this {UiShellContext} */
+function bindEvents() {
+  this.elements.emptyStateNewFileBtn?.addEventListener('click', () => {
+    this.fileExplorer.actionController.openRootCreateMenu({
+      anchor: this.elements.emptyStateNewFileBtn,
+    });
+  });
+
+  this.elements.emptyStateSearchBtn?.addEventListener('click', () => {
+    void this.toggleQuickSwitcher();
+  });
+
+  this.elements.chatToggleButton?.addEventListener('click', () => {
+    this.toggleChatPanel();
+    this.closeToolbarOverflowMenu?.();
+  });
+
+  this.elements.chatForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    this.handleChatSubmit();
+  });
+
+  this.elements.chatNotificationButton?.addEventListener('click', () => {
+    void this.handleChatNotificationToggle();
+  });
+
+  bindToolbarEvents.call(this);
+  bindDialogEvents.call(this);
+
+  this.elements.markdownToolbar?.addEventListener('click', (event) => {
+    this.handleMarkdownToolbarClick?.(event);
+  });
+
+  this.elements.markdownToolbar?.addEventListener('keydown', (event) => {
+    this.handleMarkdownToolbarKeydown?.(event);
   });
 
   this.elements.tabLockTakeoverButton?.addEventListener('click', () => {
@@ -299,43 +308,53 @@ function bindEvents() {
   });
 
   document.addEventListener('pointerdown', (event) => {
-    this.handleMarkdownToolbarDocumentPointerDown?.(event);
-
-    if (
-      this.toolbarOverflowOpen
-      && !this.elements.toolbarOverflowMenu?.contains(event.target)
-      && !this.elements.toolbarOverflowToggle?.contains(event.target)
-    ) {
-      this.closeToolbarOverflowMenu();
-    }
-
-    if (!this.chatIsOpen) {
-      return;
-    }
-
-    if (this.elements.chatContainer?.contains(event.target)) {
-      return;
-    }
-
-    this.closeChatPanel();
+    this.handleDocumentPointerDown(event);
   });
 
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && this.toolbarOverflowOpen) {
-      this.closeToolbarOverflowMenu();
-      return;
-    }
-
-    if (event.key === 'Escape' && this.chatIsOpen) {
-      this.closeChatPanel();
-      return;
-    }
-
-    if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
-      event.preventDefault();
-      void this.toggleQuickSwitcher();
-    }
+    this.handleDocumentKeydown(event);
   });
+}
+
+/** @this {UiShellContext} */
+function handleDocumentPointerDown(event) {
+  this.handleMarkdownToolbarDocumentPointerDown?.(event);
+
+  if (
+    this.toolbarOverflowOpen
+    && !this.elements.toolbarOverflowMenu?.contains(event.target)
+    && !this.elements.toolbarOverflowToggle?.contains(event.target)
+  ) {
+    this.closeToolbarOverflowMenu();
+  }
+
+  if (!this.chatIsOpen) {
+    return;
+  }
+
+  if (this.elements.chatContainer?.contains(event.target)) {
+    return;
+  }
+
+  this.closeChatPanel();
+}
+
+/** @this {UiShellContext} */
+function handleDocumentKeydown(event) {
+  if (event.key === 'Escape' && this.toolbarOverflowOpen) {
+    this.closeToolbarOverflowMenu();
+    return;
+  }
+
+  if (event.key === 'Escape' && this.chatIsOpen) {
+    this.closeChatPanel();
+    return;
+  }
+
+  if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+    event.preventDefault();
+    void this.toggleQuickSwitcher();
+  }
 }
 
 function isNestedTaskListClickTarget(target, taskItem) {
@@ -521,6 +540,8 @@ export const uiFeatureShellMethods = {
   closeToolbarOverflowMenu,
   getStoredLineWrapping,
   handleConnectionChange,
+  handleDocumentKeydown,
+  handleDocumentPointerDown,
   handlePreviewContentClick,
   handleThemeChange,
   hideEditorLoading,

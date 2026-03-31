@@ -149,115 +149,125 @@ export class GitPanelController {
     };
   }
 
-  initialize() {
-    this.panel?.addEventListener('click', (event) => {
-      const modeButton = event.target instanceof Element
-        ? event.target.closest('[data-git-panel-mode]')
-        : null;
-      if (modeButton) {
-        const nextMode = modeButton.getAttribute('data-git-panel-mode');
-        if (nextMode === 'changes' || nextMode === 'history') {
-          void this.setMode(nextMode);
-        }
-        return;
+  _handlePanelModeClick(event) {
+    const modeButton = event.target instanceof Element
+      ? event.target.closest('[data-git-panel-mode]')
+      : null;
+    if (modeButton) {
+      const nextMode = modeButton.getAttribute('data-git-panel-mode');
+      if (nextMode === 'changes' || nextMode === 'history') {
+        void this.setMode(nextMode);
       }
+      return true;
+    }
+    return false;
+  }
 
-      const toggleButton = event.target instanceof Element
-        ? event.target.closest('[data-git-section-toggle]')
-        : null;
-      if (toggleButton) {
-        const sectionKey = toggleButton.getAttribute('data-git-section-toggle');
-        this.toggleSection(sectionKey);
-        return;
-      }
+  _handleSectionToggleClick(event) {
+    const toggleButton = event.target instanceof Element
+      ? event.target.closest('[data-git-section-toggle]')
+      : null;
+    if (toggleButton) {
+      this.toggleSection(toggleButton.getAttribute('data-git-section-toggle'));
+      return true;
+    }
+    return false;
+  }
 
-      const historyButton = event.target instanceof Element
-        ? event.target.closest('[data-git-commit-hash]')
-        : null;
-      if (historyButton && !event.target.closest('[data-git-history-load-more]')) {
-        const hash = historyButton.getAttribute('data-git-commit-hash');
-        if (!hash) {
-          return;
-        }
+  _handleCommitHistoryClick(event) {
+    const historyButton = event.target instanceof Element
+      ? event.target.closest('[data-git-commit-hash]')
+      : null;
+    if (historyButton && !event.target.closest('[data-git-history-load-more]')) {
+      const hash = historyButton.getAttribute('data-git-commit-hash');
+      if (hash) {
         this.onSelectCommit(hash, { path: this.selection.commitHash === hash ? this.selection.path : null });
-        return;
       }
+      return true;
+    }
+    return false;
+  }
 
-      const loadMoreButton = event.target instanceof Element
-        ? event.target.closest('[data-git-history-load-more]')
-        : null;
-      if (loadMoreButton) {
-        void this.loadMoreHistory();
-        return;
+  _handleFileSelectionClick(event) {
+    const fileButton = event.target instanceof Element
+      ? event.target.closest('[data-git-path]')
+      : null;
+    if (fileButton && !event.target.closest('[data-git-file-action]')) {
+      const filePath = fileButton.getAttribute('data-git-path');
+      if (filePath) {
+        this.onSelectDiff(filePath, { scope: fileButton.getAttribute('data-git-scope') || 'working-tree' });
       }
+      return true;
+    }
+    return false;
+  }
 
-      const fileButton = event.target instanceof Element
-        ? event.target.closest('[data-git-path]')
-        : null;
-      if (fileButton && !event.target.closest('[data-git-file-action]')) {
-        const filePath = fileButton.getAttribute('data-git-path');
-        const scope = fileButton.getAttribute('data-git-scope') || 'working-tree';
-        if (!filePath) {
-          return;
-        }
-        this.onSelectDiff(filePath, { scope });
-        return;
-      }
-
-      const pullBackupButton = event.target instanceof Element
-        ? event.target.closest('[data-git-pull-backup-path]')
-        : null;
-      if (pullBackupButton) {
-        const summaryPath = pullBackupButton.getAttribute('data-git-pull-backup-path');
-        if (!summaryPath) {
-          return;
-        }
-        this.onOpenPullBackup(summaryPath);
-        return;
-      }
-
-      const actionButton = event.target instanceof Element
-        ? event.target.closest('[data-git-file-action]')
-        : null;
-      if (actionButton) {
-        const action = actionButton.getAttribute('data-git-file-action');
-        const filePath = actionButton.getAttribute('data-git-path');
-        const scope = actionButton.getAttribute('data-git-scope') || 'working-tree';
-        if (!action || !filePath) {
-          return;
-        }
-
+  _handleFileActionClick(event) {
+    const actionButton = event.target instanceof Element
+      ? event.target.closest('[data-git-file-action]')
+      : null;
+    if (actionButton) {
+      const action = actionButton.getAttribute('data-git-file-action');
+      const filePath = actionButton.getAttribute('data-git-path');
+      if (action && filePath) {
         event.preventDefault();
         event.stopPropagation();
-        void this.handleFileAction(action, filePath, scope);
-        return;
+        void this.handleFileAction(action, filePath, actionButton.getAttribute('data-git-scope') || 'working-tree');
       }
+      return true;
+    }
+    return false;
+  }
 
-      const viewAllButton = event.target instanceof Element
-        ? event.target.closest('[data-git-view-all]')
-        : null;
-      if (viewAllButton) {
-        this.onViewAllDiff();
-        return;
-      }
+  _handlePanelClick(event) {
+    if (this._handlePanelModeClick(event)) return;
+    if (this._handleSectionToggleClick(event)) return;
+    if (this._handleCommitHistoryClick(event)) return;
 
-      const commitStagedButton = event.target instanceof Element
-        ? event.target.closest('[data-git-commit-staged]')
-        : null;
-      if (commitStagedButton) {
-        void this.handleCommitStaged();
-        return;
-      }
+    if (event.target instanceof Element && event.target.closest('[data-git-history-load-more]')) {
+      void this.loadMoreHistory();
+      return;
+    }
 
-      const syncButton = event.target instanceof Element
-        ? event.target.closest('[data-git-sync-action]')
-        : null;
-      if (syncButton) {
-        const action = syncButton.getAttribute('data-git-sync-action');
-        if (action === 'pull' || action === 'push') {
-          void this.handleSyncAction(action);
-        }
+    if (this._handleFileSelectionClick(event)) return;
+
+    const pullBackupButton = event.target instanceof Element
+      ? event.target.closest('[data-git-pull-backup-path]')
+      : null;
+    if (pullBackupButton) {
+      const summaryPath = pullBackupButton.getAttribute('data-git-pull-backup-path');
+      if (summaryPath) {
+        this.onOpenPullBackup(summaryPath);
       }
+      return;
+    }
+
+    if (this._handleFileActionClick(event)) return;
+
+    if (event.target instanceof Element && event.target.closest('[data-git-view-all]')) {
+      this.onViewAllDiff();
+      return;
+    }
+
+    if (event.target instanceof Element && event.target.closest('[data-git-commit-staged]')) {
+      void this.handleCommitStaged();
+      return;
+    }
+
+    const syncButton = event.target instanceof Element
+      ? event.target.closest('[data-git-sync-action]')
+      : null;
+    if (syncButton) {
+      const action = syncButton.getAttribute('data-git-sync-action');
+      if (action === 'pull' || action === 'push') {
+        void this.handleSyncAction(action);
+      }
+    }
+  }
+
+  initialize() {
+    this.panel?.addEventListener('click', (event) => {
+      this._handlePanelClick(event);
     });
 
     this.searchInput?.addEventListener('input', (event) => {
