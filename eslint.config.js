@@ -28,6 +28,9 @@ export default [
       sourceType: 'module',
     },
     rules: {
+      'complexity': ['warn', { max: 30 }],
+      'max-lines': ['warn', { max: 1000, skipBlankLines: true, skipComments: true }],
+      'max-lines-per-function': ['warn', { max: 300, skipBlankLines: true, skipComments: true }],
       'no-unused-vars': ['error', {
         argsIgnorePattern: '^_',
         caughtErrors: 'none',
