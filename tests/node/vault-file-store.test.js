@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { access, mkdtemp, mkdir, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import sharp from 'sharp';
 
 import { VaultFileStore } from '../../src/server/infrastructure/persistence/vault-file-store.js';
 
@@ -28,6 +29,45 @@ async function pathExists(pathValue) {
   } catch {
     return false;
   }
+}
+
+async function createImageBuffer(format = 'png') {
+  const image = sharp({
+    create: {
+      background: { alpha: 1, b: 42, g: 23, r: 15 },
+      channels: 4,
+      height: 2,
+      width: 2,
+    },
+  });
+
+  if (format === 'jpeg') {
+    return image.jpeg().toBuffer();
+  }
+
+  if (format === 'webp') {
+    return image.webp().toBuffer();
+  }
+
+  return image.png().toBuffer();
+}
+
+async function createOrientedJpegBuffer() {
+  return sharp({
+    create: {
+      background: { alpha: 1, b: 42, g: 23, r: 15 },
+      channels: 3,
+      height: 3,
+      width: 2,
+    },
+  })
+    .jpeg()
+    .withMetadata({ orientation: 6 })
+    .toBuffer();
+}
+
+function createGifBuffer() {
+  return Buffer.from('R0lGODlhAQABAPAAAP///wAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64');
 }
 
 test('VaultFileStore reads file tree with directories and markdown files', async (t) => {
@@ -449,12 +489,12 @@ test('VaultFileStore rejects deleting non-empty directories unless recursive and
   assert.equal(await store.readCollaborationSnapshot('notes/daily.md'), null);
 });
 
-test('VaultFileStore writes image attachments next to their source markdown document', async (t) => {
+test('VaultFileStore converts PNG attachments to WebP next to their source markdown document', async (t) => {
   const { store, cleanup } = await createVaultStore();
   t.after(cleanup);
 
   const result = await store.writeImageAttachmentForDocument('README.md', {
-    content: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    content: await createImageBuffer('png'),
     mimeType: 'image/png',
     now: new Date(2026, 2, 16, 15, 30, 12),
     originalFileName: 'Product Screenshot.png',
@@ -462,12 +502,12 @@ test('VaultFileStore writes image attachments next to their source markdown docu
 
   assert.equal(result.ok, true);
   assert.equal(result.altText, 'Product Screenshot');
-  assert.equal(result.path, 'README.assets/product-screenshot-20260316-153012.png');
-  assert.equal(result.markdownSnippet, '![Product Screenshot](README.assets/product-screenshot-20260316-153012.png)');
+  assert.equal(result.path, 'README.assets/product-screenshot-20260316-153012.webp');
+  assert.equal(result.markdownSnippet, '![Product Screenshot](README.assets/product-screenshot-20260316-153012.webp)');
 
   const attachment = await store.readImageAttachmentFile(result.path);
-  assert.deepEqual(Array.from(attachment?.content ?? []), [0x89, 0x50, 0x4e, 0x47]);
-  assert.equal(attachment?.mimeType, 'image/png');
+  assert.equal(attachment?.mimeType, 'image/webp');
+  assert.equal((await sharp(attachment?.content).metadata()).format, 'webp');
 
   const tree = await store.tree();
   const assetsDirectory = tree.find((node) => node.name === 'README.assets');
@@ -475,8 +515,132 @@ test('VaultFileStore writes image attachments next to their source markdown docu
   assert.equal(assetsDirectory.type, 'directory');
   assert.deepEqual(
     assetsDirectory.children.map((node) => ({ name: node.name, type: node.type })),
-    [{ name: 'product-screenshot-20260316-153012.png', type: 'image' }],
+    [{ name: 'product-screenshot-20260316-153012.webp', type: 'image' }],
   );
+});
+
+test('VaultFileStore converts JPEG attachments to WebP', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  const result = await store.writeImageAttachmentForDocument('README.md', {
+    content: await createImageBuffer('jpeg'),
+    mimeType: 'image/jpeg',
+    now: new Date(2026, 2, 16, 15, 30, 12),
+    originalFileName: 'Photo.jpg',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.path, 'README.assets/photo-20260316-153012.webp');
+  assert.equal((await sharp((await store.readImageAttachmentFile(result.path))?.content).metadata()).format, 'webp');
+});
+
+test('VaultFileStore auto-orients rotated JPEG attachments before WebP conversion', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  const result = await store.writeImageAttachmentForDocument('README.md', {
+    content: await createOrientedJpegBuffer(),
+    mimeType: 'image/jpeg',
+    now: new Date(2026, 2, 16, 15, 30, 12),
+    originalFileName: 'portrait.jpg',
+  });
+
+  assert.equal(result.ok, true);
+
+  const outputMetadata = await sharp((await store.readImageAttachmentFile(result.path))?.content).metadata();
+  assert.equal(outputMetadata.format, 'webp');
+  assert.equal(outputMetadata.width, 3);
+  assert.equal(outputMetadata.height, 2);
+  assert.equal(outputMetadata.orientation, undefined);
+});
+
+test('VaultFileStore keeps existing WebP attachments as WebP', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  const result = await store.writeImageAttachmentForDocument('README.md', {
+    content: await createImageBuffer('webp'),
+    mimeType: 'image/webp',
+    now: new Date(2026, 2, 16, 15, 30, 12),
+    originalFileName: 'diagram.webp',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.path, 'README.assets/diagram-20260316-153012.webp');
+  assert.equal((await sharp((await store.readImageAttachmentFile(result.path))?.content).metadata()).format, 'webp');
+});
+
+test('VaultFileStore keeps SVG attachments as SVG', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  const result = await store.writeImageAttachmentForDocument('README.md', {
+    content: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><rect width="2" height="2" fill="#0f172a"/></svg>'),
+    mimeType: 'image/svg+xml',
+    now: new Date(2026, 2, 16, 15, 30, 12),
+    originalFileName: 'diagram.svg',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.path, 'README.assets/diagram-20260316-153012.svg');
+  assert.equal((await store.readImageAttachmentFile(result.path))?.mimeType, 'image/svg+xml');
+});
+
+test('VaultFileStore keeps GIF attachments as GIF', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  const gifContent = createGifBuffer();
+  const result = await store.writeImageAttachmentForDocument('README.md', {
+    content: gifContent,
+    mimeType: 'image/gif',
+    now: new Date(2026, 2, 16, 15, 30, 12),
+    originalFileName: 'animation.gif',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.path, 'README.assets/animation-20260316-153012.gif');
+  assert.deepEqual(Array.from((await store.readImageAttachmentFile(result.path))?.content ?? []), Array.from(gifContent));
+});
+
+test('VaultFileStore rejects corrupt raster uploads when WebP conversion fails', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  const result = await store.writeImageAttachmentForDocument('README.md', {
+    content: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    mimeType: 'image/png',
+    now: new Date(2026, 2, 16, 15, 30, 12),
+    originalFileName: 'broken.png',
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'Failed to convert image to WebP');
+});
+
+test('VaultFileStore rejects raster uploads whose dimensions exceed the configured limit', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  const oversizedPng = await sharp({
+    create: {
+      background: { alpha: 1, b: 42, g: 23, r: 15 },
+      channels: 4,
+      height: 7000,
+      width: 7000,
+    },
+  }).png().toBuffer();
+
+  const result = await store.writeImageAttachmentForDocument('README.md', {
+    content: oversizedPng,
+    mimeType: 'image/png',
+    now: new Date(2026, 2, 16, 15, 30, 12),
+    originalFileName: 'huge.png',
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'Image dimensions exceed limit');
 });
 
 test('VaultFileStore exposes download metadata for files and directory archive entries', async (t) => {

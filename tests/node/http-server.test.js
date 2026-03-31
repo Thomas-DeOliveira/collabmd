@@ -9,6 +9,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
+import sharp from 'sharp';
 import WebSocket from 'ws';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
@@ -94,6 +95,37 @@ function listZipEntryNames(buffer) {
   }
 
   return entryNames;
+}
+
+async function createImageBuffer(format = 'png') {
+  const image = sharp({
+    create: {
+      background: { alpha: 1, b: 42, g: 23, r: 15 },
+      channels: 4,
+      height: 2,
+      width: 2,
+    },
+  });
+
+  if (format === 'jpeg') {
+    return image.jpeg().toBuffer();
+  }
+
+  return image.png().toBuffer();
+}
+
+async function createOrientedJpegBuffer() {
+  return sharp({
+    create: {
+      background: { alpha: 1, b: 42, g: 23, r: 15 },
+      channels: 3,
+      height: 3,
+      width: 2,
+    },
+  })
+    .jpeg()
+    .withMetadata({ orientation: 6 })
+    .toBuffer();
 }
 
 async function createPublicDirSnapshot() {
@@ -1112,7 +1144,7 @@ test('HTTP server uploads and serves vault-owned image attachments', async (t) =
   t.after(() => app.close());
 
   const uploadResponse = await httpRequest(`${app.baseUrl}/api/attachments`, {
-    body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    body: await createImageBuffer('png'),
     headers: {
       'Content-Type': 'image/png',
       'X-CollabMD-File-Name': encodeURIComponent('Product Screenshot.png'),
@@ -1123,19 +1155,46 @@ test('HTTP server uploads and serves vault-owned image attachments', async (t) =
 
   assert.equal(uploadResponse.statusCode, 201);
   assert.match(uploadResponse.body, /"markdown":"!\[Product Screenshot\]\(test\.assets\/product-screenshot-/);
-  assert.match(uploadResponse.body, /"path":"test\.assets\/product-screenshot-[^"]+\.png"/);
+  assert.match(uploadResponse.body, /"path":"test\.assets\/product-screenshot-[^"]+\.webp"/);
 
   const uploadedPath = JSON.parse(uploadResponse.body).path;
   const attachmentResponse = await httpRequest(`${app.baseUrl}/api/attachment?path=${encodeURIComponent(uploadedPath)}`);
   assert.equal(attachmentResponse.statusCode, 200);
-  assert.equal(attachmentResponse.headers['content-type'], 'image/png');
+  assert.equal(attachmentResponse.headers['content-type'], 'image/webp');
   assert.equal(attachmentResponse.headers['x-content-type-options'], 'nosniff');
-  assert.deepEqual(Array.from(attachmentResponse.bodyBuffer), [0x89, 0x50, 0x4e, 0x47]);
+  assert.equal((await sharp(attachmentResponse.bodyBuffer).metadata()).format, 'webp');
 
   const treeResponse = await httpRequest(`${app.baseUrl}/api/files`);
   assert.equal(treeResponse.statusCode, 200);
   assert.match(treeResponse.body, /"type":"image"/);
   assert.match(treeResponse.body, /"name":"test\.assets"/);
+});
+
+test('HTTP server auto-orients JPEG uploads before serving converted WebP attachments', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const uploadResponse = await httpRequest(`${app.baseUrl}/api/attachments`, {
+    body: await createOrientedJpegBuffer(),
+    headers: {
+      'Content-Type': 'image/jpeg',
+      'X-CollabMD-File-Name': encodeURIComponent('Portrait.jpg'),
+      'X-CollabMD-Source-Path': encodeURIComponent('test.md'),
+    },
+    method: 'POST',
+  });
+
+  assert.equal(uploadResponse.statusCode, 201);
+
+  const uploadedPath = JSON.parse(uploadResponse.body).path;
+  const attachmentResponse = await httpRequest(`${app.baseUrl}/api/attachment?path=${encodeURIComponent(uploadedPath)}`);
+  assert.equal(attachmentResponse.statusCode, 200);
+
+  const metadata = await sharp(attachmentResponse.bodyBuffer).metadata();
+  assert.equal(metadata.format, 'webp');
+  assert.equal(metadata.width, 3);
+  assert.equal(metadata.height, 2);
+  assert.equal(metadata.orientation, undefined);
 });
 
 test('HTTP server downloads vault files as attachments', async (t) => {
@@ -1222,7 +1281,7 @@ test('HTTP server rejects invalid attachment uploads', async (t) => {
   t.after(() => app.close());
 
   const missingSourceResponse = await httpRequest(`${app.baseUrl}/api/attachments`, {
-    body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    body: await createImageBuffer('png'),
     headers: {
       'Content-Type': 'image/png',
     },
@@ -1241,6 +1300,36 @@ test('HTTP server rejects invalid attachment uploads', async (t) => {
   });
   assert.equal(invalidTypeResponse.statusCode, 400);
   assert.match(invalidTypeResponse.body, /Unsupported image type/);
+
+  const corruptRasterResponse = await httpRequest(`${app.baseUrl}/api/attachments`, {
+    body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    headers: {
+      'Content-Type': 'image/png',
+      'X-CollabMD-Source-Path': encodeURIComponent('test.md'),
+    },
+    method: 'POST',
+  });
+  assert.equal(corruptRasterResponse.statusCode, 400);
+  assert.match(corruptRasterResponse.body, /Failed to convert image to WebP/);
+
+  const oversizedPng = await sharp({
+    create: {
+      background: { alpha: 1, b: 42, g: 23, r: 15 },
+      channels: 4,
+      height: 7000,
+      width: 7000,
+    },
+  }).png().toBuffer();
+  const oversizedRasterResponse = await httpRequest(`${app.baseUrl}/api/attachments`, {
+    body: oversizedPng,
+    headers: {
+      'Content-Type': 'image/png',
+      'X-CollabMD-Source-Path': encodeURIComponent('test.md'),
+    },
+    method: 'POST',
+  });
+  assert.equal(oversizedRasterResponse.statusCode, 400);
+  assert.match(oversizedRasterResponse.body, /Image dimensions exceed limit/);
 });
 
 test('HTTP server decodes encoded attachment metadata headers and hardens SVG responses', async (t) => {

@@ -322,14 +322,15 @@ test('block toolbar converts bullet lists to numbered lists without duplicating 
 
 test('image toolbar uploads a vault attachment and inserts inline markdown', async ({ page }) => {
   await openFile(page, 'README.md');
+  await waitForCollaborativeEditor(page);
 
   const fileChooserPromise = page.waitForEvent('filechooser');
   await page.locator('[data-markdown-action="image"]').click();
   const fileChooser = await fileChooserPromise;
   await fileChooser.setFiles({
-    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" fill="#0f172a"/></svg>'),
-    mimeType: 'image/svg+xml',
-    name: 'inline-diagram.svg',
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVR4nGPgF9f6D8IMMAYAKWgFPch3sv8AAAAASUVORK5CYII=', 'base64'),
+    mimeType: 'image/png',
+    name: 'inline-diagram.png',
   });
 
   await expect.poll(async () => (
@@ -338,13 +339,13 @@ test('image toolbar uploads a vault attachment and inserts inline markdown', asy
       const data = await response.json();
       return data.content || '';
     })
-  )).toMatch(/!\[inline diagram\]\(README\.assets\/inline-diagram-/i);
+  )).toMatch(/!\[inline diagram\]\(README\.assets\/inline-diagram-[^)]+\.webp\)/i);
 
   await expect(page.locator('#fileTree')).toContainText('README.assets');
   await expect(page.locator('#previewContent img')).toBeVisible();
   await expect(page.locator('#previewContent img')).toHaveAttribute(
     'src',
-    /\/api\/attachment\?path=README\.assets%2Finline-diagram-/,
+    /\/api\/attachment\?path=README\.assets%2Finline-diagram-[^?]+\.webp/,
   );
 });
 
@@ -412,9 +413,10 @@ test('switching from a YouTube markdown preview to an image file clears the vide
 
 test('pasting an image uploads a vault attachment and inserts inline markdown', async ({ page }) => {
   await openFile(page, 'README.md');
+  await waitForCollaborativeEditor(page);
 
   await pasteClipboardImage(page, {
-    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WnSUs8AAAAASUVORK5CYII=', 'base64'),
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVR4nGPgF9f6D8IMMAYAKWgFPch3sv8AAAAASUVORK5CYII=', 'base64'),
     mimeType: 'image/png',
   });
 
@@ -424,13 +426,13 @@ test('pasting an image uploads a vault attachment and inserts inline markdown', 
       const data = await response.json();
       return data.content || '';
     })
-  )).toMatch(/!\[pasted image\]\(README\.assets\/pasted-image-/i);
+  )).toMatch(/!\[[^\]]+\]\(README\.assets\/[a-z-]+-[^)]+\.webp\)/i);
 
   await expect(page.locator('#fileTree')).toContainText('README.assets');
   await expect(page.locator('#previewContent img')).toBeVisible();
   await expect(page.locator('#previewContent img')).toHaveAttribute(
     'src',
-    /\/api\/attachment\?path=README\.assets%2Fpasted-image-/,
+    /\/api\/attachment\?path=README\.assets%2F[^?]+\.webp/,
   );
 });
 

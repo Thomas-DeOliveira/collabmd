@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, rename, rm, rmdir, stat, writeFile } from 'fs/promises';
 import { basename, dirname, extname, join, relative, resolve } from 'path';
+import sharp from 'sharp';
 
 import {
   getVaultFileKind,
@@ -38,6 +39,9 @@ const MIME_TYPE_TO_IMAGE_EXTENSION = Object.freeze({
   'image/svg+xml': '.svg',
   'image/webp': '.webp',
 });
+const MAX_RASTER_ATTACHMENT_PIXELS = 40_000_000;
+const RASTER_IMAGE_MIME_TYPES_TO_CONVERT = new Set(['image/jpeg', 'image/png']);
+const RASTER_IMAGE_EXTENSIONS_TO_CONVERT = new Set(['.jpeg', '.jpg', '.png']);
 const TEXT_FILE_MIME_TYPES = Object.freeze({
   base: 'text/yaml; charset=utf-8',
   drawio: 'application/xml; charset=utf-8',
@@ -202,6 +206,59 @@ function resolveAttachmentExtension({ mimeType, originalFileName }) {
   }
 
   return MIME_TYPE_TO_IMAGE_EXTENSION[normalizedMimeType] ?? '';
+}
+
+async function prepareImageAttachmentForStorage({
+  content,
+  mimeType,
+  originalFileName,
+}) {
+  const normalizedMimeType = normalizeAttachmentMimeType(mimeType);
+  const extension = resolveAttachmentExtension({
+    mimeType: normalizedMimeType,
+    originalFileName,
+  });
+
+  if (!extension) {
+    return { ok: false, error: 'Unsupported image type' };
+  }
+
+  const shouldConvertToWebp = RASTER_IMAGE_MIME_TYPES_TO_CONVERT.has(normalizedMimeType)
+    || (!normalizedMimeType && RASTER_IMAGE_EXTENSIONS_TO_CONVERT.has(extension));
+  if (!shouldConvertToWebp) {
+    return {
+      content,
+      extension,
+      ok: true,
+    };
+  }
+
+  try {
+    const image = sharp(content, {
+      failOn: 'error',
+      limitInputPixels: MAX_RASTER_ATTACHMENT_PIXELS,
+    });
+    const metadata = await image.metadata();
+    const pixelCount = Number(metadata.width || 0) * Number(metadata.height || 0);
+    if (!metadata.width || !metadata.height || pixelCount > MAX_RASTER_ATTACHMENT_PIXELS) {
+      return { ok: false, error: 'Image dimensions exceed limit' };
+    }
+
+    return {
+      content: await image
+        .rotate()
+        .webp()
+        .toBuffer(),
+      extension: '.webp',
+      ok: true,
+    };
+  } catch (error) {
+    if (String(error?.message || '').includes('pixel limit')) {
+      return { ok: false, error: 'Image dimensions exceed limit' };
+    }
+
+    return { ok: false, error: 'Failed to convert image to WebP' };
+  }
 }
 
 function createAttachmentMarkdownSnippet({ altText, documentPath, storedPath }) {
@@ -434,9 +491,13 @@ export class VaultFileStore {
       return { ok: false, error: 'Source document must be a markdown file' };
     }
 
-    const extension = resolveAttachmentExtension({ mimeType, originalFileName });
-    if (!extension) {
-      return { ok: false, error: 'Unsupported image type' };
+    const preparedAttachment = await prepareImageAttachmentForStorage({
+      content,
+      mimeType,
+      originalFileName,
+    });
+    if (!preparedAttachment.ok) {
+      return { ok: false, error: preparedAttachment.error };
     }
 
     const stemSource = basename(String(originalFileName ?? ''), extname(String(originalFileName ?? '')));
@@ -450,7 +511,7 @@ export class VaultFileStore {
 
     do {
       const suffix = collisionIndex > 0 ? `-${collisionIndex + 1}` : '';
-      storedPath = `${attachmentDirPath}/${baseFileName}${suffix}${extension}`;
+      storedPath = `${attachmentDirPath}/${baseFileName}${suffix}${preparedAttachment.extension}`;
       absolutePath = this.resolveContentPath(storedPath, { requireVaultFile: false });
       collisionIndex += 1;
     } while (absolutePath && await pathExists(absolutePath));
@@ -462,7 +523,7 @@ export class VaultFileStore {
     try {
       await this.runManagedWrite([storedPath], async () => {
         await mkdir(dirname(absolutePath), { recursive: true });
-        await writeFile(absolutePath, content);
+        await writeFile(absolutePath, preparedAttachment.content);
       });
     } catch (error) {
       return { ok: false, error: error.message };
