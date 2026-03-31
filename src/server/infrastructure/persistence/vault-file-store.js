@@ -163,13 +163,8 @@ function createAttachmentTimestamp(date = new Date()) {
     ].join('');
 }
 
-function createDocumentAttachmentDirectoryPath(documentPath) {
-  const normalizedPath = String(documentPath ?? '').replace(/\\/g, '/');
-  const documentDir = dirname(normalizedPath).replace(/\\/g, '/');
-  const documentStem = basename(normalizedPath, extname(normalizedPath));
-  return documentDir === '.'
-    ? `${documentStem}.assets`
-    : `${documentDir}/${documentStem}.assets`;
+function createDocumentAttachmentDirectoryPath() {
+  return 'assets';
 }
 
 function createAttachmentAltText(originalFileName = '') {

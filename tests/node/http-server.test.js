@@ -1154,8 +1154,8 @@ test('HTTP server uploads and serves vault-owned image attachments', async (t) =
   });
 
   assert.equal(uploadResponse.statusCode, 201);
-  assert.match(uploadResponse.body, /"markdown":"!\[Product Screenshot\]\(test\.assets\/product-screenshot-/);
-  assert.match(uploadResponse.body, /"path":"test\.assets\/product-screenshot-[^"]+\.webp"/);
+  assert.match(uploadResponse.body, /"markdown":"!\[Product Screenshot\]\(assets\/product-screenshot-/);
+  assert.match(uploadResponse.body, /"path":"assets\/product-screenshot-[^"]+\.webp"/);
 
   const uploadedPath = JSON.parse(uploadResponse.body).path;
   const attachmentResponse = await httpRequest(`${app.baseUrl}/api/attachment?path=${encodeURIComponent(uploadedPath)}`);
@@ -1167,7 +1167,7 @@ test('HTTP server uploads and serves vault-owned image attachments', async (t) =
   const treeResponse = await httpRequest(`${app.baseUrl}/api/files`);
   assert.equal(treeResponse.statusCode, 200);
   assert.match(treeResponse.body, /"type":"image"/);
-  assert.match(treeResponse.body, /"name":"test\.assets"/);
+  assert.match(treeResponse.body, /"name":"assets"/);
 });
 
 test('HTTP server auto-orients JPEG uploads before serving converted WebP attachments', async (t) => {
@@ -1348,8 +1348,8 @@ test('HTTP server decodes encoded attachment metadata headers and hardens SVG re
 
   assert.equal(uploadResponse.statusCode, 201);
   const uploadBody = JSON.parse(uploadResponse.body);
-  assert.match(uploadBody.markdown, /!\[diagram résumé\]\(caf%C3%A9\.assets\/diagram-r-sum-/);
-  assert.match(uploadBody.path, /^catatan\/café\.assets\/diagram-r-sum-[^/]+\.svg$/);
+  assert.match(uploadBody.markdown, /!\[diagram résumé\]\(\.\.\/assets\/diagram-r-sum-[^)]+\.svg\)/);
+  assert.match(uploadBody.path, /^assets\/diagram-r-sum-[^/]+\.svg$/);
 
   const attachmentResponse = await httpRequest(`${app.baseUrl}/api/attachment?path=${encodeURIComponent(uploadBody.path)}`);
   assert.equal(attachmentResponse.statusCode, 200);

@@ -502,15 +502,15 @@ test('VaultFileStore converts PNG attachments to WebP next to their source markd
 
   assert.equal(result.ok, true);
   assert.equal(result.altText, 'Product Screenshot');
-  assert.equal(result.path, 'README.assets/product-screenshot-20260316-153012.webp');
-  assert.equal(result.markdownSnippet, '![Product Screenshot](README.assets/product-screenshot-20260316-153012.webp)');
+  assert.equal(result.path, 'assets/product-screenshot-20260316-153012.webp');
+  assert.equal(result.markdownSnippet, '![Product Screenshot](assets/product-screenshot-20260316-153012.webp)');
 
   const attachment = await store.readImageAttachmentFile(result.path);
   assert.equal(attachment?.mimeType, 'image/webp');
   assert.equal((await sharp(attachment?.content).metadata()).format, 'webp');
 
   const tree = await store.tree();
-  const assetsDirectory = tree.find((node) => node.name === 'README.assets');
+  const assetsDirectory = tree.find((node) => node.name === 'assets');
   assert.ok(assetsDirectory);
   assert.equal(assetsDirectory.type, 'directory');
   assert.deepEqual(
@@ -531,7 +531,7 @@ test('VaultFileStore converts JPEG attachments to WebP', async (t) => {
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.path, 'README.assets/photo-20260316-153012.webp');
+  assert.equal(result.path, 'assets/photo-20260316-153012.webp');
   assert.equal((await sharp((await store.readImageAttachmentFile(result.path))?.content).metadata()).format, 'webp');
 });
 
@@ -567,7 +567,7 @@ test('VaultFileStore keeps existing WebP attachments as WebP', async (t) => {
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.path, 'README.assets/diagram-20260316-153012.webp');
+  assert.equal(result.path, 'assets/diagram-20260316-153012.webp');
   assert.equal((await sharp((await store.readImageAttachmentFile(result.path))?.content).metadata()).format, 'webp');
 });
 
@@ -583,7 +583,7 @@ test('VaultFileStore keeps SVG attachments as SVG', async (t) => {
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.path, 'README.assets/diagram-20260316-153012.svg');
+  assert.equal(result.path, 'assets/diagram-20260316-153012.svg');
   assert.equal((await store.readImageAttachmentFile(result.path))?.mimeType, 'image/svg+xml');
 });
 
@@ -600,7 +600,7 @@ test('VaultFileStore keeps GIF attachments as GIF', async (t) => {
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.path, 'README.assets/animation-20260316-153012.gif');
+  assert.equal(result.path, 'assets/animation-20260316-153012.gif');
   assert.deepEqual(Array.from((await store.readImageAttachmentFile(result.path))?.content ?? []), Array.from(gifContent));
 });
 
