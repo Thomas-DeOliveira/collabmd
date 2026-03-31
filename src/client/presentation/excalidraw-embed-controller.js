@@ -153,6 +153,7 @@ export class ExcalidrawEmbedController {
     this.hydrationIdleId = null;
     this.hydrationQueue = [];
     this.hydrationInProgress = false;
+    this._exitMaximizedEmbed();
     if (this.overlayRoot) {
       this.overlayRoot.hidden = true;
     }
@@ -762,7 +763,9 @@ export class ExcalidrawEmbedController {
         enterMaximize();
       }
     });
-    openBtn.addEventListener('click', () => {
+    openBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      this._exitMaximizedEmbed();
       this.onOpenFile?.(entry.filePath);
     });
 

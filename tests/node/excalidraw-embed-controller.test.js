@@ -90,6 +90,32 @@ test('persists follow intent even before the embed entry exists', async () => {
   assert.equal(controller.followedPeerIdsByFilePath.get('sample-excalidraw.excalidraw'), 'peer-99');
 });
 
+test('detachForCommit exits maximized mode before hiding overlay roots', () => {
+  let exitCalls = 0;
+  const controller = {
+    _disconnectPlaceholderObserver: () => {},
+    _exitMaximizedEmbed: () => {
+      exitCalls += 1;
+    },
+    embedEntries: new Map([['sample-excalidraw.excalidraw#0', { queued: true, placeholder: { isConnected: true } }]]),
+    hydrationIdleId: null,
+    hydrationInProgress: true,
+    hydrationQueue: ['sample-excalidraw.excalidraw#0'],
+    maximizedRoot: { hidden: false },
+    overlayRoot: { hidden: false },
+  };
+
+  ExcalidrawEmbedController.prototype.detachForCommit.call(controller);
+
+  assert.equal(exitCalls, 1);
+  assert.equal(controller.hydrationInProgress, false);
+  assert.deepEqual(controller.hydrationQueue, []);
+  assert.equal(controller.overlayRoot.hidden, true);
+  assert.equal(controller.maximizedRoot.hidden, true);
+  assert.equal(controller.embedEntries.get('sample-excalidraw.excalidraw#0').queued, false);
+  assert.equal(controller.embedEntries.get('sample-excalidraw.excalidraw#0').placeholder, null);
+});
+
 test('reuses a warm direct-preview entry for the next direct file preview', () => {
   const warmEntry = {
     filePath: 'sample-a.excalidraw',

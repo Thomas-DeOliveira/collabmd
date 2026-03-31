@@ -381,6 +381,26 @@ test('embedded excalidraw edit button navigates to the diagram file', async ({ p
   await expect(page.locator('#previewContent .excalidraw-embed iframe').first()).not.toHaveAttribute('src', /mode=preview/);
 });
 
+test('embedded excalidraw maximize then edit clears the stale modal overlay', async ({ page }) => {
+  test.slow();
+
+  await openSampleFull(page);
+  await expect.poll(async () => (
+    page.locator('#previewContent .excalidraw-embed-btn[aria-label="Edit in Excalidraw"]').count()
+  ), { timeout: 60000 }).toBeGreaterThan(0);
+
+  await page.locator('#previewContent .excalidraw-embed-btn[aria-label="Maximize diagram"]').first().click();
+  await expect(page.locator(`${ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR} .excalidraw-embed-btn[aria-label="Restore diagram size"]`).first()).toBeVisible();
+
+  await page.locator(`${ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR} .excalidraw-embed-btn[aria-label="Edit in Excalidraw"]`).first().click();
+
+  await expect(page).toHaveURL(/#file=sample-excalidraw\.excalidraw/);
+  await expect(page.locator('body')).not.toHaveClass(/excalidraw-maximized-open/);
+  await expect(page.locator(ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR)).toHaveCount(0);
+  await expect(page.locator('#previewContent .excalidraw-embed iframe').first()).toHaveAttribute('src', /file=sample-excalidraw\.excalidraw/);
+  await expect(page.locator('#previewContent .excalidraw-embed iframe').first()).not.toHaveAttribute('src', /mode=preview/);
+});
+
 test('sample-full renders embedded PlantUML files', async ({ page }) => {
   await openSampleFull(page);
 
