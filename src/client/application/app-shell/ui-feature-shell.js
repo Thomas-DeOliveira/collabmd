@@ -314,6 +314,16 @@ function bindEvents() {
   document.addEventListener('keydown', (event) => {
     this.handleDocumentKeydown(event);
   });
+
+  // Ctrl+K / Cmd+K must be captured before CodeMirror (which intercepts it in
+  // the bubble phase for its own "deleteToLineEnd" command).
+  document.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+      event.preventDefault();
+      event.stopPropagation();
+      void this.toggleQuickSwitcher();
+    }
+  }, { capture: true });
 }
 
 /** @this {UiShellContext} */
@@ -351,11 +361,8 @@ function handleDocumentKeydown(event) {
     return;
   }
 
-  if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
-    event.preventDefault();
-    void this.toggleQuickSwitcher();
-  }
 }
+
 
 function isNestedTaskListClickTarget(target, taskItem) {
   const nestedList = target.closest('ul, ol');
