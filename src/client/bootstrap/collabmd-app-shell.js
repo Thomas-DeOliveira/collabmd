@@ -213,6 +213,7 @@ export class CollabMdAppShell {
     this.preferences = new BrowserPreferencesPort({
       chatNotificationsKey: 'collabmd-chat-notifications-enabled',
       lineWrappingKey: 'collabmd-editor-line-wrap',
+      preferredViewKey: 'collabmd-preferred-view',
       sidebarVisibleKey: 'collabmd-sidebar-visible',
       userNameKey: 'collabmd-user-name',
     });
@@ -370,7 +371,9 @@ export class CollabMdAppShell {
     this.layoutController = new LayoutController({
       mobileBreakpointQuery: this.mobileBreakpointQuery,
       onMeasureEditor: () => this.session?.requestMeasure(),
+      onPersistView: (view) => this.preferences.setPreferredView(view),
       onViewRequest: (view) => this.handleLayoutViewRequest(view),
+      readPersistedView: () => this.preferences.getPreferredView(),
     });
     this.scrollSyncController = new ScrollSyncController({
       getEditorLineNumber: () => this.session?.getTopVisibleLineNumber(0.35) ?? 1,
