@@ -789,6 +789,7 @@ export class CollabMdAppShell {
       this.quickSwitcher = new QuickSwitcherController({
         getFileList: () => this.fileExplorer.flatFiles,
         onFileSelect: (filePath) => this.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
+        searchContent: (query) => this.vaultApiClient.searchContent(query),
       });
     }
 
