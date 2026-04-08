@@ -242,6 +242,7 @@ export class CollabMdAppShell {
     this.mobileBreakpointQuery = window.matchMedia('(max-width: 768px)');
     this.pendingWorkspaceRequestIds = new Set();
     this._fileOpenPerf = null;
+    this.toolbarOverflowOpen = false;
     this.versionMonitor = new AppVersionMonitor({
       currentBuildId: this.runtimeConfig.build?.id,
       onUpdateAvailable: (payload) => this.promptForVersionReload(payload),
